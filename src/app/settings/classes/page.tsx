@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
-import { School, Plus, ArrowRight, Loader2, X } from 'lucide-react';
+import { School, Plus, ArrowRight, Loader2, X, Pencil, Save } from 'lucide-react';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
 import { createClient } from '@/lib/supabase/client';
@@ -14,9 +14,21 @@ export default function ClassesPage() {
   const [classes, setClasses] = useState<ClassRoom[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [showAdd, setShowAdd] = useState(false);
+  const [editing, setEditing] = useState<ClassRoom | null>(null);
   const [loading, setLoading] = useState(true);
 
   const canAdd = profile && ['owner', 'church_manager', 'service_manager'].includes(profile.role);
+
+  // Edit per level: owner → all, church manager → his church's classes,
+  // service manager → his service's classes, class servant → his own class
+  const canEditClass = (c: ClassRoom) => {
+    if (!profile) return false;
+    if (profile.role === 'owner') return true;
+    if (profile.role === 'church_manager') return c.church_id === profile.church_id;
+    if (profile.role === 'service_manager') return c.service_id === profile.service_id;
+    if (profile.role === 'class_servant') return c.id === profile.class_id;
+    return false;
+  };
 
   const load = useCallback(async () => {
     const [{ data: cl }, { data: sv }] = await Promise.all([
@@ -68,10 +80,21 @@ export default function ClassesPage() {
       ) : (
         <ul className="space-y-3">
           {classes.map((c) => (
-            <li key={c.id} className="card">
-              <p className="font-extrabold">{c.name}</p>
-              <p className="text-xs text-slate-400 mt-0.5">{serviceName(c.service_id)}</p>
-              {c.description && <p className="text-xs text-slate-500 mt-1">{c.description}</p>}
+            <li key={c.id} className="card flex items-start gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="font-extrabold">{c.name}</p>
+                <p className="text-xs text-slate-400 mt-0.5">{serviceName(c.service_id)}</p>
+                {c.description && <p className="text-xs text-slate-500 mt-1">{c.description}</p>}
+              </div>
+              {canEditClass(c) && (
+                <button
+                  onClick={() => setEditing(c)}
+                  aria-label={`تعديل ${c.name}`}
+                  className="shrink-0 rounded-xl bg-sky-50 p-2 text-sky-600 hover:bg-sky-100 transition"
+                >
+                  <Pencil className="h-4 w-4" />
+                </button>
+              )}
             </li>
           ))}
           {classes.length === 0 && (
@@ -88,7 +111,83 @@ export default function ClassesPage() {
           onSaved={() => { setShowAdd(false); load(); }}
         />
       )}
+      {editing && (
+        <EditClassModal
+          cls={editing}
+          services={services}
+          canMoveService={profile ? ['owner', 'church_manager'].includes(profile.role) : false}
+          onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); load(); }}
+        />
+      )}
     </AppShell>
+  );
+}
+
+function EditClassModal({
+  cls, services, canMoveService, onClose, onSaved,
+}: {
+  cls: ClassRoom; services: Service[]; canMoveService: boolean; onClose: () => void; onSaved: () => void;
+}) {
+  const supabase = createClient();
+  const [name, setName] = useState(cls.name);
+  const [description, setDescription] = useState(cls.description ?? '');
+  const [serviceId, setServiceId] = useState(cls.service_id);
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    const svc = services.find((s) => s.id === serviceId);
+    if (!svc) return setError('اختر الخدمة');
+    setSaving(true);
+    const { error: err } = await supabase
+      .from('classes')
+      .update({
+        church_id: svc.church_id,
+        service_id: svc.id,
+        name: name.trim(),
+        description: description.trim() || null,
+      })
+      .eq('id', cls.id);
+    if (err) {
+      setError('تعذر الحفظ، تأكد من الصلاحيات');
+      setSaving(false);
+      return;
+    }
+    onSaved();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-6">
+      <div className="w-full max-w-md rounded-t-3xl sm:rounded-3xl bg-white p-5">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-lg font-extrabold">تعديل الفصل</h3>
+          <button onClick={onClose} aria-label="إغلاق" className="rounded-full p-1.5 hover:bg-slate-100">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <form onSubmit={submit} className="space-y-3">
+          {canMoveService && (
+            <select className="input-field" value={serviceId} onChange={(e) => setServiceId(e.target.value)} required>
+              {services.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+          )}
+          <input className="input-field" placeholder="اسم الفصل *" value={name}
+            onChange={(e) => setName(e.target.value)} required />
+          <textarea className="input-field" placeholder="وصف الفصل" rows={2} value={description}
+            onChange={(e) => setDescription(e.target.value)} />
+          {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm font-bold text-red-600">{error}</p>}
+          <button type="submit" disabled={saving} className="btn-primary w-full flex items-center justify-center gap-2">
+            {saving ? <Loader2 className="h-5 w-5 animate-spin" /> : <Save className="h-5 w-5" />}
+            حفظ التعديلات
+          </button>
+        </form>
+      </div>
+    </div>
   );
 }
 
