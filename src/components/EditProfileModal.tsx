@@ -1,9 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { X, Save, User, Phone } from 'lucide-react';
+import { X, Save, User, Phone, Upload } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { createClient } from '@/lib/supabase/client';
+import { uploadPhoto } from '@/lib/upload';
 
 export default function EditProfileModal({ onClose }: { onClose: () => void }) {
   const { profile, refresh } = useAuth();
@@ -11,6 +12,7 @@ export default function EditProfileModal({ onClose }: { onClose: () => void }) {
 
   const [fullName, setFullName] = useState(profile?.full_name ?? '');
   const [phone, setPhone] = useState(profile?.phone ?? '');
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -19,9 +21,20 @@ export default function EditProfileModal({ onClose }: { onClose: () => void }) {
     if (!fullName.trim()) return setError('الاسم مطلوب');
     setBusy(true);
     setError('');
+
+    let photo_url = profile.photo_url ?? null;
+    if (photoFile) {
+      try {
+        photo_url = await uploadPhoto(supabase, 'servants', photoFile);
+      } catch {
+        setBusy(false);
+        return setError('تعذر رفع الصورة');
+      }
+    }
+
     const { error: err } = await supabase
       .from('profiles')
-      .update({ full_name: fullName.trim(), phone: phone.trim() })
+      .update({ full_name: fullName.trim(), phone: phone.trim(), photo_url })
       .eq('id', profile.id);
     setBusy(false);
     if (err) return setError('تعذر حفظ التعديلات، حاول مجدداً');
@@ -70,6 +83,13 @@ export default function EditProfileModal({ onClose }: { onClose: () => void }) {
               dir="ltr"
             />
           </div>
+
+          <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-dashed border-primary-300 bg-primary-50/50 px-4 py-3 text-sm font-bold text-primary-600">
+            <Upload className="h-4 w-4" />
+            {photoFile ? photoFile.name : profile?.photo_url ? 'تغيير صورتي الشخصية' : 'إضافة صورتي الشخصية (اختياري)'}
+            <input type="file" accept="image/*" className="hidden"
+              onChange={(e) => setPhotoFile(e.target.files?.[0] ?? null)} />
+          </label>
 
           {error && (
             <p className="rounded-xl bg-red-50 px-3 py-2 text-sm font-bold text-red-600">{error}</p>

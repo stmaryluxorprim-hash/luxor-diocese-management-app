@@ -1,10 +1,11 @@
 'use client';
 
 import { useState } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import {
   Settings, UserCheck, Church, Layers, School, LogOut, ChevronLeft, User, Phone, ShieldCheck,
-  QrCode, Pencil,
+  QrCode, Pencil, Users,
 } from 'lucide-react';
 import AppShell from '@/components/AppShell';
 import EditProfileModal from '@/components/EditProfileModal';
@@ -31,8 +32,12 @@ export default function SettingsPage() {
       {/* Profile card */}
       <section id="profile-card" className="card mb-5">
         <div className="flex items-center gap-3">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary-600 to-accent-600 text-white">
-            <User className="h-7 w-7" />
+          <div className="relative flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-primary-600 to-accent-600 text-white">
+            {profile?.photo_url ? (
+              <Image src={profile.photo_url} alt={profile.full_name} fill sizes="56px" className="object-cover" />
+            ) : (
+              <User className="h-7 w-7" />
+            )}
           </div>
           <div className="min-w-0">
             <p className="font-extrabold truncate">{profile?.full_name}</p>
@@ -74,7 +79,13 @@ export default function SettingsPage() {
               label="طلبات انضمام الخدام"
               desc="قبول أو رفض طلبات التسجيل"
             />
-            {isOwner && (
+            <SettingsLink
+              href="/settings/servants"
+              icon={<Users className="h-5 w-5 text-emerald-600" />}
+              label="إدارة الخدام"
+              desc="تعديل وإيقاف وحذف الخدام حسب نطاقك"
+            />
+            {(isOwner || profile?.role === 'church_manager') && (
               <SettingsLink
                 href="/settings/churches"
                 icon={<Church className="h-5 w-5 text-gold-500" />}
