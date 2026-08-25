@@ -141,9 +141,9 @@ function ApprovalCard({
 
   const approve = async () => {
     setError('');
+    // church is required except for owner-level assignments;
+    // empty service/class = "كل الـ..." under the parent scope (null in DB)
     if (!churchId) return setError('اختر الكنيسة');
-    if (needService && !serviceId) return setError('اختر الخدمة');
-    if (needClass && !classId) return setError('اختر الفصل');
 
     setBusy(true);
     const { error: err } = await supabase
@@ -152,8 +152,8 @@ function ApprovalCard({
         status: 'approved',
         role,
         church_id: churchId,
-        service_id: needService ? serviceId : null,
-        class_id: needClass ? classId : null,
+        service_id: needService ? (serviceId || null) : null,
+        class_id: needClass ? (classId || null) : null,
         approved_by: approver.id,
         approved_at: new Date().toISOString(),
       })
@@ -215,7 +215,7 @@ function ApprovalCard({
             onChange={(e) => { setServiceId(e.target.value); setClassId(''); }}
             disabled={approver.role === 'service_manager'}
           >
-            <option value="">اختر الخدمة</option>
+            <option value="">كل الخدمات (بدون تحديد)</option>
             {scopedServices.map((s) => (
               <option key={s.id} value={s.id}>{s.name}</option>
             ))}
@@ -224,7 +224,7 @@ function ApprovalCard({
 
         {needClass && (
           <select className="input-field" value={classId} onChange={(e) => setClassId(e.target.value)}>
-            <option value="">اختر الفصل</option>
+            <option value="">كل الفصول (بدون تحديد)</option>
             {scopedClasses.map((c) => (
               <option key={c.id} value={c.id}>{c.name}</option>
             ))}
