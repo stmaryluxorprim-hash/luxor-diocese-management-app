@@ -118,7 +118,7 @@ export default function InvitePage() {
             className={selectCls(!canPickChurch)}
             aria-disabled={!canPickChurch}
           >
-            <option value="">— بدون تحديد —</option>
+            <option value="">كل الكنائس (بدون تحديد)</option>
             {churches.map((c) => (
               <option key={c.id} value={c.id}>{c.name}</option>
             ))}
@@ -136,7 +136,7 @@ export default function InvitePage() {
             className={selectCls(!canPickService)}
             aria-disabled={!canPickService}
           >
-            <option value="">— بدون تحديد —</option>
+            <option value="">كل الخدمات (بدون تحديد)</option>
             {filteredServices.map((s) => (
               <option key={s.id} value={s.id}>{s.name}</option>
             ))}
@@ -151,7 +151,7 @@ export default function InvitePage() {
             className={selectCls(!canPickClass)}
             aria-disabled={!canPickClass}
           >
-            <option value="">— بدون تحديد —</option>
+            <option value="">كل الفصول (بدون تحديد)</option>
             {filteredClasses.map((c) => (
               <option key={c.id} value={c.id}>{c.name}</option>
             ))}
