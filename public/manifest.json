@@ -1,15 +1,21 @@
 {
-  "name": "إدارة الإيبارشية",
+  "name": "مطرانية الأقباط الأرثوذكس — إيبارشية الأقصر وتوابعها",
   "short_name": "الإيبارشية",
-  "description": "تطبيق إدارة كنائس وخدمات الإيبارشية",
+  "description": "تطبيق إدارة كنائس وخدمات إيبارشية الأقصر وتوابعها",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait",
   "dir": "rtl",
   "lang": "ar",
-  "background_color": "#ffffff",
-  "theme_color": "#4f46e5",
+  "background_color": "#fdf8ee",
+  "theme_color": "#1e3a8a",
   "icons": [
+    {
+      "src": "/icons/icon-96.png",
+      "sizes": "96x96",
+      "type": "image/png",
+      "purpose": "any"
+    },
     {
       "src": "/icons/icon-192.png",
       "sizes": "192x192",

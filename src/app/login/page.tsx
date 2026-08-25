@@ -3,7 +3,8 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Church, LogIn, Loader2, User, Lock } from 'lucide-react';
+import Image from 'next/image';
+import { LogIn, Loader2, User, Lock } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { userIdToEmail } from '@/lib/types';
 
@@ -38,10 +39,17 @@ export default function LoginPage() {
     <main className="flex min-h-screen flex-col items-center justify-center px-6">
       <section id="login-card" className="w-full max-w-sm">
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-3xl bg-gradient-to-br from-primary-600 to-accent-600 shadow-lg">
-            <Church className="h-10 w-10 text-gold-300" />
+          <div className="mx-auto mb-4 h-28 w-28 overflow-hidden rounded-3xl shadow-lg ring-2 ring-gold-300/50">
+            <Image
+              src="/icons/icon-192.png"
+              alt="شعار الإيبارشية"
+              width={112}
+              height={112}
+              priority
+              className="h-full w-full object-cover"
+            />
           </div>
-          <h1 className="text-2xl font-extrabold">إدارة الإيبارشية</h1>
+          <h1 className="text-2xl font-extrabold">إيبارشية الأقصر وتوابعها</h1>
           <p className="text-sm text-slate-500 mt-1">سجّل دخولك للمتابعة</p>
         </div>
 

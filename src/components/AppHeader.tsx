@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { Church as ChurchIcon, Bell } from 'lucide-react';
+import { Bell } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { ROLE_LABELS } from '@/lib/types';
 
@@ -15,24 +15,20 @@ export default function AppHeader() {
     >
       <div className="flex items-center gap-3 px-4 py-3 max-w-3xl mx-auto">
         {/* Church logo (uploaded picture) */}
-        <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-full bg-white/20 ring-2 ring-white/50 flex items-center justify-center">
-          {church?.logo_url ? (
-            <Image
-              src={church.logo_url}
-              alt={church.name}
-              fill
-              sizes="48px"
-              className="object-cover"
-            />
-          ) : (
-            <ChurchIcon className="h-6 w-6 text-gold-300" />
-          )}
+        <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-full bg-white ring-2 ring-gold-300/70">
+          <Image
+            src={church?.logo_url ?? '/icons/icon-96.png'}
+            alt={church?.name ?? 'شعار الإيبارشية'}
+            fill
+            sizes="48px"
+            className="object-cover"
+          />
         </div>
 
         {/* Church name + service name below it */}
         <div className="flex-1 min-w-0">
           <h1 className="text-base font-extrabold truncate leading-tight">
-            {church?.name ?? 'الإيبارشية'}
+            {church?.name ?? 'إيبارشية الأقصر وتوابعها'}
           </h1>
           <p className="text-xs text-indigo-100 truncate">
             {service?.name ?? (profile ? ROLE_LABELS[profile.role] : '')}

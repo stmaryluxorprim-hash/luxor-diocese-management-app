@@ -1,7 +1,13 @@
 // Service Worker — Diocese Management PWA
 // Network-first for pages/API (realtime app), cache-first for static assets.
-const CACHE_NAME = 'diocese-v1';
-const STATIC_ASSETS = ['/manifest.json', '/icons/icon-192.png', '/icons/icon-512.png'];
+const CACHE_NAME = 'diocese-v2';
+const STATIC_ASSETS = [
+  '/manifest.json',
+  '/icons/icon-96.png',
+  '/icons/icon-192.png',
+  '/icons/icon-512.png',
+  '/icons/apple-touch-icon.png',
+];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(

@@ -3,7 +3,8 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Church, UserPlus, Loader2 } from 'lucide-react';
+import Image from 'next/image';
+import { UserPlus, Loader2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { userIdToEmail } from '@/lib/types';
 
@@ -86,8 +87,15 @@ export default function SignupPage() {
     <main className="flex min-h-screen flex-col items-center justify-center px-6 py-10">
       <section id="signup-card" className="w-full max-w-sm">
         <div className="mb-6 text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-3xl bg-gradient-to-br from-accent-600 to-primary-600 shadow-lg">
-            <Church className="h-8 w-8 text-gold-300" />
+          <div className="mx-auto mb-4 h-24 w-24 overflow-hidden rounded-3xl shadow-lg ring-2 ring-gold-300/50">
+            <Image
+              src="/icons/icon-192.png"
+              alt="شعار الإيبارشية"
+              width={96}
+              height={96}
+              priority
+              className="h-full w-full object-cover"
+            />
           </div>
           <h1 className="text-2xl font-extrabold">تسجيل خادم جديد</h1>
           <p className="text-sm text-slate-500 mt-1">
