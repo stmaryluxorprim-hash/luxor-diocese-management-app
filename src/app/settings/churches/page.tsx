@@ -16,7 +16,13 @@ export default function ChurchesPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<Church | null>(null);
   const [loading, setLoading] = useState(true);
-  const canEdit = profile?.role === 'owner';
+  // Edit per level: owner → all churches, church manager → his own church (matches RLS)
+  const canEditChurch = (c: Church) => {
+    if (!profile) return false;
+    if (profile.role === 'owner') return true;
+    if (profile.role === 'church_manager') return c.id === profile.church_id;
+    return false;
+  };
 
   const load = useCallback(async () => {
     const { data } = await supabase.from('churches').select('*').order('name');
@@ -74,7 +80,7 @@ export default function ChurchesPage() {
                 <p className="font-extrabold truncate">{c.name}</p>
                 {c.address && <p className="text-xs text-slate-400 truncate">{c.address}</p>}
               </div>
-              {canEdit && (
+              {canEditChurch(c) && (
                 <button
                   onClick={() => setEditing(c)}
                   aria-label={`تعديل ${c.name}`}
