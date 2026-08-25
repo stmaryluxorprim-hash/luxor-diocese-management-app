@@ -33,7 +33,7 @@ export default function PendingApproval() {
       <div className="card w-full max-w-sm mb-6 text-right">
         <p className="text-sm">
           <span className="text-slate-400">الاسم: </span>
-          <span className="font-bold">{profile?.full_name}</span>
+          <span className="font-bold">{profile?.full_name ?? '...'}</span>
         </p>
         <p className="text-sm mt-1">
           <span className="text-slate-400">المعرف: </span>
