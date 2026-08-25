@@ -1,7 +1,7 @@
 // ---------- Domain types (mirror of Supabase schema) ----------
 
 export type AppRole = 'owner' | 'church_manager' | 'service_manager' | 'class_servant';
-export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
+export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'suspended';
 
 export interface Church {
   id: string;
@@ -17,6 +17,7 @@ export interface Service {
   church_id: string;
   name: string;
   description: string | null;
+  photo_url: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -27,6 +28,7 @@ export interface ClassRoom {
   service_id: string;
   name: string;
   description: string | null;
+  photo_url: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -41,6 +43,7 @@ export interface Profile {
   church_id: string | null;
   service_id: string | null;
   class_id: string | null;
+  photo_url: string | null;
   approved_by: string | null;
   approved_at: string | null;
   created_at: string;
@@ -88,7 +91,11 @@ export const STATUS_LABELS: Record<ApprovalStatus, string> = {
   pending: 'قيد المراجعة',
   approved: 'مقبول',
   rejected: 'مرفوض',
+  suspended: 'موقوف',
 };
+
+// Upload a photo to the public 'photos' bucket and return its public URL
+export const PHOTOS_BUCKET = 'photos';
 
 // user_id -> synthetic email used for Supabase auth
 export const userIdToEmail = (userId: string) =>
