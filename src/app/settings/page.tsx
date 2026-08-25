@@ -1,15 +1,19 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import {
   Settings, UserCheck, Church, Layers, School, LogOut, ChevronLeft, User, Phone, ShieldCheck,
+  QrCode, Pencil,
 } from 'lucide-react';
 import AppShell from '@/components/AppShell';
+import EditProfileModal from '@/components/EditProfileModal';
 import { useAuth } from '@/lib/auth-context';
 import { ROLE_LABELS } from '@/lib/types';
 
 export default function SettingsPage() {
   const { profile, signOut } = useAuth();
+  const [editProfile, setEditProfile] = useState(false);
 
   const isOwner = profile?.role === 'owner';
   const isManager =
@@ -42,6 +46,14 @@ export default function SettingsPage() {
               </span>
             </p>
           </div>
+          <button
+            id="edit-profile-btn"
+            onClick={() => setEditProfile(true)}
+            className="mr-auto rounded-xl bg-primary-50 p-2.5 text-primary-600 hover:bg-primary-100 transition"
+            aria-label="تعديل بياناتي"
+          >
+            <Pencil className="h-4 w-4" />
+          </button>
         </div>
       </section>
 
@@ -50,6 +62,12 @@ export default function SettingsPage() {
         <section id="management-links" className="mb-5">
           <h3 className="mb-2 text-sm font-extrabold text-slate-500">الإدارة</h3>
           <div className="card !p-0 divide-y divide-indigo-50 overflow-hidden">
+            <SettingsLink
+              href="/settings/invite"
+              icon={<QrCode className="h-5 w-5 text-primary-600" />}
+              label="دعوة خادم جديد"
+              desc="رابط و QR للتسجيل بنطاقك"
+            />
             <SettingsLink
               href="/settings/approvals"
               icon={<UserCheck className="h-5 w-5 text-emerald-600" />}
@@ -90,8 +108,10 @@ export default function SettingsPage() {
       </button>
 
       <p className="mt-6 text-center text-xs text-slate-400">
-        إدارة الإيبارشية — الإصدار 0.1.0
+        إدارة الإيبارشية — الإصدار 0.2.0
       </p>
+
+      {editProfile && <EditProfileModal onClose={() => setEditProfile(false)} />}
     </AppShell>
   );
 }

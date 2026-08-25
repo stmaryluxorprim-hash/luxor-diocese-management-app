@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { Church as ChurchIcon, Plus, ArrowRight, Loader2, Upload, X } from 'lucide-react';
+import { Church as ChurchIcon, Plus, ArrowRight, Loader2, Upload, X, Pencil, Save } from 'lucide-react';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
 import { createClient } from '@/lib/supabase/client';
@@ -14,7 +14,15 @@ export default function ChurchesPage() {
   const supabase = createClient();
   const [churches, setChurches] = useState<Church[]>([]);
   const [showAdd, setShowAdd] = useState(false);
+  const [editing, setEditing] = useState<Church | null>(null);
   const [loading, setLoading] = useState(true);
+  // Edit per level: owner → all churches, church manager → his own church (matches RLS)
+  const canEditChurch = (c: Church) => {
+    if (!profile) return false;
+    if (profile.role === 'owner') return true;
+    if (profile.role === 'church_manager') return c.id === profile.church_id;
+    return false;
+  };
 
   const load = useCallback(async () => {
     const { data } = await supabase.from('churches').select('*').order('name');
@@ -68,10 +76,19 @@ export default function ChurchesPage() {
                   <ChurchIcon className="h-6 w-6 text-primary-400" />
                 )}
               </div>
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <p className="font-extrabold truncate">{c.name}</p>
                 {c.address && <p className="text-xs text-slate-400 truncate">{c.address}</p>}
               </div>
+              {canEditChurch(c) && (
+                <button
+                  onClick={() => setEditing(c)}
+                  aria-label={`تعديل ${c.name}`}
+                  className="shrink-0 rounded-xl bg-primary-50 p-2 text-primary-600 hover:bg-primary-100 transition"
+                >
+                  <Pencil className="h-4 w-4" />
+                </button>
+              )}
             </li>
           ))}
           {churches.length === 0 && (
@@ -81,7 +98,76 @@ export default function ChurchesPage() {
       )}
 
       {showAdd && <AddChurchModal onClose={() => setShowAdd(false)} onSaved={() => { setShowAdd(false); load(); }} />}
+      {editing && <EditChurchModal church={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
     </AppShell>
+  );
+}
+
+function EditChurchModal({ church, onClose, onSaved }: { church: Church; onClose: () => void; onSaved: () => void }) {
+  const supabase = createClient();
+  const [name, setName] = useState(church.name);
+  const [address, setAddress] = useState(church.address ?? '');
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setSaving(true);
+
+    let logo_url = church.logo_url;
+    if (logoFile) {
+      const path = `${Date.now()}-${logoFile.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+      const { error: upErr } = await supabase.storage.from('church-logos').upload(path, logoFile);
+      if (upErr) {
+        setError('تعذر رفع الشعار');
+        setSaving(false);
+        return;
+      }
+      logo_url = supabase.storage.from('church-logos').getPublicUrl(path).data.publicUrl;
+    }
+
+    const { error: err } = await supabase
+      .from('churches')
+      .update({ name: name.trim(), address: address.trim() || null, logo_url })
+      .eq('id', church.id);
+    if (err) {
+      setError('تعذر الحفظ — هذه العملية متاحة لمالك التطبيق فقط');
+      setSaving(false);
+      return;
+    }
+    onSaved();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-6">
+      <div className="w-full max-w-md rounded-t-3xl sm:rounded-3xl bg-white p-5">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-lg font-extrabold">تعديل الكنيسة</h3>
+          <button onClick={onClose} aria-label="إغلاق" className="rounded-full p-1.5 hover:bg-slate-100">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <form onSubmit={submit} className="space-y-3">
+          <input className="input-field" placeholder="اسم الكنيسة *" value={name}
+            onChange={(e) => setName(e.target.value)} required />
+          <input className="input-field" placeholder="العنوان" value={address}
+            onChange={(e) => setAddress(e.target.value)} />
+          <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-dashed border-primary-300 bg-primary-50/50 px-4 py-3 text-sm font-bold text-primary-600">
+            <Upload className="h-4 w-4" />
+            {logoFile ? logoFile.name : 'تغيير شعار الكنيسة (اختياري)'}
+            <input type="file" accept="image/*" className="hidden"
+              onChange={(e) => setLogoFile(e.target.files?.[0] ?? null)} />
+          </label>
+          {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm font-bold text-red-600">{error}</p>}
+          <button type="submit" disabled={saving} className="btn-primary w-full flex items-center justify-center gap-2">
+            {saving ? <Loader2 className="h-5 w-5 animate-spin" /> : <Save className="h-5 w-5" />}
+            حفظ التعديلات
+          </button>
+        </form>
+      </div>
+    </div>
   );
 }
 

@@ -12,7 +12,7 @@ import { Loader2 } from 'lucide-react';
  * Blocks unapproved accounts behind the PendingApproval screen (realtime-updated).
  */
 export default function AppShell({ children }: { children: ReactNode }) {
-  const { profile, loading } = useAuth();
+  const { user, profile, loading } = useAuth();
 
   if (loading) {
     return (
@@ -22,7 +22,10 @@ export default function AppShell({ children }: { children: ReactNode }) {
     );
   }
 
-  if (profile && profile.status !== 'approved') {
+  // BUG FIX: gate ANY authenticated user without an APPROVED profile.
+  // Previously `profile && status !== 'approved'` let the app open right
+  // after signup (profile still null until refresh).
+  if (user && (!profile || profile.status !== 'approved')) {
     return <PendingApproval />;
   }
 

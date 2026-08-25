@@ -121,9 +121,9 @@ function ApprovalCard({
 
   // Assignment scope defaults follow the approver's own scope
   const [role, setRole] = useState<AppRole>('class_servant');
-  const [churchId, setChurchId] = useState(approver.church_id ?? '');
-  const [serviceId, setServiceId] = useState(approver.service_id ?? '');
-  const [classId, setClassId] = useState('');
+  const [churchId, setChurchId] = useState(request.church_id ?? approver.church_id ?? '');
+  const [serviceId, setServiceId] = useState(request.service_id ?? approver.service_id ?? '');
+  const [classId, setClassId] = useState(request.class_id ?? '');
 
   // Roles the approver is allowed to grant
   const grantableRoles: AppRole[] =
@@ -180,6 +180,13 @@ function ApprovalCard({
             <Phone className="h-3 w-3" /> {request.phone}
           </span>
         </p>
+        {(request.church_id || request.service_id || request.class_id) && (
+          <p className="mt-1.5 text-xs font-bold text-primary-600 bg-primary-50 rounded-lg px-2 py-1 inline-block">
+            طلب الانضمام إلى: {churches.find((c) => c.id === request.church_id)?.name ?? '—'}
+            {request.service_id ? ` ← ${services.find((s) => s.id === request.service_id)?.name ?? ''}` : ''}
+            {request.class_id ? ` ← ${classes.find((c) => c.id === request.class_id)?.name ?? ''}` : ''}
+          </p>
+        )}
       </div>
 
       <div className="space-y-2 mb-3">
