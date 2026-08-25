@@ -44,7 +44,10 @@ Church (كنيسة)
 - ✅ المخدومين: realtime list, search, add child (auto class scoping for servants)
 - ✅ الماسح: QR camera scan (native BarcodeDetector) + manual attendance; +1 point per attendance; duplicate-day protection
 - ✅ الإحصائيات: totals, last-7-days chart, points leaderboard
-- ✅ الإعدادات: profile, approvals, churches (with logo upload to Supabase Storage), services, classes management
+- ✅ الإعدادات: profile (self-edit + photo), approvals, churches (with logo upload), services & classes (photos, church→service cascade), servants management
+- ✅ دعوة خادم جديد: scoped invite link + QR per manager level (`/settings/invite`)
+- ✅ إدارة الخدام: edit / suspend / delete scoped per level (`/settings/servants`), servant photos
+- ✅ Null scope = "كل الـ...": manager with empty service/class scope covers everything under his parent scope (migration 0006)
 
 ## Functional Entry Points
 | Path | Description |
@@ -55,10 +58,13 @@ Church (كنيسة)
 | `/scanner` | الماسح — QR + manual attendance |
 | `/stats` | الإحصائيات |
 | `/settings` | الإعدادات hub |
-| `/settings/approvals` | approve/reject servant requests |
-| `/settings/churches` | owner: manage churches + logos |
-| `/settings/services` | manage services |
-| `/settings/classes` | manage classes |
+| `/settings/approvals` | approve/reject servant requests (scope defaults from request) |
+| `/settings/invite` | invite link + QR scoped to manager level |
+| `/settings/servants` | manage servants: edit/suspend/delete per level |
+| `/settings/churches` | owner + church manager: manage churches + logos |
+| `/settings/services` | manage services (photo, church select) |
+| `/settings/classes` | manage classes (photo, church→service cascade) |
+| `/signup?church=..&service=..&class=..` | invite-scoped signup (locked pre-fill) |
 
 ## Data Models & Storage
 - **Tables**: `churches`, `services`, `classes`, `profiles`, `children`, `attendance` — all with RLS + realtime
@@ -70,7 +76,8 @@ Church (كنيسة)
 
 ### 1. Supabase
 1. Create a project at supabase.com
-2. SQL Editor → run `supabase/migrations/0001_schema.sql`
+2. SQL Editor → run migrations in order: `0001_schema.sql`, `0002_bootstrap_owner.sql` (after step 5), `0003_signup_scope.sql`, `0004_class_servant_edit.sql`, `0005_photos_and_servants.sql`, `0006_null_scope_means_all.sql`
+   ⚠️ In `0005` the `alter type ... add value 'suspended'` must run in its own query before the rest of the file
 3. **Authentication → Providers → Email**: disable "Confirm email"
 4. Authentication → Users → Add user: `owner@diocese.app` + password
 5. Copy that user's UUID into `supabase/migrations/0002_bootstrap_owner.sql` and run it
