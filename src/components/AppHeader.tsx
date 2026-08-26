@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Image from 'next/image';
-import { Bell, Menu } from 'lucide-react';
+import { Menu } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { ROLE_LABELS } from '@/lib/types';
 import SideMenu from '@/components/SideMenu';
@@ -18,16 +18,6 @@ export default function AppHeader() {
         className="sticky top-0 z-40 bg-gradient-to-l from-primary-700 via-primary-600 to-accent-600 text-white shadow-lg"
       >
         <div className="flex items-center gap-3 px-4 py-3 max-w-3xl mx-auto">
-          {/* Side menu button */}
-          <button
-            id="side-menu-btn"
-            aria-label="فتح القائمة"
-            onClick={() => setMenuOpen(true)}
-            className="rounded-full p-2 hover:bg-white/15 transition -mr-2"
-          >
-            <Menu className="h-6 w-6" />
-          </button>
-
           {/* Church logo (uploaded picture) */}
           <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-full bg-white ring-2 ring-gold-300/70">
             <Image
@@ -49,12 +39,14 @@ export default function AppHeader() {
             </p>
           </div>
 
+          {/* Side menu button (replaces the bell, at the end of the header) */}
           <button
-            id="notifications-btn"
-            aria-label="الإشعارات"
-            className="rounded-full p-2 hover:bg-white/15 transition"
+            id="side-menu-btn"
+            aria-label="فتح القائمة"
+            onClick={() => setMenuOpen(true)}
+            className="rounded-full p-2 hover:bg-white/15 transition -ml-2"
           >
-            <Bell className="h-5 w-5" />
+            <Menu className="h-6 w-6" />
           </button>
         </div>
       </header>
