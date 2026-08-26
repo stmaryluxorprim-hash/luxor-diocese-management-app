@@ -3,20 +3,36 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   Users, Search, Plus, Phone, MapPin, Star, CalendarCheck, X, Loader2, StickyNote,
+  SlidersHorizontal, ChevronDown, Briefcase, School,
 } from 'lucide-react';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
 import { createClient } from '@/lib/supabase/client';
 import type { Child, ClassRoom } from '@/lib/types';
 
+const ALL = 'all';
+
 export default function ChildrenPage() {
   const { profile } = useAuth();
   const supabase = createClient();
   const [children, setChildren] = useState<Child[]>([]);
   const [classes, setClasses] = useState<ClassRoom[]>([]);
-  const [search, setSearch] = useState('');
   const [showAdd, setShowAdd] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  // ---------- Selectors & filters ----------
+  const [classFilter, setClassFilter] = useState<string>(ALL);
+  const [jobFilter, setJobFilter] = useState<string>(ALL);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [addressFilter, setAddressFilter] = useState('');
+  const [minPoints, setMinPoints] = useState('');
+  const [minAttendance, setMinAttendance] = useState('');
+
+  // ---------- Expandable class groups ----------
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+  const toggleGroup = (id: string) =>
+    setOpenGroups((g) => ({ ...g, [id]: !g[id] }));
 
   const load = useCallback(async () => {
     const [{ data: kids }, { data: cls }] = await Promise.all([
@@ -44,17 +60,57 @@ export default function ChildrenPage() {
     };
   }, [profile, supabase, load]);
 
+  // Distinct jobs present in the data (for the job selector)
+  const jobs = useMemo(() => {
+    const set = new Set<string>();
+    children.forEach((c) => {
+      if (c.job?.trim()) set.add(c.job.trim());
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'ar'));
+  }, [children]);
+
+  // ---------- Apply selectors + accordion filters ----------
   const filtered = useMemo(
     () =>
-      children.filter(
-        (c) =>
-          c.name.includes(search) ||
-          (c.phone ?? '').includes(search)
-      ),
-    [children, search]
+      children.filter((c) => {
+        if (classFilter !== ALL && c.class_id !== classFilter) return false;
+        if (jobFilter !== ALL && (c.job?.trim() ?? '') !== jobFilter) return false;
+        if (search && !(c.name.includes(search) || (c.phone ?? '').includes(search)))
+          return false;
+        if (addressFilter && !(c.address ?? '').includes(addressFilter)) return false;
+        if (minPoints && c.points < Number(minPoints)) return false;
+        if (minAttendance && c.attendance_count < Number(minAttendance)) return false;
+        return true;
+      }),
+    [children, classFilter, jobFilter, search, addressFilter, minPoints, minAttendance]
   );
 
-  const classNameOf = (id: string) => classes.find((c) => c.id === id)?.name ?? '';
+  // ---------- Group by class (sorted by class name) ----------
+  const groups = useMemo(() => {
+    const byClass = new Map<string, Child[]>();
+    filtered.forEach((c) => {
+      const arr = byClass.get(c.class_id) ?? [];
+      arr.push(c);
+      byClass.set(c.class_id, arr);
+    });
+    return Array.from(byClass.entries())
+      .map(([classId, kids]) => ({
+        classId,
+        className: classes.find((c) => c.id === classId)?.name ?? 'فصل غير معروف',
+        kids,
+      }))
+      .sort((a, b) => a.className.localeCompare(b.className, 'ar'));
+  }, [filtered, classes]);
+
+  const activeFilterCount =
+    (search ? 1 : 0) + (addressFilter ? 1 : 0) + (minPoints ? 1 : 0) + (minAttendance ? 1 : 0);
+
+  const resetFilters = () => {
+    setSearch('');
+    setAddressFilter('');
+    setMinPoints('');
+    setMinAttendance('');
+  };
 
   return (
     <AppShell>
@@ -62,7 +118,7 @@ export default function ChildrenPage() {
         <h2 className="flex items-center gap-2 text-lg font-extrabold">
           <Users className="h-5 w-5 text-primary-600" />
           المخدومين
-          <span className="badge bg-primary-100 text-primary-700">{children.length}</span>
+          <span className="badge bg-primary-100 text-primary-700">{filtered.length}</span>
         </h2>
         <button id="add-child-btn" onClick={() => setShowAdd(true)} className="btn-primary !py-2 !px-3 flex items-center gap-1 text-sm">
           <Plus className="h-4 w-4" />
@@ -70,65 +126,204 @@ export default function ChildrenPage() {
         </button>
       </section>
 
-      <div className="relative mb-4">
-        <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-        <input
-          id="search-input"
-          className="input-field pr-9"
-          placeholder="ابحث بالاسم أو الهاتف..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+      {/* ---------- Selectors ---------- */}
+      <div className="mb-3 grid grid-cols-2 gap-2">
+        {/* Class selector (with all option) */}
+        <div className="relative">
+          <School className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+          <select
+            id="class-selector"
+            aria-label="اختيار الفصل"
+            className="input-field appearance-none pr-9 text-sm font-bold"
+            value={classFilter}
+            onChange={(e) => setClassFilter(e.target.value)}
+          >
+            <option value={ALL}>كل الفصول</option>
+            {classes.map((c) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Job selector (with all option) */}
+        <div className="relative">
+          <Briefcase className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+          <select
+            id="job-selector"
+            aria-label="اختيار الوظيفة"
+            className="input-field appearance-none pr-9 text-sm font-bold"
+            value={jobFilter}
+            onChange={(e) => setJobFilter(e.target.value)}
+          >
+            <option value={ALL}>كل الوظائف</option>
+            {jobs.map((j) => (
+              <option key={j} value={j}>{j}</option>
+            ))}
+          </select>
+        </div>
       </div>
 
+      {/* ---------- Filter accordion ---------- */}
+      <div id="filters-accordion" className="card !p-0 mb-4 overflow-hidden">
+        <button
+          id="filters-toggle"
+          onClick={() => setFiltersOpen((o) => !o)}
+          className="flex w-full items-center justify-between px-4 py-3 text-sm font-extrabold text-slate-700"
+        >
+          <span className="flex items-center gap-2">
+            <SlidersHorizontal className="h-4 w-4 text-primary-600" />
+            الفلاتر
+            {activeFilterCount > 0 && (
+              <span className="badge bg-primary-100 text-primary-700">{activeFilterCount}</span>
+            )}
+          </span>
+          <ChevronDown
+            className={`h-4 w-4 text-slate-400 transition-transform duration-200 ${filtersOpen ? 'rotate-180' : ''}`}
+          />
+        </button>
+
+        {filtersOpen && (
+          <div id="filters-body" className="space-y-3 border-t border-indigo-100 px-4 py-3">
+            <div className="relative">
+              <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <input
+                id="search-input"
+                className="input-field pr-9"
+                placeholder="ابحث بالاسم أو الهاتف..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+            <div className="relative">
+              <MapPin className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <input
+                id="address-filter"
+                className="input-field pr-9"
+                placeholder="فلترة بالعنوان..."
+                value={addressFilter}
+                onChange={(e) => setAddressFilter(e.target.value)}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-500">أقل نقاط</label>
+                <input
+                  id="min-points"
+                  type="number"
+                  min={0}
+                  className="input-field"
+                  placeholder="0"
+                  value={minPoints}
+                  onChange={(e) => setMinPoints(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-500">أقل حضور</label>
+                <input
+                  id="min-attendance"
+                  type="number"
+                  min={0}
+                  className="input-field"
+                  placeholder="0"
+                  value={minAttendance}
+                  onChange={(e) => setMinAttendance(e.target.value)}
+                />
+              </div>
+            </div>
+            {activeFilterCount > 0 && (
+              <button
+                id="reset-filters"
+                onClick={resetFilters}
+                className="flex items-center gap-1 text-xs font-bold text-red-500 hover:text-red-600"
+              >
+                <X className="h-3.5 w-3.5" />
+                مسح الفلاتر
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ---------- Grouped-by-class expandable view ---------- */}
       {loading ? (
         <div className="flex justify-center py-16">
           <Loader2 className="h-8 w-8 animate-spin text-primary-500" />
         </div>
-      ) : filtered.length === 0 ? (
+      ) : groups.length === 0 ? (
         <div className="card py-12 text-center text-slate-400">
           <Users className="mx-auto mb-3 h-10 w-10" />
-          <p className="font-bold">لا يوجد مخدومين بعد</p>
-          <p className="text-sm mt-1">اضغط &quot;إضافة&quot; لتسجيل أول مخدوم</p>
+          <p className="font-bold">لا يوجد مخدومين</p>
+          <p className="text-sm mt-1">جرّب تغيير الفلاتر أو اضغط &quot;إضافة&quot; لتسجيل مخدوم</p>
         </div>
       ) : (
-        <ul id="children-list" className="space-y-3">
-          {filtered.map((child) => (
-            <li key={child.id} className="card">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="font-extrabold truncate">{child.name}</p>
-                  <p className="text-xs text-slate-400 mt-0.5">{classNameOf(child.class_id)}</p>
-                </div>
-                <div className="flex shrink-0 gap-2">
-                  <span className="badge bg-gold-100 text-gold-600">
-                    <Star className="h-3 w-3" /> {child.points}
+        <div id="children-groups" className="space-y-3">
+          {groups.map(({ classId, className, kids }) => {
+            const open = openGroups[classId] ?? false;
+            return (
+              <div key={classId} className="card !p-0 overflow-hidden">
+                {/* Class group header (expandable) */}
+                <button
+                  id={`group-${classId}`}
+                  onClick={() => toggleGroup(classId)}
+                  className="flex w-full items-center justify-between px-4 py-3"
+                >
+                  <span className="flex items-center gap-2 text-sm font-extrabold text-slate-700">
+                    <School className="h-4 w-4 text-primary-600" />
+                    {className}
+                    <span className="badge bg-primary-100 text-primary-700">{kids.length}</span>
                   </span>
-                  <span className="badge bg-emerald-100 text-emerald-700">
-                    <CalendarCheck className="h-3 w-3" /> {child.attendance_count}
-                  </span>
-                </div>
+                  <ChevronDown
+                    className={`h-4 w-4 text-slate-400 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+                  />
+                </button>
+
+                {open && (
+                  <ul className="divide-y divide-indigo-50 border-t border-indigo-100">
+                    {kids.map((child) => (
+                      <li key={child.id} className="px-4 py-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="font-extrabold truncate">{child.name}</p>
+                            {child.job && (
+                              <p className="mt-0.5 flex items-center gap-1 text-xs text-slate-400">
+                                <Briefcase className="h-3 w-3" /> {child.job}
+                              </p>
+                            )}
+                          </div>
+                          <div className="flex shrink-0 gap-2">
+                            <span className="badge bg-gold-100 text-gold-600">
+                              <Star className="h-3 w-3" /> {child.points}
+                            </span>
+                            <span className="badge bg-emerald-100 text-emerald-700">
+                              <CalendarCheck className="h-3 w-3" /> {child.attendance_count}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+                          {child.phone && (
+                            <span className="flex items-center gap-1" dir="ltr">
+                              <Phone className="h-3 w-3" /> {child.phone}
+                            </span>
+                          )}
+                          {child.address && (
+                            <span className="flex items-center gap-1">
+                              <MapPin className="h-3 w-3" /> {child.address}
+                            </span>
+                          )}
+                          {child.notes && (
+                            <span className="flex items-center gap-1">
+                              <StickyNote className="h-3 w-3" /> {child.notes}
+                            </span>
+                          )}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
-              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
-                {child.phone && (
-                  <span className="flex items-center gap-1" dir="ltr">
-                    <Phone className="h-3 w-3" /> {child.phone}
-                  </span>
-                )}
-                {child.address && (
-                  <span className="flex items-center gap-1">
-                    <MapPin className="h-3 w-3" /> {child.address}
-                  </span>
-                )}
-                {child.notes && (
-                  <span className="flex items-center gap-1">
-                    <StickyNote className="h-3 w-3" /> {child.notes}
-                  </span>
-                )}
-              </div>
-            </li>
-          ))}
-        </ul>
+            );
+          })}
+        </div>
       )}
 
       {showAdd && (
@@ -153,7 +348,7 @@ function AddChildModal({
   const { profile } = useAuth();
   const supabase = createClient();
   const [form, setForm] = useState({
-    name: '', phone: '', birthdate: '', address: '', notes: '', class_id: '',
+    name: '', phone: '', birthdate: '', address: '', notes: '', class_id: '', job: '',
   });
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -180,6 +375,7 @@ function AddChildModal({
       birthdate: form.birthdate || null,
       address: form.address.trim() || null,
       notes: form.notes.trim() || null,
+      job: form.job.trim() || null,
       created_by: profile?.id,
     });
     if (err) {
@@ -213,6 +409,9 @@ function AddChildModal({
               ))}
             </select>
           )}
+
+          <input className="input-field" placeholder="الوظيفة" value={form.job}
+            onChange={(e) => setForm((f) => ({ ...f, job: e.target.value }))} />
 
           <input className="input-field" placeholder="رقم الهاتف" dir="ltr" value={form.phone}
             onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
