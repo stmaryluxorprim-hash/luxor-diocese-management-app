@@ -11,7 +11,6 @@ import {
   BarChart3,
   Settings,
   LogOut,
-  X,
   Layers,
   type LucideIcon,
 } from 'lucide-react';
@@ -83,17 +82,8 @@ export default function SideMenu({ open, onClose }: SideMenuProps) {
         }`}
       >
         {/* ---------- Header: user data ---------- */}
-        <div className="relative bg-gradient-to-l from-primary-700 via-primary-600 to-accent-600 px-4 pb-5 pt-4 text-white">
-          <button
-            id="side-menu-close"
-            onClick={onClose}
-            aria-label="إغلاق القائمة"
-            className="absolute left-3 top-3 rounded-full p-1.5 transition hover:bg-white/15"
-          >
-            <X className="h-5 w-5" />
-          </button>
-
-          <div className="mt-4 flex items-center gap-3">
+        <div className="bg-gradient-to-l from-primary-700 via-primary-600 to-accent-600 px-4 py-5 text-white">
+          <div className="flex items-center gap-3">
             <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-full bg-white ring-2 ring-gold-300/70">
               <Image
                 src={profile?.photo_url ?? '/icons/icon-96.png'}
@@ -110,11 +100,6 @@ export default function SideMenu({ open, onClose }: SideMenuProps) {
               <p className="truncate text-xs text-indigo-100">
                 {profile ? ROLE_LABELS[profile.role] : ''}
               </p>
-              {profile?.phone && (
-                <p className="truncate text-[11px] text-indigo-200" dir="ltr">
-                  {profile.phone}
-                </p>
-              )}
             </div>
           </div>
         </div>
