@@ -60,6 +60,7 @@ export interface Child {
   birthdate: string | null;
   address: string | null;
   notes: string | null;
+  job: string | null;
   attendance_count: number;
   points: number;
   qr_code: string | null;
