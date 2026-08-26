@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   Users, Search, Plus, Phone, MapPin, Star, CalendarCheck, X, Loader2, StickyNote,
-  SlidersHorizontal, ChevronDown, School, Check, Minus, MessageCircle,
+  SlidersHorizontal, ChevronDown, School, Check, Minus,
   MessageSquare, Send, Inbox,
 } from 'lucide-react';
 import AppShell from '@/components/AppShell';
@@ -13,6 +13,10 @@ import { JOBS, DEFAULT_ATTENDANCE_POINTS, type Job, type Child, type ClassRoom }
 
 const ALL = 'all';
 
+type AttendanceMode = 'add' | 'remove';
+type PointsMode = 'add' | 'subtract';
+type MessageChannel = 'whatsapp' | 'sms' | 'internal';
+
 export default function ChildrenPage() {
   const { profile } = useAuth();
   const supabase = createClient();
@@ -21,14 +25,21 @@ export default function ChildrenPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // ---------- Selectors ----------
+  // ---------- Search (first row) ----------
+  const [search, setSearch] = useState('');
+
+  // ---------- Class selector (dropdown list) ----------
   const [classFilter, setClassFilter] = useState<string>(ALL);
-  const [job, setJob] = useState<Job>('attendance'); // default: attendance, no "all"
+
+  // ---------- Job selector + activated modes ----------
+  const [job, setJob] = useState<Job>('attendance');
   const [points, setPoints] = useState<number>(DEFAULT_ATTENDANCE_POINTS);
+  const [attendanceMode, setAttendanceMode] = useState<AttendanceMode>('add');
+  const [pointsMode, setPointsMode] = useState<PointsMode>('add');
+  const [messageChannel, setMessageChannel] = useState<MessageChannel>('whatsapp');
 
   // ---------- Filter accordion ----------
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [search, setSearch] = useState('');
   const [addressFilter, setAddressFilter] = useState('');
   const [minPoints, setMinPoints] = useState('');
   const [minAttendance, setMinAttendance] = useState('');
@@ -38,9 +49,7 @@ export default function ChildrenPage() {
   const toggleGroup = (id: string) =>
     setOpenGroups((g) => ({ ...g, [id]: !g[id] }));
 
-  // ---------- Action feedback ----------
   const [busyChild, setBusyChild] = useState<string | null>(null);
-  const [messageChild, setMessageChild] = useState<Child | null>(null);
 
   const load = useCallback(async () => {
     const [{ data: kids }, { data: cls }] = await Promise.all([
@@ -68,37 +77,49 @@ export default function ChildrenPage() {
     };
   }, [profile, supabase, load]);
 
-  // ---------- Job actions ----------
   const safePoints = Math.max(0, Math.floor(Number(points) || 0));
 
-  const registerAttendance = async (child: Child, action: 'add' | 'remove') => {
-    setBusyChild(child.id);
-    await supabase.from('attendance_log').insert({
-      child_id: child.id,
-      church_id: child.church_id,
-      service_id: child.service_id,
-      class_id: child.class_id,
-      action,
-      points_delta: safePoints,
-      recorded_by: profile?.id,
-    });
-    setBusyChild(null);
-    load();
-  };
-
-  const changePoints = async (child: Child, sign: 1 | -1) => {
-    if (safePoints === 0) return;
-    setBusyChild(child.id);
-    await supabase.from('points_log').insert({
-      child_id: child.id,
-      church_id: child.church_id,
-      service_id: child.service_id,
-      class_id: child.class_id,
-      delta: sign * safePoints,
-      recorded_by: profile?.id,
-    });
-    setBusyChild(null);
-    load();
+  // ---------- Per-child job action (single button) ----------
+  const doJob = async (child: Child) => {
+    if (job === 'attendance') {
+      setBusyChild(child.id);
+      await supabase.from('attendance_log').insert({
+        child_id: child.id,
+        church_id: child.church_id,
+        service_id: child.service_id,
+        class_id: child.class_id,
+        action: attendanceMode,
+        points_delta: safePoints,
+        recorded_by: profile?.id,
+      });
+      setBusyChild(null);
+      load();
+    } else if (job === 'points') {
+      if (safePoints === 0) return;
+      setBusyChild(child.id);
+      await supabase.from('points_log').insert({
+        child_id: child.id,
+        church_id: child.church_id,
+        service_id: child.service_id,
+        class_id: child.class_id,
+        delta: (pointsMode === 'add' ? 1 : -1) * safePoints,
+        recorded_by: profile?.id,
+      });
+      setBusyChild(null);
+      load();
+    } else if (job === 'call') {
+      if (child.phone) window.location.href = `tel:${child.phone}`;
+    } else if (job === 'message') {
+      if (!child.phone) return;
+      const digits = child.phone.replace(/\D/g, '');
+      const waNumber = digits.startsWith('0') ? `2${digits}` : digits;
+      if (messageChannel === 'whatsapp') {
+        window.open(`https://wa.me/${waNumber}`, '_blank', 'noopener,noreferrer');
+      } else if (messageChannel === 'sms') {
+        window.location.href = `sms:${child.phone}`;
+      }
+      // internal: coming soon — button is disabled
+    }
   };
 
   // ---------- Filters ----------
@@ -134,16 +155,81 @@ export default function ChildrenPage() {
   }, [filtered, classes]);
 
   const activeFilterCount =
-    (search ? 1 : 0) + (addressFilter ? 1 : 0) + (minPoints ? 1 : 0) + (minAttendance ? 1 : 0);
+    (addressFilter ? 1 : 0) + (minPoints ? 1 : 0) + (minAttendance ? 1 : 0);
 
   const resetFilters = () => {
-    setSearch('');
     setAddressFilter('');
     setMinPoints('');
     setMinAttendance('');
   };
 
-  const showPointsInput = job === 'attendance' || job === 'points';
+  // ---------- Per-child button appearance by job + activated mode ----------
+  const childButton = (child: Child) => {
+    if (busyChild === child.id) {
+      return <Loader2 className="h-6 w-6 animate-spin text-primary-500" />;
+    }
+    if (job === 'attendance') {
+      const add = attendanceMode === 'add';
+      return (
+        <button
+          id={`job-btn-${child.id}`}
+          aria-label={add ? 'تسجيل حضور' : 'إزالة حضور'}
+          onClick={() => doJob(child)}
+          className={`flex h-10 w-10 items-center justify-center rounded-full text-white shadow transition active:scale-95 ${
+            add ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-red-500 hover:bg-red-600'
+          }`}
+        >
+          {add ? <Check className="h-5 w-5" /> : <X className="h-5 w-5" />}
+        </button>
+      );
+    }
+    if (job === 'points') {
+      const add = pointsMode === 'add';
+      return (
+        <button
+          id={`job-btn-${child.id}`}
+          aria-label={add ? 'إضافة نقاط' : 'خصم نقاط'}
+          onClick={() => doJob(child)}
+          className={`flex h-10 w-10 items-center justify-center rounded-full text-white shadow transition active:scale-95 ${
+            add ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-red-500 hover:bg-red-600'
+          }`}
+        >
+          {add ? <Plus className="h-5 w-5" /> : <Minus className="h-5 w-5" />}
+        </button>
+      );
+    }
+    if (job === 'call') {
+      return (
+        <button
+          id={`job-btn-${child.id}`}
+          aria-label="اتصال"
+          onClick={() => doJob(child)}
+          disabled={!child.phone}
+          className="flex h-10 w-10 items-center justify-center rounded-full bg-primary-600 text-white shadow transition hover:bg-primary-700 active:scale-95 disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
+        >
+          <Phone className="h-5 w-5" />
+        </button>
+      );
+    }
+    // message
+    return (
+      <button
+        id={`job-btn-${child.id}`}
+        aria-label="إرسال رسالة"
+        onClick={() => doJob(child)}
+        disabled={!child.phone || messageChannel === 'internal'}
+        className="flex h-10 w-10 items-center justify-center rounded-full bg-primary-600 text-white shadow transition hover:bg-primary-700 active:scale-95 disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
+      >
+        {messageChannel === 'whatsapp' ? (
+          <Send className="h-5 w-5" />
+        ) : messageChannel === 'sms' ? (
+          <MessageSquare className="h-5 w-5" />
+        ) : (
+          <Inbox className="h-5 w-5" />
+        )}
+      </button>
+    );
+  };
 
   return (
     <AppShell>
@@ -159,41 +245,42 @@ export default function ChildrenPage() {
         </button>
       </section>
 
-      {/* ---------- Class selector: horizontal row of chips ---------- */}
-      <div id="class-selector" className="mb-3 flex gap-2 overflow-x-auto no-scrollbar pb-1">
-        <button
-          id="class-chip-all"
-          onClick={() => setClassFilter(ALL)}
-          className={`shrink-0 rounded-full px-4 py-1.5 text-xs font-extrabold transition ${
-            classFilter === ALL
-              ? 'bg-primary-600 text-white shadow'
-              : 'bg-white text-slate-500 border border-indigo-100'
-          }`}
-        >
-          كل الفصول
-        </button>
-        {classes.map((c) => (
-          <button
-            key={c.id}
-            id={`class-chip-${c.id}`}
-            onClick={() => setClassFilter(c.id)}
-            className={`shrink-0 rounded-full px-4 py-1.5 text-xs font-extrabold transition ${
-              classFilter === c.id
-                ? 'bg-primary-600 text-white shadow'
-                : 'bg-white text-slate-500 border border-indigo-100'
-            }`}
-          >
-            {c.name}
-          </button>
-        ))}
+      {/* ---------- Row 1: Search ---------- */}
+      <div className="relative mb-3">
+        <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+        <input
+          id="search-input"
+          className="input-field pr-9"
+          placeholder="ابحث بالاسم أو الهاتف..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
       </div>
 
-      {/* ---------- Job selector (default: attendance, no all) + points number ---------- */}
+      {/* ---------- Row 2: Class selector (dropdown list) ---------- */}
+      <div className="relative mb-3">
+        <School className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+        <select
+          id="class-selector"
+          aria-label="اختيار الفصل"
+          className="input-field appearance-none pr-9 text-sm font-bold"
+          value={classFilter}
+          onChange={(e) => setClassFilter(e.target.value)}
+        >
+          <option value={ALL}>كل الفصول</option>
+          {classes.map((c) => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </select>
+        <ChevronDown className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+      </div>
+
+      {/* ---------- Row 3: Job selector + activated mode controls ---------- */}
       <div className="mb-3 flex items-center gap-2">
         <select
           id="job-selector"
           aria-label="اختيار الوظيفة"
-          className="input-field flex-1 appearance-none text-sm font-bold"
+          className="input-field !w-auto flex-1 appearance-none text-sm font-bold"
           value={job}
           onChange={(e) => setJob(e.target.value as Job)}
         >
@@ -202,21 +289,140 @@ export default function ChildrenPage() {
           ))}
         </select>
 
-        {showPointsInput && (
-          <div className="flex items-center gap-1.5">
-            <Star className="h-4 w-4 text-gold-500" />
+        {/* Attendance: register / remove mode buttons + points */}
+        {job === 'attendance' && (
+          <>
+            <button
+              id="att-mode-add"
+              aria-label="وضع تسجيل الحضور"
+              aria-pressed={attendanceMode === 'add'}
+              onClick={() => setAttendanceMode('add')}
+              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition active:scale-95 ${
+                attendanceMode === 'add'
+                  ? 'bg-emerald-500 text-white shadow ring-2 ring-emerald-300'
+                  : 'bg-emerald-50 text-emerald-500'
+              }`}
+            >
+              <Check className="h-5 w-5" />
+            </button>
+            <button
+              id="att-mode-remove"
+              aria-label="وضع إزالة الحضور"
+              aria-pressed={attendanceMode === 'remove'}
+              onClick={() => setAttendanceMode('remove')}
+              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition active:scale-95 ${
+                attendanceMode === 'remove'
+                  ? 'bg-red-500 text-white shadow ring-2 ring-red-300'
+                  : 'bg-red-50 text-red-500'
+              }`}
+            >
+              <X className="h-5 w-5" />
+            </button>
             <input
               id="points-input"
               type="number"
               min={0}
               aria-label="عدد النقاط"
-              className="input-field !w-20 text-center font-extrabold"
+              className="input-field !w-16 shrink-0 text-center font-extrabold"
               value={points}
               onChange={(e) => setPoints(Number(e.target.value))}
             />
-          </div>
+          </>
+        )}
+
+        {/* Points: add / subtract mode buttons + points */}
+        {job === 'points' && (
+          <>
+            <button
+              id="pts-mode-add"
+              aria-label="وضع إضافة النقاط"
+              aria-pressed={pointsMode === 'add'}
+              onClick={() => setPointsMode('add')}
+              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition active:scale-95 ${
+                pointsMode === 'add'
+                  ? 'bg-emerald-500 text-white shadow ring-2 ring-emerald-300'
+                  : 'bg-emerald-50 text-emerald-500'
+              }`}
+            >
+              <Plus className="h-5 w-5" />
+            </button>
+            <button
+              id="pts-mode-subtract"
+              aria-label="وضع خصم النقاط"
+              aria-pressed={pointsMode === 'subtract'}
+              onClick={() => setPointsMode('subtract')}
+              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition active:scale-95 ${
+                pointsMode === 'subtract'
+                  ? 'bg-red-500 text-white shadow ring-2 ring-red-300'
+                  : 'bg-red-50 text-red-500'
+              }`}
+            >
+              <Minus className="h-5 w-5" />
+            </button>
+            <input
+              id="points-input"
+              type="number"
+              min={0}
+              aria-label="عدد النقاط"
+              className="input-field !w-16 shrink-0 text-center font-extrabold"
+              value={points}
+              onChange={(e) => setPoints(Number(e.target.value))}
+            />
+          </>
+        )}
+
+        {/* Message: whatsapp / sms / internal channel buttons */}
+        {job === 'message' && (
+          <>
+            <button
+              id="msg-mode-whatsapp"
+              aria-label="واتساب"
+              aria-pressed={messageChannel === 'whatsapp'}
+              onClick={() => setMessageChannel('whatsapp')}
+              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition active:scale-95 ${
+                messageChannel === 'whatsapp'
+                  ? 'bg-emerald-500 text-white shadow ring-2 ring-emerald-300'
+                  : 'bg-emerald-50 text-emerald-500'
+              }`}
+            >
+              <Send className="h-5 w-5" />
+            </button>
+            <button
+              id="msg-mode-sms"
+              aria-label="رسالة SMS"
+              aria-pressed={messageChannel === 'sms'}
+              onClick={() => setMessageChannel('sms')}
+              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition active:scale-95 ${
+                messageChannel === 'sms'
+                  ? 'bg-primary-600 text-white shadow ring-2 ring-primary-300'
+                  : 'bg-primary-50 text-primary-500'
+              }`}
+            >
+              <MessageSquare className="h-5 w-5" />
+            </button>
+            <button
+              id="msg-mode-internal"
+              aria-label="رسالة داخلية — قريبًا"
+              aria-pressed={messageChannel === 'internal'}
+              onClick={() => setMessageChannel('internal')}
+              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition active:scale-95 ${
+                messageChannel === 'internal'
+                  ? 'bg-slate-500 text-white shadow ring-2 ring-slate-300'
+                  : 'bg-slate-100 text-slate-400'
+              }`}
+            >
+              <Inbox className="h-5 w-5" />
+            </button>
+          </>
         )}
       </div>
+
+      {/* Internal messaging notice */}
+      {job === 'message' && messageChannel === 'internal' && (
+        <p className="mb-3 rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-600">
+          الرسائل الداخلية قريبًا
+        </p>
+      )}
 
       {/* ---------- Filter accordion ---------- */}
       <div id="filters-accordion" className="card !p-0 mb-4 overflow-hidden">
@@ -239,16 +445,6 @@ export default function ChildrenPage() {
 
         {filtersOpen && (
           <div id="filters-body" className="space-y-3 border-t border-indigo-100 px-4 py-3">
-            <div className="relative">
-              <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-              <input
-                id="search-input"
-                className="input-field pr-9"
-                placeholder="ابحث بالاسم أو الهاتف..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-            </div>
             <div className="relative">
               <MapPin className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
               <input
@@ -349,83 +545,25 @@ export default function ChildrenPage() {
                             </div>
                           </div>
 
-                          {/* Job action area (changes by selected job) */}
-                          <div className="flex shrink-0 items-center gap-2">
-                            {busyChild === child.id ? (
-                              <Loader2 className="h-6 w-6 animate-spin text-primary-500" />
-                            ) : job === 'attendance' ? (
-                              <>
-                                <button
-                                  id={`att-add-${child.id}`}
-                                  aria-label="تسجيل حضور"
-                                  onClick={() => registerAttendance(child, 'add')}
-                                  className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500 text-white shadow transition hover:bg-emerald-600 active:scale-95"
-                                >
-                                  <Check className="h-5 w-5" />
-                                </button>
-                                <button
-                                  id={`att-remove-${child.id}`}
-                                  aria-label="إزالة حضور"
-                                  onClick={() => registerAttendance(child, 'remove')}
-                                  className="flex h-10 w-10 items-center justify-center rounded-full bg-red-500 text-white shadow transition hover:bg-red-600 active:scale-95"
-                                >
-                                  <X className="h-5 w-5" />
-                                </button>
-                              </>
-                            ) : job === 'points' ? (
-                              <>
-                                <button
-                                  id={`pts-add-${child.id}`}
-                                  aria-label="إضافة نقاط"
-                                  onClick={() => changePoints(child, 1)}
-                                  className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500 text-white shadow transition hover:bg-emerald-600 active:scale-95"
-                                >
-                                  <Plus className="h-5 w-5" />
-                                </button>
-                                <button
-                                  id={`pts-sub-${child.id}`}
-                                  aria-label="خصم نقاط"
-                                  onClick={() => changePoints(child, -1)}
-                                  className="flex h-10 w-10 items-center justify-center rounded-full bg-red-500 text-white shadow transition hover:bg-red-600 active:scale-95"
-                                >
-                                  <Minus className="h-5 w-5" />
-                                </button>
-                              </>
-                            ) : job === 'message' ? (
-                              <button
-                                id={`msg-${child.id}`}
-                                aria-label="إرسال رسالة"
-                                onClick={() => setMessageChild(child)}
-                                className="flex h-10 w-10 items-center justify-center rounded-full bg-primary-600 text-white shadow transition hover:bg-primary-700 active:scale-95"
-                              >
-                                <MessageCircle className="h-5 w-5" />
-                              </button>
-                            ) : null /* call: no buttons */}
-                          </div>
+                          {/* Single job button */}
+                          <div className="shrink-0">{childButton(child)}</div>
                         </div>
 
-                        {/* Contact info */}
-                        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
-                          {child.phone && (
-                            <a
-                              href={`tel:${child.phone}`}
-                              className={`flex items-center gap-1 ${job === 'call' ? 'font-extrabold text-primary-600' : ''}`}
-                              dir="ltr"
-                            >
-                              <Phone className="h-3 w-3" /> {child.phone}
-                            </a>
-                          )}
-                          {child.address && (
-                            <span className="flex items-center gap-1">
-                              <MapPin className="h-3 w-3" /> {child.address}
-                            </span>
-                          )}
-                          {child.notes && (
-                            <span className="flex items-center gap-1">
-                              <StickyNote className="h-3 w-3" /> {child.notes}
-                            </span>
-                          )}
-                        </div>
+                        {/* Extra info (no phone number) */}
+                        {(child.address || child.notes) && (
+                          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+                            {child.address && (
+                              <span className="flex items-center gap-1">
+                                <MapPin className="h-3 w-3" /> {child.address}
+                              </span>
+                            )}
+                            {child.notes && (
+                              <span className="flex items-center gap-1">
+                                <StickyNote className="h-3 w-3" /> {child.notes}
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </li>
                     ))}
                   </ul>
@@ -446,75 +584,7 @@ export default function ChildrenPage() {
           }}
         />
       )}
-
-      {messageChild && (
-        <MessageSheet child={messageChild} onClose={() => setMessageChild(null)} />
-      )}
     </AppShell>
-  );
-}
-
-// ---------- Message channel chooser (SMS / WhatsApp / internal) ----------
-function MessageSheet({ child, onClose }: { child: Child; onClose: () => void }) {
-  const phoneDigits = (child.phone ?? '').replace(/\D/g, '');
-  // Egypt numbers: 01xxxxxxxxx -> 201xxxxxxxxx for wa.me
-  const waNumber = phoneDigits.startsWith('0') ? `2${phoneDigits}` : phoneDigits;
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/40"
-      onClick={onClose}
-    >
-      <div
-        id="message-sheet"
-        className="w-full max-w-md rounded-t-3xl bg-white p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))]"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-base font-extrabold">مراسلة {child.name}</h3>
-          <button onClick={onClose} aria-label="إغلاق" className="rounded-full p-1.5 hover:bg-slate-100">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        {!child.phone ? (
-          <p className="rounded-xl bg-amber-50 px-3 py-3 text-sm font-bold text-amber-600">
-            لا يوجد رقم هاتف لهذا المخدوم
-          </p>
-        ) : (
-          <div className="space-y-2">
-            <a
-              id="msg-sms"
-              href={`sms:${child.phone}`}
-              onClick={onClose}
-              className="flex items-center gap-3 rounded-xl bg-slate-50 px-4 py-3 text-sm font-extrabold text-slate-700 transition hover:bg-slate-100"
-            >
-              <MessageSquare className="h-5 w-5 text-primary-600" />
-              رسالة SMS
-            </a>
-            <a
-              id="msg-whatsapp"
-              href={`https://wa.me/${waNumber}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={onClose}
-              className="flex items-center gap-3 rounded-xl bg-emerald-50 px-4 py-3 text-sm font-extrabold text-emerald-700 transition hover:bg-emerald-100"
-            >
-              <Send className="h-5 w-5 text-emerald-600" />
-              واتساب
-            </a>
-            <button
-              id="msg-internal"
-              disabled
-              className="flex w-full cursor-not-allowed items-center gap-3 rounded-xl bg-slate-50 px-4 py-3 text-sm font-extrabold text-slate-400"
-            >
-              <Inbox className="h-5 w-5" />
-              رسالة داخلية — قريبًا
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
   );
 }
 
