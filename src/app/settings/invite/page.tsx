@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import QRCode from 'qrcode';
 import { ArrowRight, Copy, Check, Share2, QrCode as QrIcon, Link2 } from 'lucide-react';
+import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
 import { createClient } from '@/lib/supabase/client';
 import type { Church, Service, ClassRoom } from '@/lib/types';
@@ -89,18 +90,18 @@ export default function InvitePage() {
     `input-field ${locked ? 'bg-primary-50 text-primary-800 pointer-events-none opacity-80' : ''}`;
 
   return (
-    <div className="space-y-5 pb-4">
-      <div className="flex items-center gap-3">
-        <Link href="/settings" className="rounded-xl bg-white p-2 shadow-sm border border-gray-100">
-          <ArrowRight className="h-5 w-5 text-gray-600" />
+    <AppShell>
+      <section className="mb-4 flex items-center gap-2">
+        <Link href="/settings" aria-label="رجوع" className="rounded-full p-1.5 hover:bg-slate-100">
+          <ArrowRight className="h-5 w-5" />
         </Link>
-        <h1 className="text-xl font-extrabold text-gray-800 flex items-center gap-2">
-          <QrIcon className="h-6 w-6 text-primary-600" />
+        <h2 className="flex items-center gap-2 text-lg font-extrabold">
+          <QrIcon className="h-5 w-5 text-primary-600" />
           دعوة خادم جديد
-        </h1>
-      </div>
+        </h2>
+      </section>
 
-      <section id="invite-scope" className="card space-y-3">
+      <section id="invite-scope" className="card space-y-3 mb-4">
         <p className="text-sm font-bold text-gray-600">
           نطاق الدعوة — سيتم تحديد هذه الاختيارات مسبقاً للخادم عند التسجيل:
         </p>
@@ -117,7 +118,7 @@ export default function InvitePage() {
             className={selectCls(!canPickChurch)}
             aria-disabled={!canPickChurch}
           >
-            <option value="">— بدون تحديد —</option>
+            <option value="">كل الكنائس (بدون تحديد)</option>
             {churches.map((c) => (
               <option key={c.id} value={c.id}>{c.name}</option>
             ))}
@@ -135,7 +136,7 @@ export default function InvitePage() {
             className={selectCls(!canPickService)}
             aria-disabled={!canPickService}
           >
-            <option value="">— بدون تحديد —</option>
+            <option value="">كل الخدمات (بدون تحديد)</option>
             {filteredServices.map((s) => (
               <option key={s.id} value={s.id}>{s.name}</option>
             ))}
@@ -150,7 +151,7 @@ export default function InvitePage() {
             className={selectCls(!canPickClass)}
             aria-disabled={!canPickClass}
           >
-            <option value="">— بدون تحديد —</option>
+            <option value="">كل الفصول (بدون تحديد)</option>
             {filteredClasses.map((c) => (
               <option key={c.id} value={c.id}>{c.name}</option>
             ))}
@@ -158,7 +159,7 @@ export default function InvitePage() {
         </div>
       </section>
 
-      <section id="invite-qr" className="card flex flex-col items-center gap-4">
+      <section id="invite-qr" className="card flex flex-col items-center gap-4 mb-4">
         {qrDataUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -190,6 +191,6 @@ export default function InvitePage() {
       <p className="px-2 text-center text-xs text-gray-400 leading-relaxed">
         الخادم الذي يفتح هذا الرابط سيجد النطاق المحدد مقفولاً، ويكمل باقي الاختيارات المتاحة فقط.
       </p>
-    </div>
+    </AppShell>
   );
 }

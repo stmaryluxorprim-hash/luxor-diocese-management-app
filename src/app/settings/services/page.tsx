@@ -1,11 +1,13 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
-import { Layers, Plus, ArrowRight, Loader2, X, Pencil, Save } from 'lucide-react';
+import { Layers, Plus, ArrowRight, Loader2, X, Pencil, Save, Upload } from 'lucide-react';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
 import { createClient } from '@/lib/supabase/client';
+import { uploadPhoto } from '@/lib/upload';
 import type { Service, Church } from '@/lib/types';
 
 export default function ServicesPage() {
@@ -80,6 +82,13 @@ export default function ServicesPage() {
         <ul className="space-y-3">
           {services.map((s) => (
             <li key={s.id} className="card flex items-start gap-3">
+              <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-accent-50 ring-2 ring-accent-100 flex items-center justify-center">
+                {s.photo_url ? (
+                  <Image src={s.photo_url} alt={s.name} fill sizes="48px" className="object-cover" />
+                ) : (
+                  <Layers className="h-6 w-6 text-accent-400" />
+                )}
+              </div>
               <div className="min-w-0 flex-1">
                 <p className="font-extrabold">{s.name}</p>
                 <p className="text-xs text-slate-400 mt-0.5">{churchName(s.church_id)}</p>
@@ -103,7 +112,8 @@ export default function ServicesPage() {
       )}
 
       {showAdd && (
-        <AddServiceModal
+        <ServiceModal
+          mode="add"
           churches={churches}
           fixedChurchId={profile?.role === 'church_manager' ? profile.church_id : null}
           onClose={() => setShowAdd(false)}
@@ -111,10 +121,11 @@ export default function ServicesPage() {
         />
       )}
       {editing && (
-        <EditServiceModal
+        <ServiceModal
+          mode="edit"
           service={editing}
           churches={churches}
-          canMoveChurch={profile?.role === 'owner'}
+          fixedChurchId={profile?.role === 'owner' ? null : profile?.church_id ?? null}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); load(); }}
         />
@@ -123,92 +134,54 @@ export default function ServicesPage() {
   );
 }
 
-function EditServiceModal({
-  service, churches, canMoveChurch, onClose, onSaved,
+function ServiceModal({
+  mode, service, churches, fixedChurchId, onClose, onSaved,
 }: {
-  service: Service; churches: Church[]; canMoveChurch: boolean; onClose: () => void; onSaved: () => void;
+  mode: 'add' | 'edit';
+  service?: Service;
+  churches: Church[];
+  fixedChurchId: string | null;
+  onClose: () => void;
+  onSaved: () => void;
 }) {
   const supabase = createClient();
-  const [name, setName] = useState(service.name);
-  const [description, setDescription] = useState(service.description ?? '');
-  const [churchId, setChurchId] = useState(service.church_id);
+  const [name, setName] = useState(service?.name ?? '');
+  const [description, setDescription] = useState(service?.description ?? '');
+  const [churchId, setChurchId] = useState(fixedChurchId ?? service?.church_id ?? '');
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setSaving(true);
-    const { error: err } = await supabase
-      .from('services')
-      .update({
-        name: name.trim(),
-        description: description.trim() || null,
-        church_id: churchId,
-      })
-      .eq('id', service.id);
-    if (err) {
-      setError('تعذر الحفظ، تأكد من الصلاحيات');
-      setSaving(false);
-      return;
-    }
-    onSaved();
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-6">
-      <div className="w-full max-w-md rounded-t-3xl sm:rounded-3xl bg-white p-5">
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-lg font-extrabold">تعديل الخدمة</h3>
-          <button onClick={onClose} aria-label="إغلاق" className="rounded-full p-1.5 hover:bg-slate-100">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-        <form onSubmit={submit} className="space-y-3">
-          {canMoveChurch && (
-            <select className="input-field" value={churchId} onChange={(e) => setChurchId(e.target.value)} required>
-              {churches.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
-          )}
-          <input className="input-field" placeholder="اسم الخدمة *" value={name}
-            onChange={(e) => setName(e.target.value)} required />
-          <textarea className="input-field" placeholder="وصف الخدمة" rows={2} value={description}
-            onChange={(e) => setDescription(e.target.value)} />
-          {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm font-bold text-red-600">{error}</p>}
-          <button type="submit" disabled={saving} className="btn-primary w-full flex items-center justify-center gap-2">
-            {saving ? <Loader2 className="h-5 w-5 animate-spin" /> : <Save className="h-5 w-5" />}
-            حفظ التعديلات
-          </button>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-function AddServiceModal({
-  churches, fixedChurchId, onClose, onSaved,
-}: {
-  churches: Church[]; fixedChurchId: string | null; onClose: () => void; onSaved: () => void;
-}) {
-  const supabase = createClient();
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [churchId, setChurchId] = useState(fixedChurchId ?? '');
-  const [error, setError] = useState('');
-  const [saving, setSaving] = useState(false);
+  const churchLocked = !!fixedChurchId;
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     if (!churchId) return setError('اختر الكنيسة');
     setSaving(true);
-    const { error: err } = await supabase.from('services').insert({
+
+    let photo_url = service?.photo_url ?? null;
+    if (photoFile) {
+      try {
+        photo_url = await uploadPhoto(supabase, 'services', photoFile);
+      } catch {
+        setError('تعذر رفع الصورة');
+        setSaving(false);
+        return;
+      }
+    }
+
+    const payload = {
       church_id: churchId,
       name: name.trim(),
       description: description.trim() || null,
-    });
+      photo_url,
+    };
+
+    const { error: err } = mode === 'add'
+      ? await supabase.from('services').insert(payload)
+      : await supabase.from('services').update(payload).eq('id', service!.id);
+
     if (err) {
       setError('تعذر الحفظ، تأكد من الصلاحيات');
       setSaving(false);
@@ -219,30 +192,42 @@ function AddServiceModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-6">
-      <div className="w-full max-w-md rounded-t-3xl sm:rounded-3xl bg-white p-5">
+      <div className="w-full max-w-md rounded-t-3xl sm:rounded-3xl bg-white p-5 max-h-[90vh] overflow-y-auto">
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-lg font-extrabold">إضافة خدمة</h3>
+          <h3 className="text-lg font-extrabold">{mode === 'add' ? 'إضافة خدمة' : 'تعديل الخدمة'}</h3>
           <button onClick={onClose} aria-label="إغلاق" className="rounded-full p-1.5 hover:bg-slate-100">
             <X className="h-5 w-5" />
           </button>
         </div>
         <form onSubmit={submit} className="space-y-3">
-          {!fixedChurchId && (
-            <select className="input-field" value={churchId} onChange={(e) => setChurchId(e.target.value)} required>
-              <option value="">اختر الكنيسة *</option>
+          <div>
+            <label className="mb-1 block text-xs font-bold text-slate-500">الكنيسة *</label>
+            <select
+              className={`input-field ${churchLocked ? 'bg-primary-50 pointer-events-none opacity-80' : ''}`}
+              value={churchId}
+              onChange={(e) => setChurchId(e.target.value)}
+              required
+            >
+              <option value="">اختر الكنيسة</option>
               {churches.map((c) => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
             </select>
-          )}
+          </div>
           <input className="input-field" placeholder="اسم الخدمة * (مثال: مدارس الأحد)" value={name}
             onChange={(e) => setName(e.target.value)} required />
           <textarea className="input-field" placeholder="وصف الخدمة" rows={2} value={description}
             onChange={(e) => setDescription(e.target.value)} />
+          <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-dashed border-accent-300 bg-accent-50/50 px-4 py-3 text-sm font-bold text-accent-600">
+            <Upload className="h-4 w-4" />
+            {photoFile ? photoFile.name : service?.photo_url ? 'تغيير صورة الخدمة' : 'إضافة صورة الخدمة (اختياري)'}
+            <input type="file" accept="image/*" className="hidden"
+              onChange={(e) => setPhotoFile(e.target.files?.[0] ?? null)} />
+          </label>
           {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm font-bold text-red-600">{error}</p>}
           <button type="submit" disabled={saving} className="btn-primary w-full flex items-center justify-center gap-2">
-            {saving ? <Loader2 className="h-5 w-5 animate-spin" /> : <Plus className="h-5 w-5" />}
-            حفظ الخدمة
+            {saving ? <Loader2 className="h-5 w-5 animate-spin" /> : mode === 'add' ? <Plus className="h-5 w-5" /> : <Save className="h-5 w-5" />}
+            {mode === 'add' ? 'حفظ الخدمة' : 'حفظ التعديلات'}
           </button>
         </form>
       </div>
