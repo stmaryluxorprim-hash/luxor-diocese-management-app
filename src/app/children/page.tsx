@@ -3,12 +3,13 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   Users, Search, Plus, Phone, MapPin, Star, CalendarCheck, X, Loader2, StickyNote,
-  SlidersHorizontal, ChevronDown, Briefcase, School,
+  SlidersHorizontal, ChevronDown, School, Check, Minus, MessageCircle,
+  MessageSquare, Send, Inbox,
 } from 'lucide-react';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
 import { createClient } from '@/lib/supabase/client';
-import type { Child, ClassRoom } from '@/lib/types';
+import { JOBS, DEFAULT_ATTENDANCE_POINTS, type Job, type Child, type ClassRoom } from '@/lib/types';
 
 const ALL = 'all';
 
@@ -20,9 +21,12 @@ export default function ChildrenPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // ---------- Selectors & filters ----------
+  // ---------- Selectors ----------
   const [classFilter, setClassFilter] = useState<string>(ALL);
-  const [jobFilter, setJobFilter] = useState<string>(ALL);
+  const [job, setJob] = useState<Job>('attendance'); // default: attendance, no "all"
+  const [points, setPoints] = useState<number>(DEFAULT_ATTENDANCE_POINTS);
+
+  // ---------- Filter accordion ----------
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [addressFilter, setAddressFilter] = useState('');
@@ -33,6 +37,10 @@ export default function ChildrenPage() {
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   const toggleGroup = (id: string) =>
     setOpenGroups((g) => ({ ...g, [id]: !g[id] }));
+
+  // ---------- Action feedback ----------
+  const [busyChild, setBusyChild] = useState<string | null>(null);
+  const [messageChild, setMessageChild] = useState<Child | null>(null);
 
   const load = useCallback(async () => {
     const [{ data: kids }, { data: cls }] = await Promise.all([
@@ -60,21 +68,44 @@ export default function ChildrenPage() {
     };
   }, [profile, supabase, load]);
 
-  // Distinct jobs present in the data (for the job selector)
-  const jobs = useMemo(() => {
-    const set = new Set<string>();
-    children.forEach((c) => {
-      if (c.job?.trim()) set.add(c.job.trim());
-    });
-    return Array.from(set).sort((a, b) => a.localeCompare(b, 'ar'));
-  }, [children]);
+  // ---------- Job actions ----------
+  const safePoints = Math.max(0, Math.floor(Number(points) || 0));
 
-  // ---------- Apply selectors + accordion filters ----------
+  const registerAttendance = async (child: Child, action: 'add' | 'remove') => {
+    setBusyChild(child.id);
+    await supabase.from('attendance_log').insert({
+      child_id: child.id,
+      church_id: child.church_id,
+      service_id: child.service_id,
+      class_id: child.class_id,
+      action,
+      points_delta: safePoints,
+      recorded_by: profile?.id,
+    });
+    setBusyChild(null);
+    load();
+  };
+
+  const changePoints = async (child: Child, sign: 1 | -1) => {
+    if (safePoints === 0) return;
+    setBusyChild(child.id);
+    await supabase.from('points_log').insert({
+      child_id: child.id,
+      church_id: child.church_id,
+      service_id: child.service_id,
+      class_id: child.class_id,
+      delta: sign * safePoints,
+      recorded_by: profile?.id,
+    });
+    setBusyChild(null);
+    load();
+  };
+
+  // ---------- Filters ----------
   const filtered = useMemo(
     () =>
       children.filter((c) => {
         if (classFilter !== ALL && c.class_id !== classFilter) return false;
-        if (jobFilter !== ALL && (c.job?.trim() ?? '') !== jobFilter) return false;
         if (search && !(c.name.includes(search) || (c.phone ?? '').includes(search)))
           return false;
         if (addressFilter && !(c.address ?? '').includes(addressFilter)) return false;
@@ -82,7 +113,7 @@ export default function ChildrenPage() {
         if (minAttendance && c.attendance_count < Number(minAttendance)) return false;
         return true;
       }),
-    [children, classFilter, jobFilter, search, addressFilter, minPoints, minAttendance]
+    [children, classFilter, search, addressFilter, minPoints, minAttendance]
   );
 
   // ---------- Group by class (sorted by class name) ----------
@@ -112,6 +143,8 @@ export default function ChildrenPage() {
     setMinAttendance('');
   };
 
+  const showPointsInput = job === 'attendance' || job === 'points';
+
   return (
     <AppShell>
       <section id="children-header" className="mb-4 flex items-center justify-between">
@@ -126,41 +159,63 @@ export default function ChildrenPage() {
         </button>
       </section>
 
-      {/* ---------- Selectors ---------- */}
-      <div className="mb-3 grid grid-cols-2 gap-2">
-        {/* Class selector (with all option) */}
-        <div className="relative">
-          <School className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-          <select
-            id="class-selector"
-            aria-label="اختيار الفصل"
-            className="input-field appearance-none pr-9 text-sm font-bold"
-            value={classFilter}
-            onChange={(e) => setClassFilter(e.target.value)}
+      {/* ---------- Class selector: horizontal row of chips ---------- */}
+      <div id="class-selector" className="mb-3 flex gap-2 overflow-x-auto no-scrollbar pb-1">
+        <button
+          id="class-chip-all"
+          onClick={() => setClassFilter(ALL)}
+          className={`shrink-0 rounded-full px-4 py-1.5 text-xs font-extrabold transition ${
+            classFilter === ALL
+              ? 'bg-primary-600 text-white shadow'
+              : 'bg-white text-slate-500 border border-indigo-100'
+          }`}
+        >
+          كل الفصول
+        </button>
+        {classes.map((c) => (
+          <button
+            key={c.id}
+            id={`class-chip-${c.id}`}
+            onClick={() => setClassFilter(c.id)}
+            className={`shrink-0 rounded-full px-4 py-1.5 text-xs font-extrabold transition ${
+              classFilter === c.id
+                ? 'bg-primary-600 text-white shadow'
+                : 'bg-white text-slate-500 border border-indigo-100'
+            }`}
           >
-            <option value={ALL}>كل الفصول</option>
-            {classes.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
-        </div>
+            {c.name}
+          </button>
+        ))}
+      </div>
 
-        {/* Job selector (with all option) */}
-        <div className="relative">
-          <Briefcase className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-          <select
-            id="job-selector"
-            aria-label="اختيار الوظيفة"
-            className="input-field appearance-none pr-9 text-sm font-bold"
-            value={jobFilter}
-            onChange={(e) => setJobFilter(e.target.value)}
-          >
-            <option value={ALL}>كل الوظائف</option>
-            {jobs.map((j) => (
-              <option key={j} value={j}>{j}</option>
-            ))}
-          </select>
-        </div>
+      {/* ---------- Job selector (default: attendance, no all) + points number ---------- */}
+      <div className="mb-3 flex items-center gap-2">
+        <select
+          id="job-selector"
+          aria-label="اختيار الوظيفة"
+          className="input-field flex-1 appearance-none text-sm font-bold"
+          value={job}
+          onChange={(e) => setJob(e.target.value as Job)}
+        >
+          {JOBS.map((j) => (
+            <option key={j.value} value={j.value}>{j.label}</option>
+          ))}
+        </select>
+
+        {showPointsInput && (
+          <div className="flex items-center gap-1.5">
+            <Star className="h-4 w-4 text-gold-500" />
+            <input
+              id="points-input"
+              type="number"
+              min={0}
+              aria-label="عدد النقاط"
+              className="input-field !w-20 text-center font-extrabold"
+              value={points}
+              onChange={(e) => setPoints(Number(e.target.value))}
+            />
+          </div>
+        )}
       </div>
 
       {/* ---------- Filter accordion ---------- */}
@@ -261,7 +316,6 @@ export default function ChildrenPage() {
             const open = openGroups[classId] ?? false;
             return (
               <div key={classId} className="card !p-0 overflow-hidden">
-                {/* Class group header (expandable) */}
                 <button
                   id={`group-${classId}`}
                   onClick={() => toggleGroup(classId)}
@@ -281,29 +335,85 @@ export default function ChildrenPage() {
                   <ul className="divide-y divide-indigo-50 border-t border-indigo-100">
                     {kids.map((child) => (
                       <li key={child.id} className="px-4 py-3">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
+                        <div className="flex items-center justify-between gap-3">
+                          {/* Name + points/attendance below it */}
+                          <div className="min-w-0 flex-1">
                             <p className="font-extrabold truncate">{child.name}</p>
-                            {child.job && (
-                              <p className="mt-0.5 flex items-center gap-1 text-xs text-slate-400">
-                                <Briefcase className="h-3 w-3" /> {child.job}
-                              </p>
-                            )}
+                            <div className="mt-1.5 flex gap-2">
+                              <span className="badge bg-gold-100 text-gold-600">
+                                <Star className="h-3 w-3" /> {child.points}
+                              </span>
+                              <span className="badge bg-emerald-100 text-emerald-700">
+                                <CalendarCheck className="h-3 w-3" /> {child.attendance_count}
+                              </span>
+                            </div>
                           </div>
-                          <div className="flex shrink-0 gap-2">
-                            <span className="badge bg-gold-100 text-gold-600">
-                              <Star className="h-3 w-3" /> {child.points}
-                            </span>
-                            <span className="badge bg-emerald-100 text-emerald-700">
-                              <CalendarCheck className="h-3 w-3" /> {child.attendance_count}
-                            </span>
+
+                          {/* Job action area (changes by selected job) */}
+                          <div className="flex shrink-0 items-center gap-2">
+                            {busyChild === child.id ? (
+                              <Loader2 className="h-6 w-6 animate-spin text-primary-500" />
+                            ) : job === 'attendance' ? (
+                              <>
+                                <button
+                                  id={`att-add-${child.id}`}
+                                  aria-label="تسجيل حضور"
+                                  onClick={() => registerAttendance(child, 'add')}
+                                  className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500 text-white shadow transition hover:bg-emerald-600 active:scale-95"
+                                >
+                                  <Check className="h-5 w-5" />
+                                </button>
+                                <button
+                                  id={`att-remove-${child.id}`}
+                                  aria-label="إزالة حضور"
+                                  onClick={() => registerAttendance(child, 'remove')}
+                                  className="flex h-10 w-10 items-center justify-center rounded-full bg-red-500 text-white shadow transition hover:bg-red-600 active:scale-95"
+                                >
+                                  <X className="h-5 w-5" />
+                                </button>
+                              </>
+                            ) : job === 'points' ? (
+                              <>
+                                <button
+                                  id={`pts-add-${child.id}`}
+                                  aria-label="إضافة نقاط"
+                                  onClick={() => changePoints(child, 1)}
+                                  className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500 text-white shadow transition hover:bg-emerald-600 active:scale-95"
+                                >
+                                  <Plus className="h-5 w-5" />
+                                </button>
+                                <button
+                                  id={`pts-sub-${child.id}`}
+                                  aria-label="خصم نقاط"
+                                  onClick={() => changePoints(child, -1)}
+                                  className="flex h-10 w-10 items-center justify-center rounded-full bg-red-500 text-white shadow transition hover:bg-red-600 active:scale-95"
+                                >
+                                  <Minus className="h-5 w-5" />
+                                </button>
+                              </>
+                            ) : job === 'message' ? (
+                              <button
+                                id={`msg-${child.id}`}
+                                aria-label="إرسال رسالة"
+                                onClick={() => setMessageChild(child)}
+                                className="flex h-10 w-10 items-center justify-center rounded-full bg-primary-600 text-white shadow transition hover:bg-primary-700 active:scale-95"
+                              >
+                                <MessageCircle className="h-5 w-5" />
+                              </button>
+                            ) : null /* call: no buttons */}
                           </div>
                         </div>
+
+                        {/* Contact info */}
                         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
                           {child.phone && (
-                            <span className="flex items-center gap-1" dir="ltr">
+                            <a
+                              href={`tel:${child.phone}`}
+                              className={`flex items-center gap-1 ${job === 'call' ? 'font-extrabold text-primary-600' : ''}`}
+                              dir="ltr"
+                            >
                               <Phone className="h-3 w-3" /> {child.phone}
-                            </span>
+                            </a>
                           )}
                           {child.address && (
                             <span className="flex items-center gap-1">
@@ -336,7 +446,75 @@ export default function ChildrenPage() {
           }}
         />
       )}
+
+      {messageChild && (
+        <MessageSheet child={messageChild} onClose={() => setMessageChild(null)} />
+      )}
     </AppShell>
+  );
+}
+
+// ---------- Message channel chooser (SMS / WhatsApp / internal) ----------
+function MessageSheet({ child, onClose }: { child: Child; onClose: () => void }) {
+  const phoneDigits = (child.phone ?? '').replace(/\D/g, '');
+  // Egypt numbers: 01xxxxxxxxx -> 201xxxxxxxxx for wa.me
+  const waNumber = phoneDigits.startsWith('0') ? `2${phoneDigits}` : phoneDigits;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/40"
+      onClick={onClose}
+    >
+      <div
+        id="message-sheet"
+        className="w-full max-w-md rounded-t-3xl bg-white p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-base font-extrabold">مراسلة {child.name}</h3>
+          <button onClick={onClose} aria-label="إغلاق" className="rounded-full p-1.5 hover:bg-slate-100">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {!child.phone ? (
+          <p className="rounded-xl bg-amber-50 px-3 py-3 text-sm font-bold text-amber-600">
+            لا يوجد رقم هاتف لهذا المخدوم
+          </p>
+        ) : (
+          <div className="space-y-2">
+            <a
+              id="msg-sms"
+              href={`sms:${child.phone}`}
+              onClick={onClose}
+              className="flex items-center gap-3 rounded-xl bg-slate-50 px-4 py-3 text-sm font-extrabold text-slate-700 transition hover:bg-slate-100"
+            >
+              <MessageSquare className="h-5 w-5 text-primary-600" />
+              رسالة SMS
+            </a>
+            <a
+              id="msg-whatsapp"
+              href={`https://wa.me/${waNumber}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={onClose}
+              className="flex items-center gap-3 rounded-xl bg-emerald-50 px-4 py-3 text-sm font-extrabold text-emerald-700 transition hover:bg-emerald-100"
+            >
+              <Send className="h-5 w-5 text-emerald-600" />
+              واتساب
+            </a>
+            <button
+              id="msg-internal"
+              disabled
+              className="flex w-full cursor-not-allowed items-center gap-3 rounded-xl bg-slate-50 px-4 py-3 text-sm font-extrabold text-slate-400"
+            >
+              <Inbox className="h-5 w-5" />
+              رسالة داخلية — قريبًا
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -348,7 +526,7 @@ function AddChildModal({
   const { profile } = useAuth();
   const supabase = createClient();
   const [form, setForm] = useState({
-    name: '', phone: '', birthdate: '', address: '', notes: '', class_id: '', job: '',
+    name: '', phone: '', birthdate: '', address: '', notes: '', class_id: '',
   });
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -375,7 +553,6 @@ function AddChildModal({
       birthdate: form.birthdate || null,
       address: form.address.trim() || null,
       notes: form.notes.trim() || null,
-      job: form.job.trim() || null,
       created_by: profile?.id,
     });
     if (err) {
@@ -409,9 +586,6 @@ function AddChildModal({
               ))}
             </select>
           )}
-
-          <input className="input-field" placeholder="الوظيفة" value={form.job}
-            onChange={(e) => setForm((f) => ({ ...f, job: e.target.value }))} />
 
           <input className="input-field" placeholder="رقم الهاتف" dir="ltr" value={form.phone}
             onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />

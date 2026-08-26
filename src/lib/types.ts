@@ -60,7 +60,6 @@ export interface Child {
   birthdate: string | null;
   address: string | null;
   notes: string | null;
-  job: string | null;
   attendance_count: number;
   points: number;
   qr_code: string | null;
@@ -68,6 +67,45 @@ export interface Child {
   created_at: string;
   updated_at: string;
 }
+
+// ---------- Log tables ----------
+
+export interface AttendanceLog {
+  id: string;
+  child_id: string;
+  church_id: string;
+  service_id: string;
+  class_id: string;
+  action: 'add' | 'remove';
+  points_delta: number;
+  recorded_by: string | null;
+  created_at: string;
+}
+
+export interface PointsLog {
+  id: string;
+  child_id: string;
+  church_id: string;
+  service_id: string;
+  class_id: string;
+  delta: number; // positive = add, negative = subtract
+  recorded_by: string | null;
+  created_at: string;
+}
+
+// ---------- Jobs (app-code constants, not stored in DB) ----------
+// Jobs are the actions a servant performs on children from the children page.
+
+export type Job = 'attendance' | 'call' | 'message' | 'points';
+
+export const JOBS: { value: Job; label: string }[] = [
+  { value: 'attendance', label: 'الحضور' },
+  { value: 'call', label: 'الاتصال' },
+  { value: 'message', label: 'الرسائل' },
+  { value: 'points', label: 'النقاط' },
+];
+
+export const DEFAULT_ATTENDANCE_POINTS = 5;
 
 export interface Attendance {
   id: string;
