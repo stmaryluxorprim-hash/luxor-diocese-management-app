@@ -7,7 +7,8 @@ import {
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
 import { createClient } from '@/lib/supabase/client';
-import type { EnrollmentWithPerson, Person, ClassRoom, AppEvent } from '@/lib/types';
+import { scopeApplies, type EnrollmentWithPerson, type Person, type ClassRoom, type AppEvent } from '@/lib/types';
+import { eventAvailability, describeEventSchedule, cairoToday } from '@/lib/time';
 
 type ScanResult = { type: 'ok' | 'dup' | 'err'; message: string };
 
@@ -37,7 +38,7 @@ export default function ScannerPage() {
       const [{ data: enr }, { data: cls }, { data: evs }] = await Promise.all([
         supabase.from('enrollments').select('*, person:persons(*)'),
         supabase.from('classes').select('*'),
-        supabase.from('events').select('*').order('event_date', { ascending: false, nullsFirst: false }),
+        supabase.from('events').select('*').order('created_at', { ascending: false }),
       ]);
       const list = ((enr ?? []) as EnrollmentWithPerson[])
         .filter((e) => e.person)
@@ -55,15 +56,21 @@ export default function ScannerPage() {
 
   const recordAttendance = useCallback(
     async (e: EnrollmentWithPerson) => {
-      // Attendance is registered against an EVENT of the enrollment's class
+      // Attendance is registered against an EVENT whose scope covers this enrollment
       const ev = events.find((x) => x.id === eventId);
       if (!ev) {
         setResult({ type: 'err', message: 'اختر المناسبة أولاً قبل المسح' });
         return;
       }
-      if (ev.class_id !== e.class_id) {
-        setResult({ type: 'err', message: `المناسبة المختارة لا تخص فصل ${e.person.name}` });
+      if (!scopeApplies(ev, e)) {
+        setResult({ type: 'err', message: `المناسبة المختارة لا تشمل ${e.person.name}` });
         return;
+      }
+      // Day / time check (Africa/Cairo) — warn but allow override
+      const avail = eventAvailability(ev);
+      if (!avail.ok) {
+        const go = confirm(`${avail.reason}\n\nهل تريد تسجيل الحضور رغم ذلك؟`);
+        if (!go) return;
       }
       setBusy(true);
       setPicker(null);
@@ -71,25 +78,26 @@ export default function ScannerPage() {
       const { error } = await supabase.from('attendance_log').insert({
         enrollment_id: e.id,
         event_id: ev.id,
-        points_delta: 1,
+        points_delta: ev.points,
+        attended_on: cairoToday(),
         recorded_by: profile?.id,
       });
       setBusy(false);
       if (error) {
-        // unique (enrollment_id, event_id): one attendance per event
+        // unique (enrollment_id, event_id, attended_on): one attendance per event per Cairo day
         if (error.code === '23505') {
-          setResult({ type: 'dup', message: `${e.person.name} — حضوره مسجل بالفعل في هذه المناسبة` });
+          setResult({ type: 'dup', message: `${e.person.name} — حضوره مسجل بالفعل في هذه المناسبة اليوم` });
         } else {
           setResult({ type: 'err', message: 'تعذر تسجيل الحضور، حاول مجدداً' });
         }
         return;
       }
-      setResult({ type: 'ok', message: `تم تسجيل حضور ${e.person.name} ✔ (${className(e.class_id)})` });
+      setResult({ type: 'ok', message: `تم تسجيل حضور ${e.person.name} ✔ (${className(e.class_id)}) +${ev.points} نقطة` });
       // refresh local counters
       setEnrollments((prev) =>
         prev.map((x) =>
           x.id === e.id
-            ? { ...x, attendance_count: x.attendance_count + 1, points: x.points + 1 }
+            ? { ...x, attendance_count: x.attendance_count + 1, points: x.points + ev.points }
             : x
         )
       );
@@ -192,7 +200,7 @@ export default function ScannerPage() {
           الماسح — تسجيل الحضور
         </h2>
         <p className="text-xs text-slate-500 mt-1">
-          اختر المناسبة ثم امسح الرقم القومي (QR)، أو ابحث يدوياً لتسجيل الحضور (+1 نقطة)
+          اختر المناسبة ثم امسح الرقم القومي (QR)، أو ابحث يدوياً — النقاط حسب المناسبة والمواعيد بتوقيت القاهرة
         </p>
       </section>
 
@@ -211,11 +219,22 @@ export default function ScannerPage() {
           <option value="">اختر المناسبة *</option>
           {events.map((ev) => (
             <option key={ev.id} value={ev.id}>
-              {ev.name}{ev.event_date ? ` — ${ev.event_date}` : ''} ({className(ev.class_id)})
+              {ev.name} — {describeEventSchedule(ev)} — {ev.points} نقطة
             </option>
           ))}
         </select>
       </section>
+      {(() => {
+        const ev = events.find((x) => x.id === eventId);
+        if (!ev) return null;
+        const avail = eventAvailability(ev);
+        if (avail.ok) return null;
+        return (
+          <p id="scanner-event-time-warning" className="mb-4 rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-600">
+            ⚠ {avail.reason}
+          </p>
+        );
+      })()}
       {events.length === 0 && (
         <p className="mb-4 rounded-xl bg-violet-50 px-3 py-2 text-xs font-bold text-violet-600">
           لا توجد مناسبات — أضف مناسبة من الإعدادات ← إدارة المناسبات
