@@ -3,12 +3,15 @@
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import {
-  Award, Plus, ArrowRight, Loader2, X, Pencil, Save, Trash2,
+  Award, Plus, ArrowRight, Loader2, X, Pencil, Save, Trash2, Star,
 } from 'lucide-react';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
 import { createClient } from '@/lib/supabase/client';
 import type { Cause, ClassRoom, Service, Church } from '@/lib/types';
+
+// Sentinel for "all services / all classes" in select controls (null in DB)
+const ALL = 'all';
 
 export default function CausesPage() {
   const { profile } = useAuth();
@@ -48,9 +51,16 @@ export default function CausesPage() {
     return () => { supabase.removeChannel(ch); };
   }, [profile, supabase, load]);
 
-  const className = (id: string) => classes.find((c) => c.id === id)?.name ?? '';
-  const serviceName = (id: string) => services.find((s) => s.id === id)?.name ?? '';
   const churchName = (id: string) => churches.find((c) => c.id === id)?.name ?? '';
+
+  const scopeLabel = (ca: Cause) => {
+    const church = churchName(ca.church_id);
+    if (ca.service_id === null) return `${church} ← كل الخدمات`;
+    const service = services.find((s) => s.id === ca.service_id)?.name ?? '';
+    if (ca.class_id === null) return `${church} ← ${service} ← كل الفصول`;
+    const cls = classes.find((c) => c.id === ca.class_id)?.name ?? '';
+    return `${church} ← ${service} ← ${cls}`;
+  };
 
   const remove = async (ca: Cause) => {
     if (!confirm(`حذف السبب «${ca.name}»؟ سجلات النقاط المرتبطة به ستبقى بدون سبب.`)) return;
@@ -77,7 +87,8 @@ export default function CausesPage() {
       </section>
 
       <p className="mb-4 rounded-2xl bg-amber-50 px-4 py-3 text-xs font-bold text-amber-700">
-        النقاط تُسجَّل بسبب (حفظ آية، سلوك، مسابقة...) مرتبط بكنيسة وخدمة وفصل.
+        النقاط تُسجَّل بسبب (حفظ آية، سلوك، مسابقة...) نطاقه فصل محدد أو كل الفصول أو كل الخدمات،
+        وله مقدار نقاط محدد يُضاف أو يُخصم به.
       </p>
 
       {loading ? (
@@ -90,10 +101,13 @@ export default function CausesPage() {
                 <Award className="h-6 w-6 text-amber-400" />
               </div>
               <div className="min-w-0 flex-1">
-                <p className="font-extrabold">{ca.name}</p>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  {churchName(ca.church_id)} ← {serviceName(ca.service_id)} ← {className(ca.class_id)}
-                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="font-extrabold">{ca.name}</p>
+                  <span className="badge bg-amber-100 text-amber-700 flex items-center gap-1">
+                    <Star className="h-3 w-3" /> {ca.points} نقطة
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400 mt-0.5">{scopeLabel(ca)}</p>
                 {ca.description && <p className="text-xs text-slate-500 mt-1">{ca.description}</p>}
               </div>
               <div className="flex shrink-0 gap-1.5">
@@ -161,29 +175,33 @@ function CauseModal({
   const [name, setName] = useState(cause?.name ?? '');
   const [description, setDescription] = useState(cause?.description ?? '');
   const [churchId, setChurchId] = useState(cause?.church_id ?? '');
-  const [serviceId, setServiceId] = useState(cause?.service_id ?? '');
-  const [classId, setClassId] = useState(cause?.class_id ?? '');
+  const [serviceId, setServiceId] = useState(cause ? (cause.service_id ?? ALL) : '');
+  const [classId, setClassId] = useState(cause ? (cause.class_id ?? ALL) : '');
+  const [points, setPoints] = useState(String(cause?.points ?? 1));
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const filteredServices = churchId ? services.filter((s) => s.church_id === churchId) : services;
-  const filteredClasses = classes.filter(
-    (c) => (!churchId || c.church_id === churchId) && (!serviceId || c.service_id === serviceId)
-  );
+  const filteredServices = churchId ? services.filter((s) => s.church_id === churchId) : [];
+  const filteredClasses = serviceId && serviceId !== ALL
+    ? classes.filter((c) => c.church_id === churchId && c.service_id === serviceId)
+    : [];
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    const cls = classes.find((c) => c.id === classId);
-    if (!cls) return setError('اختر الفصل');
+    if (!churchId) return setError('اختر الكنيسة');
+    if (!serviceId) return setError('اختر الخدمة أو «كل الخدمات»');
+    if (serviceId !== ALL && !classId) return setError('اختر الفصل أو «كل الفصول»');
+    const pts = Math.max(0, Math.floor(Number(points) || 0));
     setSaving(true);
 
     const base = {
-      church_id: cls.church_id,
-      service_id: cls.service_id,
-      class_id: cls.id,
+      church_id: churchId,
+      service_id: serviceId === ALL ? null : serviceId,
+      class_id: serviceId === ALL || classId === ALL ? null : classId,
       name: name.trim(),
       description: description.trim() || null,
+      points: pts,
     };
 
     const { error: err } = mode === 'add'
@@ -231,27 +249,41 @@ function CauseModal({
               required
             >
               <option value="">اختر الخدمة</option>
+              <option value={ALL}>✳ كل الخدمات</option>
               {filteredServices.map((s) => (
                 <option key={s.id} value={s.id}>{s.name}</option>
               ))}
             </select>
           </div>
-          <div>
-            <label className="mb-1 block text-xs font-bold text-slate-500">الفصل *</label>
-            <select
-              className="input-field"
-              value={classId}
-              onChange={(e) => setClassId(e.target.value)}
-              required
-            >
-              <option value="">اختر الفصل</option>
-              {filteredClasses.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
-          </div>
+          {serviceId && serviceId !== ALL && (
+            <div>
+              <label className="mb-1 block text-xs font-bold text-slate-500">الفصل *</label>
+              <select
+                className="input-field"
+                value={classId}
+                onChange={(e) => setClassId(e.target.value)}
+                required
+              >
+                <option value="">اختر الفصل</option>
+                <option value={ALL}>✳ كل الفصول</option>
+                {filteredClasses.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
           <input className="input-field" placeholder="اسم السبب * (مثال: حفظ آية)" value={name}
             onChange={(e) => setName(e.target.value)} required />
+          <div>
+            <label className="mb-1 block text-xs font-bold text-slate-500">مقدار النقاط *</label>
+            <div className="flex items-center gap-2">
+              <Star className="h-5 w-5 text-amber-500" />
+              <input
+                type="number" min={0} className="input-field" value={points}
+                onChange={(e) => setPoints(e.target.value)} required
+              />
+            </div>
+          </div>
           <textarea className="input-field" placeholder="وصف السبب" rows={2} value={description}
             onChange={(e) => setDescription(e.target.value)} />
           {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm font-bold text-red-600">{error}</p>}
