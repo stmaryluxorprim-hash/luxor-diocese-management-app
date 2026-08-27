@@ -11,10 +11,11 @@ import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
 import { createClient } from '@/lib/supabase/client';
 import {
-  JOBS, DEFAULT_ATTENDANCE_POINTS,
+  JOBS, scopeApplies,
   type Job, type EnrollmentWithPerson, type ClassRoom, type Church, type Service,
   type AppEvent, type Cause,
 } from '@/lib/types';
+import { eventAvailability, describeEventSchedule, cairoToday } from '@/lib/time';
 
 const ALL = 'all';
 
@@ -70,7 +71,6 @@ export default function ChildrenPage() {
 
   // ---------- Job selector + activated modes ----------
   const [job, setJob] = useState<Job>('attendance');
-  const [points, setPoints] = useState<number>(DEFAULT_ATTENDANCE_POINTS);
   const [attendanceMode, setAttendanceMode] = useState<AttendanceMode>('add');
   const [pointsMode, setPointsMode] = useState<PointsMode>('add');
   // Attendance is registered against an EVENT; points against a CAUSE
@@ -134,8 +134,6 @@ export default function ChildrenPage() {
     };
   }, [profile, supabase, load]);
 
-  const safePoints = Math.max(0, Math.floor(Number(points) || 0));
-
   // ---------- Cascading selector options ----------
   const visibleServices = useMemo(
     () => services.filter((s) => churchFilter === ALL || s.church_id === churchFilter),
@@ -162,13 +160,14 @@ export default function ChildrenPage() {
   };
 
   // Events / causes narrowed by the current scope selectors
+  // null scope means "all services" / "all classes" — always visible within its church
   const visibleEvents = useMemo(
     () =>
       events.filter(
         (ev) =>
           (churchFilter === ALL || ev.church_id === churchFilter) &&
-          (serviceFilter === ALL || ev.service_id === serviceFilter) &&
-          (classFilter === ALL || ev.class_id === classFilter)
+          (serviceFilter === ALL || ev.service_id === null || ev.service_id === serviceFilter) &&
+          (classFilter === ALL || ev.class_id === null || ev.class_id === classFilter)
       ),
     [events, churchFilter, serviceFilter, classFilter]
   );
@@ -177,10 +176,30 @@ export default function ChildrenPage() {
       causes.filter(
         (ca) =>
           (churchFilter === ALL || ca.church_id === churchFilter) &&
-          (serviceFilter === ALL || ca.service_id === serviceFilter) &&
-          (classFilter === ALL || ca.class_id === classFilter)
+          (serviceFilter === ALL || ca.service_id === null || ca.service_id === serviceFilter) &&
+          (classFilter === ALL || ca.class_id === null || ca.class_id === classFilter)
       ),
     [causes, churchFilter, serviceFilter, classFilter]
+  );
+
+  const selectedEvent = useMemo(
+    () => events.find((ev) => ev.id === eventId) ?? null,
+    [events, eventId]
+  );
+  const selectedCause = useMemo(
+    () => causes.find((ca) => ca.id === causeId) ?? null,
+    [causes, causeId]
+  );
+
+  // Cairo clock tick (every 30s) so the day/time availability stays fresh
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNowTick(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, []);
+  const eventAvail = useMemo(
+    () => (selectedEvent ? eventAvailability(selectedEvent, new Date(nowTick)) : null),
+    [selectedEvent, nowTick]
   );
 
   // keep selections valid when scope changes
@@ -195,26 +214,33 @@ export default function ChildrenPage() {
   const doJob = async (e: EnrollmentWithPerson) => {
     if (job === 'attendance') {
       if (attendanceMode === 'add') {
-        // Attendance is registered against an EVENT of the same class
+        // Attendance is registered against an EVENT whose scope covers this enrollment
         const ev = events.find((x) => x.id === eventId);
         if (!ev) {
           alert('اختر المناسبة أولاً');
           return;
         }
-        if (ev.class_id !== e.class_id) {
-          alert('المناسبة المختارة لا تخص فصل هذا المخدوم');
+        if (!scopeApplies(ev, e)) {
+          alert('المناسبة المختارة لا تشمل هذا المخدوم');
           return;
+        }
+        // Day / time check (Africa/Cairo) — warn but allow override
+        const avail = eventAvailability(ev);
+        if (!avail.ok) {
+          const go = confirm(`${avail.reason}\n\nهل تريد تسجيل الحضور رغم ذلك؟`);
+          if (!go) return;
         }
         setBusyChild(e.id);
         const { error } = await supabase.from('attendance_log').insert({
           enrollment_id: e.id,
           event_id: ev.id,
-          points_delta: safePoints,
+          points_delta: ev.points,
+          attended_on: cairoToday(),
           recorded_by: profile?.id,
         });
         setBusyChild(null);
         if (error?.code === '23505') {
-          alert(`${e.person.name} — حضوره مسجل بالفعل في هذه المناسبة`);
+          alert(`${e.person.name} — حضوره مسجل بالفعل في هذه المناسبة اليوم`);
           return;
         }
         load();
@@ -244,22 +270,23 @@ export default function ChildrenPage() {
         load();
       }
     } else if (job === 'points') {
-      if (safePoints === 0) return;
-      // Points are registered with a CAUSE of the same class
+      // Points are registered with a CAUSE whose scope covers this enrollment;
+      // the amount is BOUND to the cause itself
       const ca = causes.find((x) => x.id === causeId);
       if (!ca) {
         alert('اختر سبب النقاط أولاً');
         return;
       }
-      if (ca.class_id !== e.class_id) {
-        alert('السبب المختار لا يخص فصل هذا المخدوم');
+      if (!scopeApplies(ca, e)) {
+        alert('السبب المختار لا يشمل هذا المخدوم');
         return;
       }
+      if (ca.points === 0) return;
       setBusyChild(e.id);
       await supabase.from('points_log').insert({
         enrollment_id: e.id,
         cause_id: ca.id,
-        delta: (pointsMode === 'add' ? 1 : -1) * safePoints,
+        delta: (pointsMode === 'add' ? 1 : -1) * ca.points,
         recorded_by: profile?.id,
       });
       setBusyChild(null);
@@ -531,19 +558,19 @@ export default function ChildrenPage() {
             >
               <X className="h-5 w-5" />
             </button>
-            <input
-              id="points-input"
-              type="number"
-              min={0}
-              aria-label="عدد النقاط"
-              className="input-field !w-16 shrink-0 text-center font-extrabold"
-              value={points}
-              onChange={(e) => setPoints(Number(e.target.value))}
-            />
+            {/* Points are bound to the selected event */}
+            <span
+              id="event-points-badge"
+              aria-label="نقاط المناسبة"
+              className="flex h-10 min-w-16 shrink-0 items-center justify-center gap-1 rounded-xl bg-gold-100 px-2 text-sm font-extrabold text-gold-600"
+            >
+              <Star className="h-4 w-4" />
+              {selectedEvent ? selectedEvent.points : '—'}
+            </span>
           </>
         )}
 
-        {/* Points: add / subtract mode buttons + points */}
+        {/* Points: add / subtract mode buttons + cause-bound points */}
         {job === 'points' && (
           <>
             <button
@@ -572,15 +599,15 @@ export default function ChildrenPage() {
             >
               <Minus className="h-5 w-5" />
             </button>
-            <input
-              id="points-input"
-              type="number"
-              min={0}
-              aria-label="عدد النقاط"
-              className="input-field !w-16 shrink-0 text-center font-extrabold"
-              value={points}
-              onChange={(e) => setPoints(Number(e.target.value))}
-            />
+            {/* Points amount is bound to the selected cause */}
+            <span
+              id="cause-points-badge"
+              aria-label="نقاط السبب"
+              className="flex h-10 min-w-16 shrink-0 items-center justify-center gap-1 rounded-xl bg-gold-100 px-2 text-sm font-extrabold text-gold-600"
+            >
+              <Star className="h-4 w-4" />
+              {selectedCause ? selectedCause.points : '—'}
+            </span>
           </>
         )}
 
@@ -660,11 +687,16 @@ export default function ChildrenPage() {
             </option>
             {visibleEvents.map((ev) => (
               <option key={ev.id} value={ev.id}>
-                {ev.name}{ev.event_date ? ` — ${ev.event_date}` : ''}
+                {ev.name} — {describeEventSchedule(ev)} — {ev.points} نقطة
               </option>
             ))}
           </select>
         </div>
+      )}
+      {job === 'attendance' && attendanceMode === 'add' && eventAvail && !eventAvail.ok && (
+        <p id="event-time-warning" className="mb-3 rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-600">
+          ⚠ {eventAvail.reason}
+        </p>
       )}
       {job === 'attendance' && visibleEvents.length === 0 && (
         <p className="mb-3 rounded-xl bg-violet-50 px-3 py-2 text-xs font-bold text-violet-600">
@@ -685,7 +717,7 @@ export default function ChildrenPage() {
           >
             <option value="">اختر سبب النقاط *</option>
             {visibleCauses.map((ca) => (
-              <option key={ca.id} value={ca.id}>{ca.name}</option>
+              <option key={ca.id} value={ca.id}>{ca.name} — {ca.points} نقطة</option>
             ))}
           </select>
         </div>
