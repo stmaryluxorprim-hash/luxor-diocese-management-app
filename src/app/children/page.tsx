@@ -12,7 +12,7 @@ import { useAuth } from '@/lib/auth-context';
 import { createClient } from '@/lib/supabase/client';
 import {
   JOBS, DEFAULT_ATTENDANCE_POINTS,
-  type Job, type Child, type ClassRoom, type Church, type Service,
+  type Job, type EnrollmentWithPerson, type ClassRoom, type Church, type Service,
 } from '@/lib/types';
 
 const ALL = 'all';
@@ -29,12 +29,12 @@ const MSG_VARS = [
   { token: '[رقم الهاتف]', label: 'رقم الهاتف' },
 ];
 
-const fillTemplate = (template: string, child: Child) =>
+const fillTemplate = (template: string, e: EnrollmentWithPerson) =>
   template
-    .replaceAll('[الاسم الأول]', child.name.trim().split(/\s+/)[0] ?? '')
-    .replaceAll('[الاسم الكامل]', child.name)
-    .replaceAll('[تاريخ الميلاد]', child.birthdate ?? '')
-    .replaceAll('[رقم الهاتف]', child.phone ?? '');
+    .replaceAll('[الاسم الأول]', e.person.name.trim().split(/\s+/)[0] ?? '')
+    .replaceAll('[الاسم الكامل]', e.person.name)
+    .replaceAll('[تاريخ الميلاد]', e.person.birthdate ?? '')
+    .replaceAll('[رقم الهاتف]', e.person.phone ?? '');
 
 // WhatsApp brand icon (lucide has no official one)
 function WhatsAppIcon({ className }: { className?: string }) {
@@ -49,7 +49,7 @@ export default function ChildrenPage() {
   const { profile } = useAuth();
   const supabase = createClient();
   const router = useRouter();
-  const [children, setChildren] = useState<Child[]>([]);
+  const [enrollments, setEnrollments] = useState<EnrollmentWithPerson[]>([]);
   const [churches, setChurches] = useState<Church[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [classes, setClasses] = useState<ClassRoom[]>([]);
@@ -88,13 +88,17 @@ export default function ChildrenPage() {
   const [busyChild, setBusyChild] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const [{ data: kids }, { data: chs }, { data: svs }, { data: cls }] = await Promise.all([
-      supabase.from('children').select('*').order('name'),
+    // Person-centric: an enrollment = a person bound to church/service/class
+    const [{ data: enr }, { data: chs }, { data: svs }, { data: cls }] = await Promise.all([
+      supabase.from('enrollments').select('*, person:persons(*)'),
       supabase.from('churches').select('*').order('name'),
       supabase.from('services').select('*').order('name'),
       supabase.from('classes').select('*').order('name'),
     ]);
-    setChildren(kids ?? []);
+    const list = ((enr ?? []) as EnrollmentWithPerson[])
+      .filter((e) => e.person)
+      .sort((a, b) => a.person.name.localeCompare(b.person.name, 'ar'));
+    setEnrollments(list);
     setChurches(chs ?? []);
     setServices(svs ?? []);
     setClasses(cls ?? []);
@@ -109,8 +113,9 @@ export default function ChildrenPage() {
   useEffect(() => {
     if (!profile) return;
     const channel = supabase
-      .channel('children-list')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'children' }, load)
+      .channel('persons-list')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'enrollments' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'persons' }, load)
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
@@ -144,15 +149,15 @@ export default function ChildrenPage() {
     setClassFilter(ALL);
   };
 
-  // ---------- Per-child job action (single button) ----------
-  const doJob = async (child: Child) => {
+  // ---------- Per-person job action (single button) ----------
+  const doJob = async (e: EnrollmentWithPerson) => {
     if (job === 'attendance') {
-      setBusyChild(child.id);
+      setBusyChild(e.id);
       await supabase.from('attendance_log').insert({
-        child_id: child.id,
-        church_id: child.church_id,
-        service_id: child.service_id,
-        class_id: child.class_id,
+        enrollment_id: e.id,
+        church_id: e.church_id,
+        service_id: e.service_id,
+        class_id: e.class_id,
         action: attendanceMode,
         points_delta: safePoints,
         recorded_by: profile?.id,
@@ -161,24 +166,24 @@ export default function ChildrenPage() {
       load();
     } else if (job === 'points') {
       if (safePoints === 0) return;
-      setBusyChild(child.id);
+      setBusyChild(e.id);
       await supabase.from('points_log').insert({
-        child_id: child.id,
-        church_id: child.church_id,
-        service_id: child.service_id,
-        class_id: child.class_id,
+        enrollment_id: e.id,
+        church_id: e.church_id,
+        service_id: e.service_id,
+        class_id: e.class_id,
         delta: (pointsMode === 'add' ? 1 : -1) * safePoints,
         recorded_by: profile?.id,
       });
       setBusyChild(null);
       load();
     } else if (job === 'call') {
-      if (child.phone) window.location.href = `tel:${child.phone}`;
+      if (e.person.phone) window.location.href = `tel:${e.person.phone}`;
     } else if (job === 'message') {
-      if (!child.phone) return;
-      const digits = child.phone.replace(/\D/g, '');
+      if (!e.person.phone) return;
+      const digits = e.person.phone.replace(/\D/g, '');
       const waNumber = digits.startsWith('0') ? `2${digits}` : digits;
-      const text = messageTemplate.trim() ? fillTemplate(messageTemplate, child) : '';
+      const text = messageTemplate.trim() ? fillTemplate(messageTemplate, e) : '';
       if (messageChannel === 'whatsapp') {
         const url = text
           ? `https://wa.me/${waNumber}?text=${encodeURIComponent(text)}`
@@ -186,8 +191,8 @@ export default function ChildrenPage() {
         window.open(url, '_blank', 'noopener,noreferrer');
       } else if (messageChannel === 'sms') {
         window.location.href = text
-          ? `sms:${child.phone}?body=${encodeURIComponent(text)}`
-          : `sms:${child.phone}`;
+          ? `sms:${e.person.phone}?body=${encodeURIComponent(text)}`
+          : `sms:${e.person.phone}`;
       }
       // internal: coming soon — button is disabled
     }
@@ -196,27 +201,34 @@ export default function ChildrenPage() {
   // ---------- Filters ----------
   const filtered = useMemo(
     () =>
-      children.filter((c) => {
-        if (churchFilter !== ALL && c.church_id !== churchFilter) return false;
-        if (serviceFilter !== ALL && c.service_id !== serviceFilter) return false;
-        if (classFilter !== ALL && c.class_id !== classFilter) return false;
-        if (search && !(c.name.includes(search) || (c.phone ?? '').includes(search)))
+      enrollments.filter((e) => {
+        if (churchFilter !== ALL && e.church_id !== churchFilter) return false;
+        if (serviceFilter !== ALL && e.service_id !== serviceFilter) return false;
+        if (classFilter !== ALL && e.class_id !== classFilter) return false;
+        if (
+          search &&
+          !(
+            e.person.name.includes(search) ||
+            (e.person.phone ?? '').includes(search) ||
+            e.person.national_id.includes(search)
+          )
+        )
           return false;
-        if (addressFilter && !(c.address ?? '').includes(addressFilter)) return false;
-        if (minPoints && c.points < Number(minPoints)) return false;
-        if (minAttendance && c.attendance_count < Number(minAttendance)) return false;
+        if (addressFilter && !(e.person.address ?? '').includes(addressFilter)) return false;
+        if (minPoints && e.points < Number(minPoints)) return false;
+        if (minAttendance && e.attendance_count < Number(minAttendance)) return false;
         return true;
       }),
-    [children, churchFilter, serviceFilter, classFilter, search, addressFilter, minPoints, minAttendance]
+    [enrollments, churchFilter, serviceFilter, classFilter, search, addressFilter, minPoints, minAttendance]
   );
 
   // ---------- Group by class (sorted by class name) ----------
   const groups = useMemo(() => {
-    const byClass = new Map<string, Child[]>();
-    filtered.forEach((c) => {
-      const arr = byClass.get(c.class_id) ?? [];
-      arr.push(c);
-      byClass.set(c.class_id, arr);
+    const byClass = new Map<string, EnrollmentWithPerson[]>();
+    filtered.forEach((e) => {
+      const arr = byClass.get(e.class_id) ?? [];
+      arr.push(e);
+      byClass.set(e.class_id, arr);
     });
     return Array.from(byClass.entries())
       .map(([classId, kids]) => ({
@@ -236,8 +248,8 @@ export default function ChildrenPage() {
     setMinAttendance('');
   };
 
-  // ---------- Per-child button appearance by job + activated mode ----------
-  const childButton = (child: Child) => {
+  // ---------- Per-person button appearance by job + activated mode ----------
+  const childButton = (child: EnrollmentWithPerson) => {
     if (busyChild === child.id) {
       return <Loader2 className="h-6 w-6 animate-spin text-primary-500" />;
     }
@@ -277,7 +289,7 @@ export default function ChildrenPage() {
           id={`job-btn-${child.id}`}
           aria-label="اتصال"
           onClick={() => doJob(child)}
-          disabled={!child.phone}
+          disabled={!child.person.phone}
           className="flex h-10 w-10 items-center justify-center rounded-full bg-primary-600 text-white shadow transition hover:bg-primary-700 active:scale-95 disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
         >
           <Phone className="h-5 w-5" />
@@ -290,7 +302,7 @@ export default function ChildrenPage() {
         id={`job-btn-${child.id}`}
         aria-label="إرسال رسالة"
         onClick={() => doJob(child)}
-        disabled={!child.phone || messageChannel === 'internal'}
+        disabled={!child.person.phone || messageChannel === 'internal'}
         className={`flex h-10 w-10 items-center justify-center rounded-full text-white shadow transition active:scale-95 disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none ${
           messageChannel === 'whatsapp'
             ? 'bg-emerald-500 hover:bg-emerald-600'
@@ -328,7 +340,7 @@ export default function ChildrenPage() {
         <input
           id="search-input"
           className="input-field pr-9"
-          placeholder="ابحث بالاسم أو الهاتف..."
+          placeholder="ابحث بالاسم أو الهاتف أو الرقم القومي..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
@@ -660,7 +672,7 @@ export default function ChildrenPage() {
                         <div className="flex items-center justify-between gap-3">
                           {/* Name + points/attendance below it */}
                           <div className="min-w-0 flex-1">
-                            <p className="font-extrabold truncate">{child.name}</p>
+                            <p className="font-extrabold truncate">{child.person.name}</p>
                             <div className="mt-1.5 flex gap-2">
                               <span className="badge bg-gold-100 text-gold-600">
                                 <Star className="h-3 w-3" /> {child.points}
@@ -676,16 +688,16 @@ export default function ChildrenPage() {
                         </div>
 
                         {/* Extra info (no phone number) */}
-                        {(child.address || child.notes) && (
+                        {(child.person.address || child.person.notes) && (
                           <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
-                            {child.address && (
+                            {child.person.address && (
                               <span className="flex items-center gap-1">
-                                <MapPin className="h-3 w-3" /> {child.address}
+                                <MapPin className="h-3 w-3" /> {child.person.address}
                               </span>
                             )}
-                            {child.notes && (
+                            {child.person.notes && (
                               <span className="flex items-center gap-1">
-                                <StickyNote className="h-3 w-3" /> {child.notes}
+                                <StickyNote className="h-3 w-3" /> {child.person.notes}
                               </span>
                             )}
                           </div>

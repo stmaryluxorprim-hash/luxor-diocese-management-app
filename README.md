@@ -12,13 +12,30 @@
 - **Sandbox preview (temporary)**: https://3000-i6jkl0qv5exjmcyr35gf7-82b888ba.sandbox.novita.ai
 - **Production**: (deploy to Vercel — see below)
 
-## Architecture
+## Architecture — PERSON-CENTRIC (migration 0011)
+The app is built on **persons**. Every person has one identity row; he can be
+bound to many churches / services / classes through **enrollments**.
+
 ```
-Church (كنيسة)
- └── Service (خدمة)          e.g. مدارس الأحد
-      └── Class (فصل)        e.g. ابتدائي أول
-           └── Child (مخدوم) name/phone/birthdate/address/notes/attendance/points
+persons (الأشخاص — identity table)
+  id (db id) · national_id (= QR code, unique) · name · birthdate
+  gender (male/female) · phone · address · notes · image_url
+
+enrollments (التسجيلات — person bound to a place)
+  person_id → persons
+  church_id → churches      (كنيسة)
+  service_id → services     (خدمة — e.g. مدارس الأحد)
+  class_id → classes        (فصل)
+  attendance_count · points  (per-enrollment counters)
 ```
+
+**One person → many enrollments.** Adding a person in any module (e.g. Sunday
+school) sends his data to `persons` (upsert by `national_id`), then registers
+him as an enrollment in that church + service + class — both steps are done by
+the `add_person_and_enroll` RPC. Attendance (scanner / children page) resolves
+the scanned **national id → person → enrollment** and logs against the
+enrollment (`attendance`, `attendance_log`, `points_log` all use
+`enrollment_id`).
 
 ### Roles (multi-tenant, enforced by RLS at DB level)
 | Role | Scope |
@@ -41,8 +58,9 @@ Church (كنيسة)
 - ✅ Login / Signup (name, user id, phone, password) + approval workflow
 - ✅ App shell: header (uploaded church logo + church name + service name) & bottom bar: الرئيسية، المخدومين، الماسح، الإحصائيات، الإعدادات
 - ✅ الرئيسية: role-aware stat cards + quick actions
-- ✅ المخدومين: realtime list, search, add child (auto class scoping for servants)
-- ✅ الماسح: QR camera scan (native BarcodeDetector) + manual attendance; +1 point per attendance; duplicate-day protection
+- ✅ **Person-centric core (0011)**: `persons` (national_id = QR) + `enrollments`; one person in many churches/services/classes; existing children data migrated automatically
+- ✅ المخدومين: realtime list on enrollments+persons, search by name/phone/national id, add person (single & bulk) via `add_person_and_enroll` RPC with duplicate-person detection by national id
+- ✅ الماسح: QR camera scan (native BarcodeDetector) of national id + manual attendance; multi-enrollment picker; +1 point per attendance; duplicate-day protection
 - ✅ الإحصائيات: totals, last-7-days chart, points leaderboard
 - ✅ الإعدادات: profile (self-edit + photo), approvals, churches (with logo upload), services & classes (photos, church→service cascade), servants management
 - ✅ دعوة خادم جديد: scoped invite link + QR per manager level (`/settings/invite`)

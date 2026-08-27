@@ -5,12 +5,12 @@ import { BarChart3, Trophy, TrendingUp, Star, CalendarCheck, Loader2 } from 'luc
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
 import { createClient } from '@/lib/supabase/client';
-import type { Child } from '@/lib/types';
+import type { EnrollmentWithPerson } from '@/lib/types';
 
 export default function StatsPage() {
   const { profile } = useAuth();
   const supabase = createClient();
-  const [children, setChildren] = useState<Child[]>([]);
+  const [enrollments, setEnrollments] = useState<EnrollmentWithPerson[]>([]);
   const [weekCounts, setWeekCounts] = useState<{ date: string; count: number }[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -19,12 +19,12 @@ export default function StatsPage() {
     since.setDate(since.getDate() - 6);
     const sinceStr = since.toISOString().slice(0, 10);
 
-    const [{ data: kids }, { data: att }] = await Promise.all([
-      supabase.from('children').select('*').order('points', { ascending: false }),
+    const [{ data: enr }, { data: att }] = await Promise.all([
+      supabase.from('enrollments').select('*, person:persons(*)').order('points', { ascending: false }),
       supabase.from('attendance').select('attended_on').gte('attended_on', sinceStr),
     ]);
 
-    setChildren(kids ?? []);
+    setEnrollments(((enr ?? []) as EnrollmentWithPerson[]).filter((e) => e.person));
 
     // Build last-7-days histogram
     const days: { date: string; count: number }[] = [];
@@ -47,15 +47,15 @@ export default function StatsPage() {
     const channel = supabase
       .channel('stats-page')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance' }, load)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'children' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'enrollments' }, load)
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
     };
   }, [profile, supabase, load]);
 
-  const totalAttendance = children.reduce((s, c) => s + c.attendance_count, 0);
-  const totalPoints = children.reduce((s, c) => s + c.points, 0);
+  const totalAttendance = enrollments.reduce((s, c) => s + c.attendance_count, 0);
+  const totalPoints = enrollments.reduce((s, c) => s + c.points, 0);
   const maxWeek = Math.max(1, ...weekCounts.map((d) => d.count));
   const dayName = (iso: string) =>
     new Date(iso + 'T00:00:00').toLocaleDateString('ar-EG', { weekday: 'short' });
@@ -121,7 +121,7 @@ export default function StatsPage() {
               الأعلى نقاطاً
             </h3>
             <ul className="space-y-2">
-              {children.slice(0, 10).map((c, i) => (
+              {enrollments.slice(0, 10).map((c, i) => (
                 <li key={c.id} className="card flex items-center gap-3 !py-3">
                   <span
                     className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-extrabold ${
@@ -136,13 +136,13 @@ export default function StatsPage() {
                   >
                     {i + 1}
                   </span>
-                  <p className="flex-1 truncate font-bold">{c.name}</p>
+                  <p className="flex-1 truncate font-bold">{c.person.name}</p>
                   <span className="badge bg-gold-100 text-gold-600">
                     <Star className="h-3 w-3" /> {c.points}
                   </span>
                 </li>
               ))}
-              {children.length === 0 && (
+              {enrollments.length === 0 && (
                 <li className="card py-10 text-center text-slate-400 font-bold">لا توجد بيانات بعد</li>
               )}
             </ul>
