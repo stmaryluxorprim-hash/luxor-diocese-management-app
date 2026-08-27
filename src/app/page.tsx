@@ -9,6 +9,7 @@ import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
 import { createClient } from '@/lib/supabase/client';
 import { ROLE_LABELS } from '@/lib/types';
+import { cairoDayStartISO } from '@/lib/time';
 
 interface Counts {
   persons: number;
@@ -32,8 +33,8 @@ export default function HomePage() {
 
   const loadCounts = useCallback(async () => {
     if (!profile || profile.status !== 'approved') return;
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
+    // "today" starts at midnight Africa/Cairo, not the device timezone
+    const todayStartISO = cairoDayStartISO();
 
     const [persons, enrollments, attendance, pending, churches, services, classes] = await Promise.all([
       supabase.from('persons').select('id', { count: 'exact', head: true }),
@@ -42,7 +43,7 @@ export default function HomePage() {
       supabase
         .from('attendance_log')
         .select('id', { count: 'exact', head: true })
-        .gte('created_at', todayStart.toISOString()),
+        .gte('created_at', todayStartISO),
       supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
       supabase.from('churches').select('id', { count: 'exact', head: true }),
       supabase.from('services').select('id', { count: 'exact', head: true }),
