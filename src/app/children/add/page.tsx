@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import QRCode from 'qrcode';
 import {
   UserPlus, Users, X, Check, Loader2, QrCode, Camera, Wand2,
-  ArrowRight, FileSpreadsheet, ClipboardPaste, Upload, Trash2, Star,
+  ArrowRight, FileSpreadsheet, ClipboardPaste, Upload, Trash2, Star, IdCard, UserCheck,
 } from 'lucide-react';
 import AppShell from '@/components/AppShell';
 import PhotoCropModal from '@/components/PhotoCropModal';
@@ -15,6 +15,7 @@ import { uploadPhoto } from '@/lib/upload';
 import {
   PHONE_PREFIX, PHONE_LOCAL_LENGTH, GENDER_LABELS,
   type Gender, type Church, type Service, type ClassRoom,
+  type Person, type AddPersonResult,
 } from '@/lib/types';
 
 // ---------- Helpers ----------
@@ -24,12 +25,12 @@ const MONTHS_AR = [
   'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر',
 ];
 
-/** Random readable child code, e.g. CH-4F7K9Q */
+/** Random readable national id (used when the person has no real one), e.g. P-4F7K9Q2M */
 const generateCode = () => {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let s = '';
-  for (let i = 0; i < 6; i++) s += chars[Math.floor(Math.random() * chars.length)];
-  return `CH-${s}`;
+  for (let i = 0; i < 8; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  return `P-${s}`;
 };
 
 /** Compose YYYY-MM-DD from separate day/month/year, or null */
@@ -242,15 +243,17 @@ function SingleAddTab({
 }: {
   churches: Church[]; services: Service[]; classes: ClassRoom[];
 }) {
-  const { profile } = useAuth();
   const supabase = createClient();
-  const router = useRouter();
   const scope = useScope(churches, services, classes);
 
-  // ---- Code + QR square ----
+  // ---- National ID (the QR code) + QR square ----
   const [code, setCode] = useState('');
   const [qrDataUrl, setQrDataUrl] = useState('');
   const [showQr, setShowQr] = useState(false);
+
+  // Existing person found for the typed national id (cross-scope lookup)
+  const [existingPerson, setExistingPerson] = useState<Person | null>(null);
+  const [checkingId, setCheckingId] = useState(false);
 
   useEffect(() => {
     if (!code.trim()) { setQrDataUrl(''); return; }
@@ -258,6 +261,35 @@ function SingleAddTab({
       .then(setQrDataUrl)
       .catch(() => setQrDataUrl(''));
   }, [code]);
+
+  // Look up the person by national id (debounced) — one person may be
+  // in many churches/services/classes, so we reuse his identity row.
+  useEffect(() => {
+    const nid = code.trim();
+    setExistingPerson(null);
+    if (!nid) return;
+    setCheckingId(true);
+    const t = setTimeout(async () => {
+      const { data } = await supabase.rpc('find_person_by_national_id', { p_national_id: nid });
+      const person = Array.isArray(data) ? (data[0] as Person | undefined) : (data as Person | null);
+      setExistingPerson(person ?? null);
+      setCheckingId(false);
+    }, 450);
+    return () => { clearTimeout(t); setCheckingId(false); };
+  }, [code, supabase]);
+
+  // Autofill the form from the existing person
+  const fillFromPerson = (p: Person) => {
+    setName(p.name);
+    setGender(p.gender ?? '');
+    setPhoneLocal(p.phone ? p.phone.replace(/^\+2/, '') : '');
+    if (p.birthdate) {
+      const [y, m, d] = p.birthdate.split('-');
+      setBYear(String(Number(y))); setBMonth(String(Number(m))); setBDay(String(Number(d)));
+    }
+    setAddress(p.address ?? '');
+    setNotes(p.notes ?? '');
+  };
 
   const generateAndShow = () => {
     const c = code.trim() || generateCode();
@@ -321,6 +353,7 @@ function SingleAddTab({
 
   const resetForm = () => {
     setCode(''); setShowQr(false);
+    setExistingPerson(null);
     setPhotoBlob(null);
     if (photoPreview) URL.revokeObjectURL(photoPreview);
     setPhotoPreview('');
@@ -347,37 +380,45 @@ function SingleAddTab({
       // Upload photo first (if any)
       let photoUrl: string | null = null;
       if (photoBlob) {
-        photoUrl = await uploadPhoto(supabase, 'children', photoBlob, 'child.webp');
+        photoUrl = await uploadPhoto(supabase, 'persons', photoBlob, 'person.webp');
       }
 
       const points = Math.max(0, Math.floor(Number(startPoints) || 0));
-      const insert: Record<string, unknown> = {
-        church_id: cls.church_id,
-        service_id: cls.service_id,
-        class_id: cls.id,
-        name: name.trim(),
-        gender: gender || null,
-        phone: phoneLocal ? `${PHONE_PREFIX}${phoneLocal}` : null,
-        birthdate: composeBirthdate(bDay, bMonth, bYear),
-        address: address.trim() || null,
-        notes: notes.trim() || null,
-        points,
-        image_url: photoUrl,
-        created_by: profile?.id,
-      };
-      if (code.trim()) insert.qr_code = code.trim();
 
-      const { error: err } = await supabase.from('children').insert(insert);
+      // Person-centric flow: the person data goes to the persons table
+      // (upsert by national id), then he is registered as an enrollment
+      // in this church + service + class — all in one RPC.
+      const { data, error: err } = await supabase.rpc('add_person_and_enroll', {
+        p_church: cls.church_id,
+        p_service: cls.service_id,
+        p_class: cls.id,
+        p_name: name.trim(),
+        p_national_id: code.trim() || null,
+        p_gender: gender || null,
+        p_birthdate: composeBirthdate(bDay, bMonth, bYear),
+        p_phone: phoneLocal ? `${PHONE_PREFIX}${phoneLocal}` : null,
+        p_address: address.trim() || null,
+        p_notes: notes.trim() || null,
+        p_image_url: photoUrl,
+        p_points: points,
+      });
+
       if (err) {
-        setError(
-          err.code === '23505'
-            ? 'هذا الكود مستخدم بالفعل، غيّره أو ولّد كودًا جديدًا'
-            : 'تعذر الحفظ، تأكد من الصلاحيات وحاول مجددًا'
-        );
+        setError('تعذر الحفظ، تأكد من الصلاحيات وحاول مجددًا');
         setSaving(false);
         return;
       }
-      setSavedName(name.trim());
+      const result = data as AddPersonResult;
+      if (result?.already_enrolled) {
+        setError(`"${name.trim()}" مسجّل بالفعل في هذا الفصل`);
+        setSaving(false);
+        return;
+      }
+      setSavedName(
+        result?.person_created
+          ? name.trim()
+          : `${name.trim()} (شخص موجود — تم تسجيله في الفصل)`
+      );
       resetForm();
       setSaving(false);
     } catch {
@@ -455,15 +496,18 @@ function SingleAddTab({
       <div className="card space-y-3">
         <ScopeSelectors scope={scope} churches={churches} idPrefix="single" />
 
-        {/* Code */}
+        {/* National ID (the QR code) */}
         <div>
-          <label className="mb-1 block text-xs font-bold text-slate-500">الكود</label>
+          <label className="mb-1 flex items-center gap-1 text-xs font-bold text-slate-500">
+            <IdCard className="h-3.5 w-3.5 text-primary-500" />
+            الرقم القومي (كود الـ QR)
+          </label>
           <div className="flex gap-2">
             <input
               id="single-code"
               className="input-field flex-1"
               dir="ltr"
-              placeholder="اكتب الكود أو ولّده تلقائيًا"
+              placeholder="اكتب الرقم القومي أو ولّد كودًا مؤقتًا"
               value={code}
               onChange={(e) => setCode(e.target.value)}
             />
@@ -477,6 +521,29 @@ function SingleAddTab({
               <Wand2 className="h-5 w-5" />
             </button>
           </div>
+          {checkingId && (
+            <p className="mt-1 flex items-center gap-1 text-[11px] font-bold text-slate-400">
+              <Loader2 className="h-3 w-3 animate-spin" /> جارٍ التحقق من الرقم...
+            </p>
+          )}
+          {existingPerson && (
+            <div className="mt-2 rounded-xl bg-emerald-50 px-3 py-2">
+              <p className="flex items-center gap-1 text-xs font-extrabold text-emerald-700">
+                <UserCheck className="h-4 w-4" />
+                شخص مسجّل بالفعل: {existingPerson.name}
+              </p>
+              <p className="mt-0.5 text-[11px] font-bold text-emerald-600">
+                سيتم ربط نفس الشخص بهذا الفصل دون تكرار بياناته
+              </p>
+              <button
+                type="button"
+                onClick={() => fillFromPerson(existingPerson)}
+                className="mt-1.5 rounded-lg bg-emerald-600 px-3 py-1 text-[11px] font-extrabold text-white transition active:scale-95"
+              >
+                تعبئة بياناته في النموذج
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -499,30 +566,30 @@ function SingleAddTab({
           <label className="mb-1 block text-xs font-bold text-slate-500">النوع</label>
           <div className="grid grid-cols-2 gap-2">
             <button
-              id="gender-boy"
+              id="gender-male"
               type="button"
-              aria-pressed={gender === 'boy'}
-              onClick={() => setGender(gender === 'boy' ? '' : 'boy')}
+              aria-pressed={gender === 'male'}
+              onClick={() => setGender(gender === 'male' ? '' : 'male')}
               className={`rounded-xl py-2.5 text-sm font-extrabold transition active:scale-95 ${
-                gender === 'boy'
+                gender === 'male'
                   ? 'bg-primary-600 text-white shadow ring-2 ring-primary-300'
                   : 'bg-primary-50 text-primary-600'
               }`}
             >
-              {GENDER_LABELS.boy} 👦
+              {GENDER_LABELS.male} 👦
             </button>
             <button
-              id="gender-girl"
+              id="gender-female"
               type="button"
-              aria-pressed={gender === 'girl'}
-              onClick={() => setGender(gender === 'girl' ? '' : 'girl')}
+              aria-pressed={gender === 'female'}
+              onClick={() => setGender(gender === 'female' ? '' : 'female')}
               className={`rounded-xl py-2.5 text-sm font-extrabold transition active:scale-95 ${
-                gender === 'girl'
+                gender === 'female'
                   ? 'bg-pink-500 text-white shadow ring-2 ring-pink-300'
                   : 'bg-pink-50 text-pink-500'
               }`}
             >
-              {GENDER_LABELS.girl} 👧
+              {GENDER_LABELS.female} 👧
             </button>
           </div>
         </div>
@@ -660,7 +727,7 @@ function SingleAddTab({
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-6" onClick={() => setShowQr(false)}>
           <div className="w-full max-w-xs rounded-3xl bg-white p-5 text-center" onClick={(e) => e.stopPropagation()}>
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-base font-extrabold">كود المخدوم</h3>
+              <h3 className="text-base font-extrabold">الرقم القومي — كود الـ QR</h3>
               <button type="button" onClick={() => setShowQr(false)} aria-label="إغلاق" className="rounded-full p-1.5 hover:bg-slate-100">
                 <X className="h-5 w-5" />
               </button>
@@ -705,7 +772,7 @@ const BULK_FIELDS: { value: BulkField; label: string }[] = [
   { value: 'address', label: 'العنوان' },
   { value: 'notes', label: 'ملاحظات' },
   { value: 'points', label: 'نقاط' },
-  { value: 'code', label: 'الكود' },
+  { value: 'code', label: 'الرقم القومي' },
 ];
 
 /** Guess mapping from a header cell text */
@@ -721,7 +788,7 @@ const guessField = (header: string): BulkField => {
   if (/عنوان|address/.test(h)) return 'address';
   if (/ملاحظ|note/.test(h)) return 'notes';
   if (/نقاط|point/.test(h)) return 'points';
-  if (/كود|code|qr/.test(h)) return 'code';
+  if (/قومي|كود|national|code|qr/.test(h)) return 'code';
   return 'skip';
 };
 
@@ -810,8 +877,8 @@ const parseFullDate = (raw: string, order: DateOrder): string | null => {
 
 const parseGender = (v: unknown): Gender | null => {
   const s = String(v ?? '').trim().toLowerCase();
-  if (/^(ولد|ذكر|boy|male|m|بنين)$/.test(s)) return 'boy';
-  if (/^(بنت|أنثى|انثى|girl|female|f|بنات)$/.test(s)) return 'girl';
+  if (/^(ولد|ذكر|boy|male|m|بنين)$/.test(s)) return 'male';
+  if (/^(بنت|أنثى|انثى|girl|female|f|بنات)$/.test(s)) return 'female';
   return null;
 };
 
@@ -828,7 +895,6 @@ function BulkAddTab({
 }: {
   churches: Church[]; services: Service[]; classes: ClassRoom[];
 }) {
-  const { profile } = useAuth();
   const supabase = createClient();
   const scope = useScope(churches, services, classes);
 
@@ -993,7 +1059,7 @@ function BulkAddTab({
           r.genderOverride !== undefined
             ? r.genderOverride
             : (hasGenderData ? parseGender(cellOf(r, 'gender')) : null) || (defaultGender || null);
-        const next: Gender | null = current === null ? 'boy' : current === 'boy' ? 'girl' : null;
+        const next: Gender | null = current === null ? 'male' : current === 'male' ? 'female' : null;
         return { ...r, genderOverride: next };
       })
     );
@@ -1024,25 +1090,29 @@ function BulkAddTab({
       if (!r.name) { setStatus('error', 'الاسم مفقود'); fail++; continue; }
       if (r.phone === undefined) { setStatus('error', 'رقم هاتف غير صالح'); fail++; continue; }
 
-      const insert: Record<string, unknown> = {
-        church_id: cls.church_id,
-        service_id: cls.service_id,
-        class_id: cls.id,
-        name: r.name,
-        gender: r.gender,
-        birthdate: r.birthdate,
-        phone: r.phone,
-        address: r.address || null,
-        notes: r.notes || null,
-        points: r.points,
-        created_by: profile?.id,
-      };
       const codeVal = r.code === 'AUTO' ? generateCode() : r.code;
-      if (codeVal) insert.qr_code = codeVal;
 
-      const { error: err } = await supabase.from('children').insert(insert);
+      // Person-centric flow: upsert the person by national id, then
+      // register him as an enrollment in this church/service/class.
+      const { data, error: err } = await supabase.rpc('add_person_and_enroll', {
+        p_church: cls.church_id,
+        p_service: cls.service_id,
+        p_class: cls.id,
+        p_name: r.name,
+        p_national_id: codeVal || null,
+        p_gender: r.gender,
+        p_birthdate: r.birthdate,
+        p_phone: r.phone,
+        p_address: r.address || null,
+        p_notes: r.notes || null,
+        p_points: r.points,
+      });
+      const result = data as AddPersonResult | null;
       if (err) {
-        setStatus('error', err.code === '23505' ? 'كود مكرر' : 'فشل الحفظ');
+        setStatus('error', 'فشل الحفظ');
+        fail++;
+      } else if (result?.already_enrolled) {
+        setStatus('error', 'مسجّل بالفعل في الفصل');
         fail++;
       } else {
         setStatus('ok');
@@ -1191,24 +1261,24 @@ function BulkAddTab({
                 <button
                   id="bulk-gender-boys"
                   type="button"
-                  aria-pressed={defaultGender === 'boy'}
-                  onClick={() => setDefaultGender(defaultGender === 'boy' ? '' : 'boy')}
+                  aria-pressed={defaultGender === 'male'}
+                  onClick={() => setDefaultGender(defaultGender === 'male' ? '' : 'male')}
                   className={`rounded-xl py-2 text-xs font-extrabold transition active:scale-95 ${
-                    defaultGender === 'boy' ? 'bg-primary-600 text-white shadow' : 'bg-primary-50 text-primary-600'
+                    defaultGender === 'male' ? 'bg-primary-600 text-white shadow' : 'bg-primary-50 text-primary-600'
                   }`}
                 >
-                  الكل ولاد 👦
+                  الكل ذكور 👦
                 </button>
                 <button
                   id="bulk-gender-girls"
                   type="button"
-                  aria-pressed={defaultGender === 'girl'}
-                  onClick={() => setDefaultGender(defaultGender === 'girl' ? '' : 'girl')}
+                  aria-pressed={defaultGender === 'female'}
+                  onClick={() => setDefaultGender(defaultGender === 'female' ? '' : 'female')}
                   className={`rounded-xl py-2 text-xs font-extrabold transition active:scale-95 ${
-                    defaultGender === 'girl' ? 'bg-pink-500 text-white shadow' : 'bg-pink-50 text-pink-500'
+                    defaultGender === 'female' ? 'bg-pink-500 text-white shadow' : 'bg-pink-50 text-pink-500'
                   }`}
                 >
-                  الكل بنات 👧
+                  الكل إناث 👧
                 </button>
               </div>
               {hasGenderData && defaultGender && (
@@ -1230,7 +1300,7 @@ function BulkAddTab({
                   className="h-4 w-4 accent-primary-600"
                 />
                 <Wand2 className="h-4 w-4 text-primary-500" />
-                توليد كود تلقائي (CH-XXXXXX) {hasCodeCol ? 'للصفوف التي بلا كود' : 'لكل المخدومين'}
+                توليد رقم مؤقت تلقائي (P-XXXXXXXX) {hasCodeCol ? 'للصفوف التي بلا كود' : 'لكل المخدومين'}
               </label>
             </div>
 
@@ -1342,12 +1412,12 @@ function BulkAddTab({
                           aria-label="تبديل النوع"
                           onClick={() => cycleGender(r.row.key)}
                           className={`rounded-lg px-2 py-1 text-[11px] font-extrabold transition active:scale-95 ${
-                            r.gender === 'boy' ? 'bg-primary-100 text-primary-700'
-                            : r.gender === 'girl' ? 'bg-pink-100 text-pink-600'
+                            r.gender === 'male' ? 'bg-primary-100 text-primary-700'
+                            : r.gender === 'female' ? 'bg-pink-100 text-pink-600'
                             : 'bg-slate-100 text-slate-400'
                           }`}
                         >
-                          {r.gender === 'boy' ? '👦 ولد' : r.gender === 'girl' ? '👧 بنت' : '—'}
+                          {r.gender === 'male' ? '👦 ذكر' : r.gender === 'female' ? '👧 أنثى' : '—'}
                         </button>
                       </td>
                       <td className="border-t border-indigo-50 p-1.5 font-bold text-slate-500" dir="ltr">
