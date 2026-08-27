@@ -6,6 +6,7 @@ import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
 import { createClient } from '@/lib/supabase/client';
 import type { EnrollmentWithPerson } from '@/lib/types';
+import { cairoDayStartISO, cairoToday, WEEKDAY_SHORT } from '@/lib/time';
 
 export default function StatsPage() {
   const { profile } = useAuth();
@@ -15,28 +16,30 @@ export default function StatsPage() {
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    const since = new Date();
-    since.setDate(since.getDate() - 6);
-    since.setHours(0, 0, 0, 0);
+    // 7-day window starting from Cairo midnight 6 days ago
+    const sinceISO = new Date(new Date(cairoDayStartISO()).getTime() - 6 * 86_400_000).toISOString();
 
     const [{ data: enr }, { data: att }] = await Promise.all([
       supabase.from('enrollments').select('*, person:persons(*)').order('points', { ascending: false }),
       // every attendance_log row is an attendance (removal deletes the row)
       supabase
         .from('attendance_log')
-        .select('created_at')
-        .gte('created_at', since.toISOString()),
+        .select('created_at, attended_on')
+        .gte('created_at', sinceISO),
     ]);
 
     setEnrollments(((enr ?? []) as EnrollmentWithPerson[]).filter((e) => e.person));
 
-    // Build last-7-days histogram
+    // Build last-7-days histogram keyed by the Cairo day (attended_on)
     const days: { date: string; count: number }[] = [];
     for (let i = 6; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const key = d.toISOString().slice(0, 10);
-      days.push({ date: key, count: (att ?? []).filter((a) => (a.created_at ?? '').slice(0, 10) === key).length });
+      const key = cairoToday(new Date(Date.now() - i * 86_400_000));
+      days.push({
+        date: key,
+        count: (att ?? []).filter(
+          (a) => (a.attended_on ?? (a.created_at ?? '').slice(0, 10)) === key
+        ).length,
+      });
     }
     setWeekCounts(days);
     setLoading(false);
@@ -61,8 +64,8 @@ export default function StatsPage() {
   const totalAttendance = enrollments.reduce((s, c) => s + c.attendance_count, 0);
   const totalPoints = enrollments.reduce((s, c) => s + c.points, 0);
   const maxWeek = Math.max(1, ...weekCounts.map((d) => d.count));
-  const dayName = (iso: string) =>
-    new Date(iso + 'T00:00:00').toLocaleDateString('ar-EG', { weekday: 'short' });
+  // Weekday of a 'YYYY-MM-DD' Cairo date — parse as UTC so device TZ can't shift the day
+  const dayName = (iso: string) => WEEKDAY_SHORT[new Date(iso + 'T00:00:00Z').getUTCDay()];
 
   return (
     <AppShell>

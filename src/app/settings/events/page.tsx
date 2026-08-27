@@ -3,12 +3,16 @@
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import {
-  CalendarDays, Plus, ArrowRight, Loader2, X, Pencil, Save, Trash2,
+  CalendarDays, Plus, ArrowRight, Loader2, X, Pencil, Save, Trash2, Star, Clock,
 } from 'lucide-react';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
 import { createClient } from '@/lib/supabase/client';
-import type { AppEvent, ClassRoom, Service, Church } from '@/lib/types';
+import type { AppEvent, ClassRoom, Service, Church, EventRecurrence } from '@/lib/types';
+import { WEEKDAY_LABELS, describeEventSchedule } from '@/lib/time';
+
+// Sentinel for "all services / all classes" in select controls (null in DB)
+const ALL = 'all';
 
 export default function EventsPage() {
   const { profile } = useAuth();
@@ -23,7 +27,7 @@ export default function EventsPage() {
 
   const load = useCallback(async () => {
     const [{ data: ev }, { data: cl }, { data: sv }, { data: ch }] = await Promise.all([
-      supabase.from('events').select('*').order('event_date', { ascending: false, nullsFirst: false }),
+      supabase.from('events').select('*').order('created_at', { ascending: false }),
       supabase.from('classes').select('*').order('name'),
       supabase.from('services').select('*').order('name'),
       supabase.from('churches').select('*').order('name'),
@@ -48,9 +52,16 @@ export default function EventsPage() {
     return () => { supabase.removeChannel(ch); };
   }, [profile, supabase, load]);
 
-  const className = (id: string) => classes.find((c) => c.id === id)?.name ?? '';
-  const serviceName = (id: string) => services.find((s) => s.id === id)?.name ?? '';
   const churchName = (id: string) => churches.find((c) => c.id === id)?.name ?? '';
+
+  const scopeLabel = (ev: AppEvent) => {
+    const church = churchName(ev.church_id);
+    if (ev.service_id === null) return `${church} ← كل الخدمات`;
+    const service = services.find((s) => s.id === ev.service_id)?.name ?? '';
+    if (ev.class_id === null) return `${church} ← ${service} ← كل الفصول`;
+    const cls = classes.find((c) => c.id === ev.class_id)?.name ?? '';
+    return `${church} ← ${service} ← ${cls}`;
+  };
 
   const remove = async (ev: AppEvent) => {
     if (!confirm(`حذف المناسبة «${ev.name}»؟ سجلات الحضور المرتبطة بها ستبقى بدون مناسبة.`)) return;
@@ -77,7 +88,9 @@ export default function EventsPage() {
       </section>
 
       <p className="mb-4 rounded-2xl bg-violet-50 px-4 py-3 text-xs font-bold text-violet-700">
-        الحضور يُسجَّل على مناسبة (قداس، اجتماع، رحلة...) مرتبطة بكنيسة وخدمة وفصل.
+        الحضور يُسجَّل على مناسبة (قداس، اجتماع، رحلة...). المناسبة قد تكون مرة واحدة أو أسبوعية،
+        ونطاقها فصل محدد أو كل الفصول أو كل الخدمات، ولها نقاط تُمنح عند الحضور.
+        جميع المواعيد بتوقيت القاهرة.
       </p>
 
       {loading ? (
@@ -90,13 +103,16 @@ export default function EventsPage() {
                 <CalendarDays className="h-6 w-6 text-violet-400" />
               </div>
               <div className="min-w-0 flex-1">
-                <p className="font-extrabold">{ev.name}</p>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  {churchName(ev.church_id)} ← {serviceName(ev.service_id)} ← {className(ev.class_id)}
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="font-extrabold">{ev.name}</p>
+                  <span className="badge bg-amber-100 text-amber-700 flex items-center gap-1">
+                    <Star className="h-3 w-3" /> {ev.points} نقطة
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400 mt-0.5">{scopeLabel(ev)}</p>
+                <p className="text-xs font-bold text-violet-600 mt-1 flex items-center gap-1">
+                  <Clock className="h-3 w-3" /> {describeEventSchedule(ev)}
                 </p>
-                {ev.event_date && (
-                  <p className="text-xs font-bold text-violet-600 mt-1">{ev.event_date}</p>
-                )}
                 {ev.description && <p className="text-xs text-slate-500 mt-1">{ev.description}</p>}
               </div>
               <div className="flex shrink-0 gap-1.5">
@@ -163,32 +179,50 @@ function EventModal({
   const supabase = createClient();
   const [name, setName] = useState(event?.name ?? '');
   const [description, setDescription] = useState(event?.description ?? '');
-  const [eventDate, setEventDate] = useState(event?.event_date ?? '');
   const [churchId, setChurchId] = useState(event?.church_id ?? '');
-  const [serviceId, setServiceId] = useState(event?.service_id ?? '');
-  const [classId, setClassId] = useState(event?.class_id ?? '');
+  const [serviceId, setServiceId] = useState(event ? (event.service_id ?? ALL) : '');
+  const [classId, setClassId] = useState(event ? (event.class_id ?? ALL) : '');
+  const [recurrence, setRecurrence] = useState<EventRecurrence>(event?.recurrence ?? 'once');
+  const [eventDate, setEventDate] = useState(event?.event_date ?? '');
+  const [weekdays, setWeekdays] = useState<number[]>(event?.weekdays ?? []);
+  const [startTime, setStartTime] = useState(event?.start_time?.slice(0, 5) ?? '');
+  const [endTime, setEndTime] = useState(event?.end_time?.slice(0, 5) ?? '');
+  const [points, setPoints] = useState(String(event?.points ?? 1));
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const filteredServices = churchId ? services.filter((s) => s.church_id === churchId) : services;
-  const filteredClasses = classes.filter(
-    (c) => (!churchId || c.church_id === churchId) && (!serviceId || c.service_id === serviceId)
-  );
+  const filteredServices = churchId ? services.filter((s) => s.church_id === churchId) : [];
+  const filteredClasses = serviceId && serviceId !== ALL
+    ? classes.filter((c) => c.church_id === churchId && c.service_id === serviceId)
+    : [];
+
+  const toggleWeekday = (d: number) => {
+    setWeekdays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d].sort()));
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    const cls = classes.find((c) => c.id === classId);
-    if (!cls) return setError('اختر الفصل');
+    if (!churchId) return setError('اختر الكنيسة');
+    if (!serviceId) return setError('اختر الخدمة أو «كل الخدمات»');
+    if (serviceId !== ALL && !classId) return setError('اختر الفصل أو «كل الفصول»');
+    if (recurrence === 'once' && !eventDate) return setError('حدد تاريخ المناسبة');
+    if (recurrence === 'weekly' && weekdays.length === 0) return setError('اختر يوماً واحداً على الأقل');
+    const pts = Math.max(0, Math.floor(Number(points) || 0));
     setSaving(true);
 
     const base = {
-      church_id: cls.church_id,
-      service_id: cls.service_id,
-      class_id: cls.id,
+      church_id: churchId,
+      service_id: serviceId === ALL ? null : serviceId,
+      class_id: serviceId === ALL || classId === ALL ? null : classId,
       name: name.trim(),
       description: description.trim() || null,
-      event_date: eventDate || null,
+      recurrence,
+      event_date: recurrence === 'once' ? eventDate : null,
+      weekdays: recurrence === 'weekly' ? weekdays : null,
+      start_time: startTime || null,
+      end_time: endTime || null,
+      points: pts,
     };
 
     const { error: err } = mode === 'add'
@@ -236,32 +270,118 @@ function EventModal({
               required
             >
               <option value="">اختر الخدمة</option>
+              <option value={ALL}>✳ كل الخدمات</option>
               {filteredServices.map((s) => (
                 <option key={s.id} value={s.id}>{s.name}</option>
               ))}
             </select>
           </div>
-          <div>
-            <label className="mb-1 block text-xs font-bold text-slate-500">الفصل *</label>
-            <select
-              className="input-field"
-              value={classId}
-              onChange={(e) => setClassId(e.target.value)}
-              required
-            >
-              <option value="">اختر الفصل</option>
-              {filteredClasses.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
-          </div>
+          {serviceId && serviceId !== ALL && (
+            <div>
+              <label className="mb-1 block text-xs font-bold text-slate-500">الفصل *</label>
+              <select
+                className="input-field"
+                value={classId}
+                onChange={(e) => setClassId(e.target.value)}
+                required
+              >
+                <option value="">اختر الفصل</option>
+                <option value={ALL}>✳ كل الفصول</option>
+                {filteredClasses.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
           <input className="input-field" placeholder="اسم المناسبة * (مثال: قداس الجمعة)" value={name}
             onChange={(e) => setName(e.target.value)} required />
+
           <div>
-            <label className="mb-1 block text-xs font-bold text-slate-500">تاريخ المناسبة</label>
-            <input type="date" className="input-field" value={eventDate}
-              onChange={(e) => setEventDate(e.target.value)} />
+            <label className="mb-1 block text-xs font-bold text-slate-500">التكرار *</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setRecurrence('once')}
+                className={`rounded-xl px-3 py-2 text-sm font-bold ring-2 transition ${
+                  recurrence === 'once'
+                    ? 'bg-violet-600 text-white ring-violet-600'
+                    : 'bg-white text-slate-600 ring-slate-200 hover:ring-violet-300'
+                }`}
+              >
+                مرة واحدة
+              </button>
+              <button
+                type="button"
+                onClick={() => setRecurrence('weekly')}
+                className={`rounded-xl px-3 py-2 text-sm font-bold ring-2 transition ${
+                  recurrence === 'weekly'
+                    ? 'bg-violet-600 text-white ring-violet-600'
+                    : 'bg-white text-slate-600 ring-slate-200 hover:ring-violet-300'
+                }`}
+              >
+                أسبوعياً (أيام الأسبوع)
+              </button>
+            </div>
           </div>
+
+          {recurrence === 'once' ? (
+            <div>
+              <label className="mb-1 block text-xs font-bold text-slate-500">تاريخ المناسبة *</label>
+              <input type="date" className="input-field" value={eventDate}
+                onChange={(e) => setEventDate(e.target.value)} required />
+            </div>
+          ) : (
+            <div>
+              <label className="mb-1 block text-xs font-bold text-slate-500">
+                أيام الأسبوع * (يوم واحد = كل أسبوع، عدة أيام = أيام الأسبوع)
+              </label>
+              <div className="grid grid-cols-7 gap-1">
+                {WEEKDAY_LABELS.map((label, d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => toggleWeekday(d)}
+                    aria-pressed={weekdays.includes(d)}
+                    className={`rounded-lg px-0.5 py-2 text-[10px] font-bold ring-1 transition ${
+                      weekdays.includes(d)
+                        ? 'bg-violet-600 text-white ring-violet-600'
+                        : 'bg-white text-slate-500 ring-slate-200 hover:ring-violet-300'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="mb-1 block text-xs font-bold text-slate-500">من الساعة</label>
+              <input type="time" className="input-field" value={startTime}
+                onChange={(e) => setStartTime(e.target.value)} />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-bold text-slate-500">إلى الساعة</label>
+              <input type="time" className="input-field" value={endTime}
+                onChange={(e) => setEndTime(e.target.value)} />
+            </div>
+          </div>
+          <p className="rounded-xl bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-500">
+            المواعيد بتوقيت القاهرة. خارج اليوم أو الوقت المحدد سيظهر تنبيه عند محاولة تسجيل الحضور.
+          </p>
+
+          <div>
+            <label className="mb-1 block text-xs font-bold text-slate-500">نقاط الحضور *</label>
+            <div className="flex items-center gap-2">
+              <Star className="h-5 w-5 text-amber-500" />
+              <input
+                type="number" min={0} className="input-field" value={points}
+                onChange={(e) => setPoints(e.target.value)} required
+              />
+            </div>
+          </div>
+
           <textarea className="input-field" placeholder="وصف المناسبة" rows={2} value={description}
             onChange={(e) => setDescription(e.target.value)} />
           {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm font-bold text-red-600">{error}</p>}

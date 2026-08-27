@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -12,10 +12,13 @@ import {
   Settings,
   LogOut,
   Layers,
+  CalendarDays,
+  Clock,
   type LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { ROLE_LABELS } from '@/lib/types';
+import { formatCairoDate, formatCairoTime } from '@/lib/time';
 
 // ---------- Main pages (same 5 as bottom nav) ----------
 const MAIN_PAGES: { href: string; label: string; icon: LucideIcon; id: string }[] = [
@@ -34,6 +37,35 @@ const MODULES: { href: string; label: string; icon: LucideIcon; id: string }[] =
 interface SideMenuProps {
   open: boolean;
   onClose: () => void;
+}
+
+// ---------- Live date & time in app timezone (Africa/Cairo) ----------
+function CairoDateTime({ active }: { active: boolean }) {
+  const [now, setNow] = useState<Date | null>(null);
+
+  useEffect(() => {
+    if (!active) return;
+    setNow(new Date());
+    const t = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(t);
+  }, [active]);
+
+  return (
+    <div
+      id="side-menu-datetime"
+      className="border-b border-indigo-100 bg-indigo-50/60 px-4 py-2.5"
+    >
+      <p className="flex items-center gap-1.5 text-xs font-bold text-slate-600">
+        <CalendarDays className="h-4 w-4 shrink-0 text-primary-600" />
+        {now ? formatCairoDate(now) : '—'}
+      </p>
+      <p className="mt-1 flex items-center gap-1.5 text-sm font-extrabold text-primary-700 tabular-nums">
+        <Clock className="h-4 w-4 shrink-0 text-primary-600" />
+        {now ? formatCairoTime(now) : '—'}
+        <span className="mr-auto text-[10px] font-bold text-slate-400">بتوقيت القاهرة</span>
+      </p>
+    </div>
+  );
 }
 
 export default function SideMenu({ open, onClose }: SideMenuProps) {
@@ -103,6 +135,9 @@ export default function SideMenu({ open, onClose }: SideMenuProps) {
             </div>
           </div>
         </div>
+
+        {/* ---------- Cairo date & time (app timezone) ---------- */}
+        <CairoDateTime active={open} />
 
         {/* ---------- Body: main pages + modules ---------- */}
         <nav className="flex-1 overflow-y-auto px-3 py-4">
