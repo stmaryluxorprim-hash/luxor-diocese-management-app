@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   Users, Search, Plus, Phone, MapPin, Star, CalendarCheck, X, Loader2, StickyNote,
   SlidersHorizontal, ChevronDown, School, Check, Minus,
-  MessageSquare, Send, Inbox, Church as ChurchIcon, HeartHandshake,
+  MessageSquare, Inbox, PenSquare,
 } from 'lucide-react';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
@@ -19,6 +19,30 @@ const ALL = 'all';
 type AttendanceMode = 'add' | 'remove';
 type PointsMode = 'add' | 'subtract';
 type MessageChannel = 'whatsapp' | 'sms' | 'internal';
+
+// ---------- Message template variables ----------
+const MSG_VARS = [
+  { token: '[الاسم الأول]', label: 'الاسم الأول' },
+  { token: '[الاسم الكامل]', label: 'الاسم الكامل' },
+  { token: '[تاريخ الميلاد]', label: 'تاريخ الميلاد' },
+  { token: '[رقم الهاتف]', label: 'رقم الهاتف' },
+];
+
+const fillTemplate = (template: string, child: Child) =>
+  template
+    .replaceAll('[الاسم الأول]', child.name.trim().split(/\s+/)[0] ?? '')
+    .replaceAll('[الاسم الكامل]', child.name)
+    .replaceAll('[تاريخ الميلاد]', child.birthdate ?? '')
+    .replaceAll('[رقم الهاتف]', child.phone ?? '');
+
+// WhatsApp brand icon (lucide has no official one)
+function WhatsAppIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
+      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+    </svg>
+  );
+}
 
 export default function ChildrenPage() {
   const { profile } = useAuth();
@@ -46,6 +70,8 @@ export default function ChildrenPage() {
   const [attendanceMode, setAttendanceMode] = useState<AttendanceMode>('add');
   const [pointsMode, setPointsMode] = useState<PointsMode>('add');
   const [messageChannel, setMessageChannel] = useState<MessageChannel>('whatsapp');
+  const [messageTemplate, setMessageTemplate] = useState('');
+  const [showCompose, setShowCompose] = useState(false);
 
   // ---------- Filter accordion ----------
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -151,10 +177,16 @@ export default function ChildrenPage() {
       if (!child.phone) return;
       const digits = child.phone.replace(/\D/g, '');
       const waNumber = digits.startsWith('0') ? `2${digits}` : digits;
+      const text = messageTemplate.trim() ? fillTemplate(messageTemplate, child) : '';
       if (messageChannel === 'whatsapp') {
-        window.open(`https://wa.me/${waNumber}`, '_blank', 'noopener,noreferrer');
+        const url = text
+          ? `https://wa.me/${waNumber}?text=${encodeURIComponent(text)}`
+          : `https://wa.me/${waNumber}`;
+        window.open(url, '_blank', 'noopener,noreferrer');
       } else if (messageChannel === 'sms') {
-        window.location.href = `sms:${child.phone}`;
+        window.location.href = text
+          ? `sms:${child.phone}?body=${encodeURIComponent(text)}`
+          : `sms:${child.phone}`;
       }
       // internal: coming soon — button is disabled
     }
@@ -258,10 +290,14 @@ export default function ChildrenPage() {
         aria-label="إرسال رسالة"
         onClick={() => doJob(child)}
         disabled={!child.phone || messageChannel === 'internal'}
-        className="flex h-10 w-10 items-center justify-center rounded-full bg-primary-600 text-white shadow transition hover:bg-primary-700 active:scale-95 disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
+        className={`flex h-10 w-10 items-center justify-center rounded-full text-white shadow transition active:scale-95 disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none ${
+          messageChannel === 'whatsapp'
+            ? 'bg-emerald-500 hover:bg-emerald-600'
+            : 'bg-primary-600 hover:bg-primary-700'
+        }`}
       >
         {messageChannel === 'whatsapp' ? (
-          <Send className="h-5 w-5" />
+          <WhatsAppIcon className="h-5 w-5" />
         ) : messageChannel === 'sms' ? (
           <MessageSquare className="h-5 w-5" />
         ) : (
@@ -301,11 +337,10 @@ export default function ChildrenPage() {
       {/* Each dropdown only contains what the current user can see (RLS-scoped). */}
       <div className="mb-3 grid grid-cols-3 gap-2">
         <div className="relative">
-          <ChurchIcon className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
           <select
             id="church-selector"
             aria-label="اختيار الكنيسة"
-            className="input-field appearance-none !px-2 pr-8 text-xs font-bold"
+            className="input-field appearance-none !px-2 text-xs font-bold"
             value={churchFilter}
             onChange={(e) => onChurchChange(e.target.value)}
             disabled={churches.length <= 1}
@@ -319,11 +354,10 @@ export default function ChildrenPage() {
         </div>
 
         <div className="relative">
-          <HeartHandshake className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
           <select
             id="service-selector"
             aria-label="اختيار الخدمة"
-            className="input-field appearance-none !px-2 pr-8 text-xs font-bold"
+            className="input-field appearance-none !px-2 text-xs font-bold"
             value={serviceFilter}
             onChange={(e) => onServiceChange(e.target.value)}
             disabled={visibleServices.length <= 1}
@@ -337,11 +371,10 @@ export default function ChildrenPage() {
         </div>
 
         <div className="relative">
-          <School className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
           <select
             id="class-selector"
             aria-label="اختيار الفصل"
-            className="input-field appearance-none !px-2 pr-8 text-xs font-bold"
+            className="input-field appearance-none !px-2 text-xs font-bold"
             value={classFilter}
             onChange={(e) => setClassFilter(e.target.value)}
             disabled={visibleClasses.length <= 1}
@@ -465,7 +498,7 @@ export default function ChildrenPage() {
                   : 'bg-emerald-50 text-emerald-500'
               }`}
             >
-              <Send className="h-5 w-5" />
+              <WhatsAppIcon className="h-5 w-5" />
             </button>
             <button
               id="msg-mode-sms"
@@ -492,6 +525,18 @@ export default function ChildrenPage() {
               }`}
             >
               <Inbox className="h-5 w-5" />
+            </button>
+            <button
+              id="msg-compose"
+              aria-label="كتابة الرسالة"
+              onClick={() => setShowCompose(true)}
+              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition active:scale-95 ${
+                messageTemplate.trim()
+                  ? 'bg-gold-500 text-white shadow ring-2 ring-gold-300'
+                  : 'bg-gold-100 text-gold-600'
+              }`}
+            >
+              <PenSquare className="h-5 w-5" />
             </button>
           </>
         )}
@@ -664,7 +709,105 @@ export default function ChildrenPage() {
           }}
         />
       )}
+
+      {showCompose && (
+        <ComposeMessageModal
+          template={messageTemplate}
+          onSave={(t) => {
+            setMessageTemplate(t);
+            setShowCompose(false);
+          }}
+          onClose={() => setShowCompose(false)}
+        />
+      )}
     </AppShell>
+  );
+}
+
+// ---------- Compose message modal (template + variables) ----------
+function ComposeMessageModal({
+  template, onSave, onClose,
+}: {
+  template: string; onSave: (t: string) => void; onClose: () => void;
+}) {
+  const [text, setText] = useState(template);
+
+  const insertVar = (token: string) => {
+    const el = document.getElementById('compose-textarea') as HTMLTextAreaElement | null;
+    if (el) {
+      const start = el.selectionStart ?? text.length;
+      const end = el.selectionEnd ?? text.length;
+      const next = text.slice(0, start) + token + text.slice(end);
+      setText(next);
+      requestAnimationFrame(() => {
+        el.focus();
+        el.setSelectionRange(start + token.length, start + token.length);
+      });
+    } else {
+      setText((t) => t + token);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-6">
+      <div className="w-full max-w-md rounded-t-3xl sm:rounded-3xl bg-white p-5 max-h-[90vh] overflow-y-auto no-scrollbar">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-lg font-extrabold">كتابة الرسالة</h3>
+          <button onClick={onClose} aria-label="إغلاق" className="rounded-full p-1.5 hover:bg-slate-100">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <textarea
+          id="compose-textarea"
+          className="input-field"
+          rows={5}
+          placeholder="اكتب نص الرسالة هنا..."
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+        />
+
+        <p className="mt-3 mb-1.5 text-xs font-bold text-slate-500">إضافة متغير:</p>
+        <div className="flex flex-wrap gap-2">
+          {MSG_VARS.map((v) => (
+            <button
+              key={v.token}
+              type="button"
+              onClick={() => insertVar(v.token)}
+              className="rounded-full bg-primary-50 px-3 py-1.5 text-xs font-bold text-primary-700 transition hover:bg-primary-100 active:scale-95"
+            >
+              + {v.label}
+            </button>
+          ))}
+        </div>
+
+        <p className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
+          ستُستبدل المتغيرات ببيانات كل مخدوم عند الإرسال من زر الرسالة في بطاقته
+        </p>
+
+        <div className="mt-4 flex gap-2">
+          {text.trim() && (
+            <button
+              type="button"
+              onClick={() => {
+                setText('');
+              }}
+              className="btn-secondary flex-none !px-4"
+            >
+              مسح
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => onSave(text)}
+            className="btn-primary flex-1 flex items-center justify-center gap-2"
+          >
+            <Check className="h-5 w-5" />
+            حفظ الرسالة
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
