@@ -153,11 +153,9 @@ export default function ChildrenPage() {
   const doJob = async (e: EnrollmentWithPerson) => {
     if (job === 'attendance') {
       setBusyChild(e.id);
+      // enrollment_id already identifies church/service/class
       await supabase.from('attendance_log').insert({
         enrollment_id: e.id,
-        church_id: e.church_id,
-        service_id: e.service_id,
-        class_id: e.class_id,
         action: attendanceMode,
         points_delta: safePoints,
         recorded_by: profile?.id,
@@ -169,9 +167,6 @@ export default function ChildrenPage() {
       setBusyChild(e.id);
       await supabase.from('points_log').insert({
         enrollment_id: e.id,
-        church_id: e.church_id,
-        service_id: e.service_id,
-        class_id: e.class_id,
         delta: (pointsMode === 'add' ? 1 : -1) * safePoints,
         recorded_by: profile?.id,
       });
