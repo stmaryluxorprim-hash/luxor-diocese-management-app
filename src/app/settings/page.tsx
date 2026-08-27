@@ -5,7 +5,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import {
   Settings, UserCheck, Church, Layers, School, LogOut, ChevronLeft, User, Phone, ShieldCheck,
-  QrCode, Pencil, Users,
+  QrCode, Pencil, Users, CalendarDays, Award,
 } from 'lucide-react';
 import AppShell from '@/components/AppShell';
 import EditProfileModal from '@/components/EditProfileModal';
@@ -104,6 +104,27 @@ export default function SettingsPage() {
               icon={<School className="h-5 w-5 text-sky-600" />}
               label="إدارة الفصول"
               desc="فصول كل خدمة"
+            />
+          </div>
+        </section>
+      )}
+
+      {/* Activity setup — events & causes (class servants too) */}
+      {profile?.status === 'approved' && (
+        <section id="activity-links" className="mb-5">
+          <h3 className="mb-2 text-sm font-extrabold text-slate-500">النشاط</h3>
+          <div className="card !p-0 divide-y divide-indigo-50 overflow-hidden">
+            <SettingsLink
+              href="/settings/events"
+              icon={<CalendarDays className="h-5 w-5 text-violet-600" />}
+              label="إدارة المناسبات"
+              desc="قداسات واجتماعات ورحلات يُسجَّل عليها الحضور"
+            />
+            <SettingsLink
+              href="/settings/causes"
+              icon={<Award className="h-5 w-5 text-amber-600" />}
+              label="إدارة أسباب النقاط"
+              desc="أسباب إضافة أو خصم النقاط (حفظ، سلوك...)"
             />
           </div>
         </section>

@@ -21,10 +21,10 @@ export default function StatsPage() {
 
     const [{ data: enr }, { data: att }] = await Promise.all([
       supabase.from('enrollments').select('*, person:persons(*)').order('points', { ascending: false }),
+      // every attendance_log row is an attendance (removal deletes the row)
       supabase
         .from('attendance_log')
         .select('created_at')
-        .eq('action', 'add')
         .gte('created_at', since.toISOString()),
     ]);
 
