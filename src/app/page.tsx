@@ -11,7 +11,8 @@ import { createClient } from '@/lib/supabase/client';
 import { ROLE_LABELS } from '@/lib/types';
 
 interface Counts {
-  children: number;
+  persons: number;
+  enrollments: number;
   todayAttendance: number;
   pendingServants: number;
   churches: number;
@@ -23,7 +24,7 @@ export default function HomePage() {
   const { profile } = useAuth();
   const supabase = createClient();
   const [counts, setCounts] = useState<Counts>({
-    children: 0, todayAttendance: 0, pendingServants: 0, churches: 0, services: 0, classes: 0,
+    persons: 0, enrollments: 0, todayAttendance: 0, pendingServants: 0, churches: 0, services: 0, classes: 0,
   });
 
   const isManager =
@@ -33,8 +34,9 @@ export default function HomePage() {
     if (!profile || profile.status !== 'approved') return;
     const today = new Date().toISOString().slice(0, 10);
 
-    const [children, attendance, pending, churches, services, classes] = await Promise.all([
-      supabase.from('children').select('id', { count: 'exact', head: true }),
+    const [persons, enrollments, attendance, pending, churches, services, classes] = await Promise.all([
+      supabase.from('persons').select('id', { count: 'exact', head: true }),
+      supabase.from('enrollments').select('id', { count: 'exact', head: true }),
       supabase.from('attendance').select('id', { count: 'exact', head: true }).eq('attended_on', today),
       supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
       supabase.from('churches').select('id', { count: 'exact', head: true }),
@@ -43,7 +45,8 @@ export default function HomePage() {
     ]);
 
     setCounts({
-      children: children.count ?? 0,
+      persons: persons.count ?? 0,
+      enrollments: enrollments.count ?? 0,
       todayAttendance: attendance.count ?? 0,
       pendingServants: pending.count ?? 0,
       churches: churches.count ?? 0,
@@ -61,7 +64,8 @@ export default function HomePage() {
     if (!profile) return;
     const channel = supabase
       .channel('home-dashboard')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'children' }, loadCounts)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'persons' }, loadCounts)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'enrollments' }, loadCounts)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance' }, loadCounts)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, loadCounts)
       .subscribe();
@@ -87,8 +91,9 @@ export default function HomePage() {
       </section>
 
       <section id="stats-grid" className="grid grid-cols-2 gap-3 mb-5">
-        <StatCard icon={<Users className="h-6 w-6" />} label="المخدومين" value={counts.children} color="bg-primary-100 text-primary-700" />
+        <StatCard icon={<Users className="h-6 w-6" />} label="الأشخاص" value={counts.persons} color="bg-primary-100 text-primary-700" />
         <StatCard icon={<UserCheck className="h-6 w-6" />} label="حضور اليوم" value={counts.todayAttendance} color="bg-emerald-100 text-emerald-700" />
+        <StatCard icon={<Users className="h-6 w-6" />} label="التسجيلات" value={counts.enrollments} color="bg-sky-100 text-sky-700" />
         {profile?.role === 'owner' && (
           <StatCard icon={<Church className="h-6 w-6" />} label="الكنائس" value={counts.churches} color="bg-gold-100 text-gold-600" />
         )}
