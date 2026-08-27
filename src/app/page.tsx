@@ -32,12 +32,17 @@ export default function HomePage() {
 
   const loadCounts = useCallback(async () => {
     if (!profile || profile.status !== 'approved') return;
-    const today = new Date().toISOString().slice(0, 10);
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
 
     const [persons, enrollments, attendance, pending, churches, services, classes] = await Promise.all([
       supabase.from('persons').select('id', { count: 'exact', head: true }),
       supabase.from('enrollments').select('id', { count: 'exact', head: true }),
-      supabase.from('attendance').select('id', { count: 'exact', head: true }).eq('attended_on', today),
+      supabase
+        .from('attendance_log')
+        .select('id', { count: 'exact', head: true })
+        .eq('action', 'add')
+        .gte('created_at', todayStart.toISOString()),
       supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
       supabase.from('churches').select('id', { count: 'exact', head: true }),
       supabase.from('services').select('id', { count: 'exact', head: true }),
@@ -66,7 +71,7 @@ export default function HomePage() {
       .channel('home-dashboard')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'persons' }, loadCounts)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'enrollments' }, loadCounts)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance' }, loadCounts)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance_log' }, loadCounts)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, loadCounts)
       .subscribe();
     return () => {
