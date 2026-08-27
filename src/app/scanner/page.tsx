@@ -2,12 +2,12 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import {
-  ScanLine, Camera, CameraOff, CheckCircle2, AlertCircle, Search, Star, Loader2, School,
+  ScanLine, Camera, CameraOff, CheckCircle2, AlertCircle, Search, Star, Loader2, School, CalendarDays,
 } from 'lucide-react';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
 import { createClient } from '@/lib/supabase/client';
-import type { EnrollmentWithPerson, Person, ClassRoom } from '@/lib/types';
+import type { EnrollmentWithPerson, Person, ClassRoom, AppEvent } from '@/lib/types';
 
 type ScanResult = { type: 'ok' | 'dup' | 'err'; message: string };
 
@@ -23,6 +23,8 @@ export default function ScannerPage() {
   const [search, setSearch] = useState('');
   const [enrollments, setEnrollments] = useState<EnrollmentWithPerson[]>([]);
   const [classes, setClasses] = useState<ClassRoom[]>([]);
+  const [events, setEvents] = useState<AppEvent[]>([]);
+  const [eventId, setEventId] = useState<string>('');
   const [busy, setBusy] = useState(false);
 
   // When a scanned person has multiple enrollments, let the servant pick
@@ -32,15 +34,17 @@ export default function ScannerPage() {
   useEffect(() => {
     if (profile?.status !== 'approved') return;
     (async () => {
-      const [{ data: enr }, { data: cls }] = await Promise.all([
+      const [{ data: enr }, { data: cls }, { data: evs }] = await Promise.all([
         supabase.from('enrollments').select('*, person:persons(*)'),
         supabase.from('classes').select('*'),
+        supabase.from('events').select('*').order('event_date', { ascending: false, nullsFirst: false }),
       ]);
       const list = ((enr ?? []) as EnrollmentWithPerson[])
         .filter((e) => e.person)
         .sort((a, b) => a.person.name.localeCompare(b.person.name, 'ar'));
       setEnrollments(list);
       setClasses(cls ?? []);
+      setEvents(evs ?? []);
     })();
   }, [profile, supabase]);
 
@@ -51,35 +55,33 @@ export default function ScannerPage() {
 
   const recordAttendance = useCallback(
     async (e: EnrollmentWithPerson) => {
+      // Attendance is registered against an EVENT of the enrollment's class
+      const ev = events.find((x) => x.id === eventId);
+      if (!ev) {
+        setResult({ type: 'err', message: 'اختر المناسبة أولاً قبل المسح' });
+        return;
+      }
+      if (ev.class_id !== e.class_id) {
+        setResult({ type: 'err', message: `المناسبة المختارة لا تخص فصل ${e.person.name}` });
+        return;
+      }
       setBusy(true);
       setPicker(null);
 
-      // enrollment_id already identifies church/service/class.
-      // Same-day duplicate check (app-level, since logs have no daily unique constraint)
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
-      const { data: existing } = await supabase
-        .from('attendance_log')
-        .select('id')
-        .eq('enrollment_id', e.id)
-        .eq('action', 'add')
-        .gte('created_at', todayStart.toISOString())
-        .limit(1);
-      if (existing && existing.length > 0) {
-        setBusy(false);
-        setResult({ type: 'dup', message: `${e.person.name} — مسجل حضوره اليوم بالفعل` });
-        return;
-      }
-
       const { error } = await supabase.from('attendance_log').insert({
         enrollment_id: e.id,
-        action: 'add',
+        event_id: ev.id,
         points_delta: 1,
         recorded_by: profile?.id,
       });
       setBusy(false);
       if (error) {
-        setResult({ type: 'err', message: 'تعذر تسجيل الحضور، حاول مجدداً' });
+        // unique (enrollment_id, event_id): one attendance per event
+        if (error.code === '23505') {
+          setResult({ type: 'dup', message: `${e.person.name} — حضوره مسجل بالفعل في هذه المناسبة` });
+        } else {
+          setResult({ type: 'err', message: 'تعذر تسجيل الحضور، حاول مجدداً' });
+        }
         return;
       }
       setResult({ type: 'ok', message: `تم تسجيل حضور ${e.person.name} ✔ (${className(e.class_id)})` });
@@ -92,7 +94,7 @@ export default function ScannerPage() {
         )
       );
     },
-    [supabase, profile, className]
+    [supabase, profile, className, events, eventId]
   );
 
   // Scan flow: national id (QR) -> person -> his enrollments in my scope
@@ -190,9 +192,35 @@ export default function ScannerPage() {
           الماسح — تسجيل الحضور
         </h2>
         <p className="text-xs text-slate-500 mt-1">
-          امسح الرقم القومي (QR) الخاص بالشخص، أو ابحث يدوياً لتسجيل الحضور (+1 نقطة)
+          اختر المناسبة ثم امسح الرقم القومي (QR)، أو ابحث يدوياً لتسجيل الحضور (+1 نقطة)
         </p>
       </section>
+
+      {/* Event selector — attendance is registered against an event */}
+      <section id="event-select-section" className="card mb-4 flex items-center gap-2 !py-3">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-50">
+          <CalendarDays className="h-5 w-5 text-violet-500" />
+        </span>
+        <select
+          id="scanner-event-selector"
+          aria-label="اختيار المناسبة"
+          className="input-field flex-1 appearance-none text-sm font-bold"
+          value={eventId}
+          onChange={(e) => { setEventId(e.target.value); setResult(null); }}
+        >
+          <option value="">اختر المناسبة *</option>
+          {events.map((ev) => (
+            <option key={ev.id} value={ev.id}>
+              {ev.name}{ev.event_date ? ` — ${ev.event_date}` : ''} ({className(ev.class_id)})
+            </option>
+          ))}
+        </select>
+      </section>
+      {events.length === 0 && (
+        <p className="mb-4 rounded-xl bg-violet-50 px-3 py-2 text-xs font-bold text-violet-600">
+          لا توجد مناسبات — أضف مناسبة من الإعدادات ← إدارة المناسبات
+        </p>
+      )}
 
       {/* Camera area */}
       <section id="camera-section" className="card mb-4 overflow-hidden !p-0">
