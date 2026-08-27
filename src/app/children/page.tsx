@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Users, Search, Plus, Phone, MapPin, Star, CalendarCheck, X, Loader2, StickyNote,
   SlidersHorizontal, ChevronDown, School, Check, Minus,
@@ -47,11 +48,11 @@ function WhatsAppIcon({ className }: { className?: string }) {
 export default function ChildrenPage() {
   const { profile } = useAuth();
   const supabase = createClient();
+  const router = useRouter();
   const [children, setChildren] = useState<Child[]>([]);
   const [churches, setChurches] = useState<Church[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [classes, setClasses] = useState<ClassRoom[]>([]);
-  const [showAdd, setShowAdd] = useState(false);
   const [loading, setLoading] = useState(true);
 
   // ---------- Search (first row) ----------
@@ -315,7 +316,7 @@ export default function ChildrenPage() {
           المخدومين
           <span className="badge bg-primary-100 text-primary-700">{filtered.length}</span>
         </h2>
-        <button id="add-child-btn" onClick={() => setShowAdd(true)} className="btn-primary !py-2 !px-3 flex items-center gap-1 text-sm">
+        <button id="add-child-btn" onClick={() => router.push('/children/add')} className="btn-primary !py-2 !px-3 flex items-center gap-1 text-sm">
           <Plus className="h-4 w-4" />
           إضافة
         </button>
@@ -699,17 +700,6 @@ export default function ChildrenPage() {
         </div>
       )}
 
-      {showAdd && (
-        <AddChildModal
-          classes={classes}
-          onClose={() => setShowAdd(false)}
-          onSaved={() => {
-            setShowAdd(false);
-            load();
-          }}
-        />
-      )}
-
       {showCompose && (
         <ComposeMessageModal
           template={messageTemplate}
@@ -806,101 +796,6 @@ function ComposeMessageModal({
             حفظ الرسالة
           </button>
         </div>
-      </div>
-    </div>
-  );
-}
-
-function AddChildModal({
-  classes, onClose, onSaved,
-}: {
-  classes: ClassRoom[]; onClose: () => void; onSaved: () => void;
-}) {
-  const { profile } = useAuth();
-  const supabase = createClient();
-  const [form, setForm] = useState({
-    name: '', phone: '', birthdate: '', address: '', notes: '', class_id: '',
-  });
-  const [error, setError] = useState('');
-  const [saving, setSaving] = useState(false);
-
-  // Servants have a fixed class
-  const fixedClassId = profile?.role === 'class_servant' ? profile.class_id : null;
-
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    const classId = fixedClassId ?? form.class_id;
-    const cls = classes.find((c) => c.id === classId);
-    if (!cls) {
-      setError('اختر الفصل');
-      return;
-    }
-    setSaving(true);
-    const { error: err } = await supabase.from('children').insert({
-      church_id: cls.church_id,
-      service_id: cls.service_id,
-      class_id: cls.id,
-      name: form.name.trim(),
-      phone: form.phone.trim() || null,
-      birthdate: form.birthdate || null,
-      address: form.address.trim() || null,
-      notes: form.notes.trim() || null,
-      created_by: profile?.id,
-    });
-    if (err) {
-      setError('تعذر الحفظ، تأكد من الصلاحيات وحاول مجدداً');
-      setSaving(false);
-      return;
-    }
-    onSaved();
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-6">
-      <div className="w-full max-w-md rounded-t-3xl sm:rounded-3xl bg-white p-5 max-h-[90vh] overflow-y-auto no-scrollbar">
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-lg font-extrabold">إضافة مخدوم جديد</h3>
-          <button onClick={onClose} aria-label="إغلاق" className="rounded-full p-1.5 hover:bg-slate-100">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        <form onSubmit={submit} className="space-y-3">
-          <input className="input-field" placeholder="الاسم *" value={form.name}
-            onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} required />
-
-          {!fixedClassId && (
-            <select className="input-field" value={form.class_id}
-              onChange={(e) => setForm((f) => ({ ...f, class_id: e.target.value }))} required>
-              <option value="">اختر الفصل *</option>
-              {classes.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
-          )}
-
-          <input className="input-field" placeholder="رقم الهاتف" dir="ltr" value={form.phone}
-            onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
-          <div>
-            <label className="mb-1 block text-xs font-bold text-slate-500">تاريخ الميلاد</label>
-            <input type="date" className="input-field" value={form.birthdate}
-              onChange={(e) => setForm((f) => ({ ...f, birthdate: e.target.value }))} />
-          </div>
-          <input className="input-field" placeholder="العنوان" value={form.address}
-            onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} />
-          <textarea className="input-field" placeholder="ملاحظات" rows={2} value={form.notes}
-            onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
-
-          {error && (
-            <p className="rounded-xl bg-red-50 px-3 py-2 text-sm font-bold text-red-600">{error}</p>
-          )}
-
-          <button type="submit" disabled={saving} className="btn-primary w-full flex items-center justify-center gap-2">
-            {saving ? <Loader2 className="h-5 w-5 animate-spin" /> : <Plus className="h-5 w-5" />}
-            حفظ المخدوم
-          </button>
-        </form>
       </div>
     </div>
   );
