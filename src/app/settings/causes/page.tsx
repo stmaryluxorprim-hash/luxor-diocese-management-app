@@ -8,7 +8,8 @@ import {
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
 import { createClient } from '@/lib/supabase/client';
-import type { Cause, ClassRoom, Service, Church } from '@/lib/types';
+import type { Cause, ClassRoom, Service, Church, PointsMode } from '@/lib/types';
+import { POINTS_MODE_LABELS } from '@/lib/types';
 
 // Sentinel for "all services / all classes" in select controls (null in DB)
 const ALL = 'all';
@@ -104,8 +105,13 @@ export default function CausesPage() {
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="font-extrabold">{ca.name}</p>
                   <span className="badge bg-amber-100 text-amber-700 flex items-center gap-1">
-                    <Star className="h-3 w-3" /> {ca.points} نقطة
+                    <Star className="h-3 w-3" />
+                    {ca.points_mode === 'open' ? 'مفتوح' : `${ca.points} نقطة`}
+                    {ca.points_mode === 'editable' && ' ✎'}
                   </span>
+                  {ca.is_default && (
+                    <span className="badge bg-emerald-100 text-emerald-700">افتراضي</span>
+                  )}
                 </div>
                 <p className="text-xs text-slate-400 mt-0.5">{scopeLabel(ca)}</p>
                 {ca.description && <p className="text-xs text-slate-500 mt-1">{ca.description}</p>}
@@ -178,6 +184,8 @@ function CauseModal({
   const [serviceId, setServiceId] = useState(cause ? (cause.service_id ?? ALL) : '');
   const [classId, setClassId] = useState(cause ? (cause.class_id ?? ALL) : '');
   const [points, setPoints] = useState(String(cause?.points ?? 1));
+  const [pointsMode, setPointsMode] = useState<PointsMode>(cause?.points_mode ?? 'fixed');
+  const [isDefault, setIsDefault] = useState<boolean>(cause?.is_default ?? false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -202,7 +210,14 @@ function CauseModal({
       name: name.trim(),
       description: description.trim() || null,
       points: pts,
+      points_mode: pointsMode,
+      is_default: isDefault,
     };
+
+    // Only one default cause: clear others first when marking this one
+    if (isDefault) {
+      await supabase.from('causes').update({ is_default: false }).eq('is_default', true);
+    }
 
     const { error: err } = mode === 'add'
       ? await supabase.from('causes').insert({ ...base, created_by: profile?.id })
@@ -275,15 +290,54 @@ function CauseModal({
           <input className="input-field" placeholder="اسم السبب * (مثال: حفظ آية)" value={name}
             onChange={(e) => setName(e.target.value)} required />
           <div>
-            <label className="mb-1 block text-xs font-bold text-slate-500">مقدار النقاط *</label>
-            <div className="flex items-center gap-2">
-              <Star className="h-5 w-5 text-amber-500" />
-              <input
-                type="number" min={0} className="input-field" value={points}
-                onChange={(e) => setPoints(e.target.value)} required
-              />
+            <label className="mb-1 block text-xs font-bold text-slate-500">نظام النقاط *</label>
+            <div className="grid grid-cols-3 gap-2">
+              {(['fixed', 'editable', 'open'] as PointsMode[]).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setPointsMode(m)}
+                  aria-pressed={pointsMode === m}
+                  className={`rounded-xl px-2 py-2 text-xs font-bold ring-2 transition ${
+                    pointsMode === m
+                      ? 'bg-amber-500 text-white ring-amber-500'
+                      : 'bg-white text-slate-600 ring-slate-200 hover:ring-amber-300'
+                  }`}
+                >
+                  {POINTS_MODE_LABELS[m]}
+                </button>
+              ))}
             </div>
+            <p className="mt-1 text-[10px] font-bold text-slate-400">
+              ثابت: لا يمكن تغيير الرقم · قابل للتعديل: الرقم افتراضي ويمكن تغييره · مفتوح: يُكتب الرقم كل مرة
+            </p>
           </div>
+
+          {pointsMode !== 'open' && (
+            <div>
+              <label className="mb-1 block text-xs font-bold text-slate-500">مقدار النقاط *</label>
+              <div className="flex items-center gap-2">
+                <Star className="h-5 w-5 text-amber-500" />
+                <input
+                  type="number" min={0} className="input-field" value={points}
+                  onChange={(e) => setPoints(e.target.value)} required
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Default radio — preselected on the children page */}
+          <label className="flex items-center gap-2 rounded-xl bg-emerald-50 px-3 py-2.5 text-sm font-bold text-emerald-700 cursor-pointer">
+            <input
+              id="cause-default-radio"
+              type="radio"
+              checked={isDefault}
+              onClick={() => setIsDefault((v) => !v)}
+              onChange={() => {}}
+              className="h-4 w-4 accent-emerald-600"
+            />
+            جعل هذا السبب الافتراضي (يُختار تلقائياً عند تسجيل النقاط)
+          </label>
           <textarea className="input-field" placeholder="وصف السبب" rows={2} value={description}
             onChange={(e) => setDescription(e.target.value)} />
           {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm font-bold text-red-600">{error}</p>}
