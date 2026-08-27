@@ -50,12 +50,20 @@ export interface Profile {
   updated_at: string;
 }
 
+export type Gender = 'boy' | 'girl';
+
+export const GENDER_LABELS: Record<Gender, string> = {
+  boy: 'ولد',
+  girl: 'بنت',
+};
+
 export interface Child {
   id: string;
   church_id: string;
   service_id: string;
   class_id: string;
   name: string;
+  gender: Gender | null;
   phone: string | null;
   birthdate: string | null;
   address: string | null;
@@ -63,10 +71,15 @@ export interface Child {
   attendance_count: number;
   points: number;
   qr_code: string | null;
+  photo_url: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
 }
+
+// Egypt phone: displayed prefix +2 followed by exactly 11 digits (e.g. 01xxxxxxxxx)
+export const PHONE_PREFIX = '+2';
+export const PHONE_LOCAL_LENGTH = 11;
 
 // ---------- Log tables ----------
 
