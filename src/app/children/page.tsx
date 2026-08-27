@@ -4,12 +4,15 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   Users, Search, Plus, Phone, MapPin, Star, CalendarCheck, X, Loader2, StickyNote,
   SlidersHorizontal, ChevronDown, School, Check, Minus,
-  MessageSquare, Send, Inbox,
+  MessageSquare, Send, Inbox, Church as ChurchIcon, HeartHandshake,
 } from 'lucide-react';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
 import { createClient } from '@/lib/supabase/client';
-import { JOBS, DEFAULT_ATTENDANCE_POINTS, type Job, type Child, type ClassRoom } from '@/lib/types';
+import {
+  JOBS, DEFAULT_ATTENDANCE_POINTS,
+  type Job, type Child, type ClassRoom, type Church, type Service,
+} from '@/lib/types';
 
 const ALL = 'all';
 
@@ -21,6 +24,8 @@ export default function ChildrenPage() {
   const { profile } = useAuth();
   const supabase = createClient();
   const [children, setChildren] = useState<Child[]>([]);
+  const [churches, setChurches] = useState<Church[]>([]);
+  const [services, setServices] = useState<Service[]>([]);
   const [classes, setClasses] = useState<ClassRoom[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -28,7 +33,11 @@ export default function ChildrenPage() {
   // ---------- Search (first row) ----------
   const [search, setSearch] = useState('');
 
-  // ---------- Class selector (dropdown list) ----------
+  // ---------- Scope selectors: church -> service -> class ----------
+  // RLS already limits each user to their own scope, so every dropdown
+  // only contains what the current user is allowed to see.
+  const [churchFilter, setChurchFilter] = useState<string>(ALL);
+  const [serviceFilter, setServiceFilter] = useState<string>(ALL);
   const [classFilter, setClassFilter] = useState<string>(ALL);
 
   // ---------- Job selector + activated modes ----------
@@ -52,11 +61,15 @@ export default function ChildrenPage() {
   const [busyChild, setBusyChild] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const [{ data: kids }, { data: cls }] = await Promise.all([
+    const [{ data: kids }, { data: chs }, { data: svs }, { data: cls }] = await Promise.all([
       supabase.from('children').select('*').order('name'),
+      supabase.from('churches').select('*').order('name'),
+      supabase.from('services').select('*').order('name'),
       supabase.from('classes').select('*').order('name'),
     ]);
     setChildren(kids ?? []);
+    setChurches(chs ?? []);
+    setServices(svs ?? []);
     setClasses(cls ?? []);
     setLoading(false);
   }, [supabase]);
@@ -78,6 +91,31 @@ export default function ChildrenPage() {
   }, [profile, supabase, load]);
 
   const safePoints = Math.max(0, Math.floor(Number(points) || 0));
+
+  // ---------- Cascading selector options ----------
+  const visibleServices = useMemo(
+    () => services.filter((s) => churchFilter === ALL || s.church_id === churchFilter),
+    [services, churchFilter]
+  );
+  const visibleClasses = useMemo(
+    () =>
+      classes.filter(
+        (c) =>
+          (churchFilter === ALL || c.church_id === churchFilter) &&
+          (serviceFilter === ALL || c.service_id === serviceFilter)
+      ),
+    [classes, churchFilter, serviceFilter]
+  );
+
+  const onChurchChange = (v: string) => {
+    setChurchFilter(v);
+    setServiceFilter(ALL);
+    setClassFilter(ALL);
+  };
+  const onServiceChange = (v: string) => {
+    setServiceFilter(v);
+    setClassFilter(ALL);
+  };
 
   // ---------- Per-child job action (single button) ----------
   const doJob = async (child: Child) => {
@@ -126,6 +164,8 @@ export default function ChildrenPage() {
   const filtered = useMemo(
     () =>
       children.filter((c) => {
+        if (churchFilter !== ALL && c.church_id !== churchFilter) return false;
+        if (serviceFilter !== ALL && c.service_id !== serviceFilter) return false;
         if (classFilter !== ALL && c.class_id !== classFilter) return false;
         if (search && !(c.name.includes(search) || (c.phone ?? '').includes(search)))
           return false;
@@ -134,7 +174,7 @@ export default function ChildrenPage() {
         if (minAttendance && c.attendance_count < Number(minAttendance)) return false;
         return true;
       }),
-    [children, classFilter, search, addressFilter, minPoints, minAttendance]
+    [children, churchFilter, serviceFilter, classFilter, search, addressFilter, minPoints, minAttendance]
   );
 
   // ---------- Group by class (sorted by class name) ----------
@@ -257,22 +297,62 @@ export default function ChildrenPage() {
         />
       </div>
 
-      {/* ---------- Row 2: Class selector (dropdown list) ---------- */}
-      <div className="relative mb-3">
-        <School className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-        <select
-          id="class-selector"
-          aria-label="اختيار الفصل"
-          className="input-field appearance-none pr-9 text-sm font-bold"
-          value={classFilter}
-          onChange={(e) => setClassFilter(e.target.value)}
-        >
-          <option value={ALL}>كل الفصول</option>
-          {classes.map((c) => (
-            <option key={c.id} value={c.id}>{c.name}</option>
-          ))}
-        </select>
-        <ChevronDown className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+      {/* ---------- Row 2: Scope selectors (church / service / class) ---------- */}
+      {/* Each dropdown only contains what the current user can see (RLS-scoped). */}
+      <div className="mb-3 grid grid-cols-3 gap-2">
+        <div className="relative">
+          <ChurchIcon className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+          <select
+            id="church-selector"
+            aria-label="اختيار الكنيسة"
+            className="input-field appearance-none !px-2 pr-8 text-xs font-bold"
+            value={churchFilter}
+            onChange={(e) => onChurchChange(e.target.value)}
+            disabled={churches.length <= 1}
+          >
+            <option value={ALL}>{churches.length === 1 ? churches[0].name : 'كل الكنائس'}</option>
+            {churches.length > 1 &&
+              churches.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+          </select>
+        </div>
+
+        <div className="relative">
+          <HeartHandshake className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+          <select
+            id="service-selector"
+            aria-label="اختيار الخدمة"
+            className="input-field appearance-none !px-2 pr-8 text-xs font-bold"
+            value={serviceFilter}
+            onChange={(e) => onServiceChange(e.target.value)}
+            disabled={visibleServices.length <= 1}
+          >
+            <option value={ALL}>{visibleServices.length === 1 ? visibleServices[0].name : 'كل الخدمات'}</option>
+            {visibleServices.length > 1 &&
+              visibleServices.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+          </select>
+        </div>
+
+        <div className="relative">
+          <School className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+          <select
+            id="class-selector"
+            aria-label="اختيار الفصل"
+            className="input-field appearance-none !px-2 pr-8 text-xs font-bold"
+            value={classFilter}
+            onChange={(e) => setClassFilter(e.target.value)}
+            disabled={visibleClasses.length <= 1}
+          >
+            <option value={ALL}>{visibleClasses.length === 1 ? visibleClasses[0].name : 'كل الفصول'}</option>
+            {visibleClasses.length > 1 &&
+              visibleClasses.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+          </select>
+        </div>
       </div>
 
       {/* ---------- Row 3: Job selector + activated mode controls ---------- */}
