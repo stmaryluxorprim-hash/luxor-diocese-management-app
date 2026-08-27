@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import {
   Users, Search, Plus, Phone, MapPin, Star, CalendarCheck, X, Loader2, StickyNote,
   SlidersHorizontal, ChevronDown, School, Check, Minus,
-  MessageSquare, Inbox, PenSquare,
+  MessageSquare, Inbox, PenSquare, CalendarDays, Award,
 } from 'lucide-react';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
@@ -13,6 +13,7 @@ import { createClient } from '@/lib/supabase/client';
 import {
   JOBS, DEFAULT_ATTENDANCE_POINTS,
   type Job, type EnrollmentWithPerson, type ClassRoom, type Church, type Service,
+  type AppEvent, type Cause,
 } from '@/lib/types';
 
 const ALL = 'all';
@@ -53,6 +54,8 @@ export default function ChildrenPage() {
   const [churches, setChurches] = useState<Church[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [classes, setClasses] = useState<ClassRoom[]>([]);
+  const [events, setEvents] = useState<AppEvent[]>([]);
+  const [causes, setCauses] = useState<Cause[]>([]);
   const [loading, setLoading] = useState(true);
 
   // ---------- Search (first row) ----------
@@ -70,6 +73,9 @@ export default function ChildrenPage() {
   const [points, setPoints] = useState<number>(DEFAULT_ATTENDANCE_POINTS);
   const [attendanceMode, setAttendanceMode] = useState<AttendanceMode>('add');
   const [pointsMode, setPointsMode] = useState<PointsMode>('add');
+  // Attendance is registered against an EVENT; points against a CAUSE
+  const [eventId, setEventId] = useState<string>('');
+  const [causeId, setCauseId] = useState<string>('');
   const [messageChannel, setMessageChannel] = useState<MessageChannel>('whatsapp');
   const [messageTemplate, setMessageTemplate] = useState('');
   const [showCompose, setShowCompose] = useState(false);
@@ -89,11 +95,13 @@ export default function ChildrenPage() {
 
   const load = useCallback(async () => {
     // Person-centric: an enrollment = a person bound to church/service/class
-    const [{ data: enr }, { data: chs }, { data: svs }, { data: cls }] = await Promise.all([
+    const [{ data: enr }, { data: chs }, { data: svs }, { data: cls }, { data: evs }, { data: cas }] = await Promise.all([
       supabase.from('enrollments').select('*, person:persons(*)'),
       supabase.from('churches').select('*').order('name'),
       supabase.from('services').select('*').order('name'),
       supabase.from('classes').select('*').order('name'),
+      supabase.from('events').select('*').order('event_date', { ascending: false, nullsFirst: false }),
+      supabase.from('causes').select('*').order('name'),
     ]);
     const list = ((enr ?? []) as EnrollmentWithPerson[])
       .filter((e) => e.person)
@@ -102,6 +110,8 @@ export default function ChildrenPage() {
     setChurches(chs ?? []);
     setServices(svs ?? []);
     setClasses(cls ?? []);
+    setEvents(evs ?? []);
+    setCauses(cas ?? []);
     setLoading(false);
   }, [supabase]);
 
@@ -116,6 +126,8 @@ export default function ChildrenPage() {
       .channel('persons-list')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'enrollments' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'persons' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'events' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'causes' }, load)
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
@@ -149,24 +161,104 @@ export default function ChildrenPage() {
     setClassFilter(ALL);
   };
 
+  // Events / causes narrowed by the current scope selectors
+  const visibleEvents = useMemo(
+    () =>
+      events.filter(
+        (ev) =>
+          (churchFilter === ALL || ev.church_id === churchFilter) &&
+          (serviceFilter === ALL || ev.service_id === serviceFilter) &&
+          (classFilter === ALL || ev.class_id === classFilter)
+      ),
+    [events, churchFilter, serviceFilter, classFilter]
+  );
+  const visibleCauses = useMemo(
+    () =>
+      causes.filter(
+        (ca) =>
+          (churchFilter === ALL || ca.church_id === churchFilter) &&
+          (serviceFilter === ALL || ca.service_id === serviceFilter) &&
+          (classFilter === ALL || ca.class_id === classFilter)
+      ),
+    [causes, churchFilter, serviceFilter, classFilter]
+  );
+
+  // keep selections valid when scope changes
+  useEffect(() => {
+    if (eventId && !visibleEvents.some((ev) => ev.id === eventId)) setEventId('');
+  }, [visibleEvents, eventId]);
+  useEffect(() => {
+    if (causeId && !visibleCauses.some((ca) => ca.id === causeId)) setCauseId('');
+  }, [visibleCauses, causeId]);
+
   // ---------- Per-person job action (single button) ----------
   const doJob = async (e: EnrollmentWithPerson) => {
     if (job === 'attendance') {
-      setBusyChild(e.id);
-      // enrollment_id already identifies church/service/class
-      await supabase.from('attendance_log').insert({
-        enrollment_id: e.id,
-        action: attendanceMode,
-        points_delta: safePoints,
-        recorded_by: profile?.id,
-      });
-      setBusyChild(null);
-      load();
+      if (attendanceMode === 'add') {
+        // Attendance is registered against an EVENT of the same class
+        const ev = events.find((x) => x.id === eventId);
+        if (!ev) {
+          alert('اختر المناسبة أولاً');
+          return;
+        }
+        if (ev.class_id !== e.class_id) {
+          alert('المناسبة المختارة لا تخص فصل هذا المخدوم');
+          return;
+        }
+        setBusyChild(e.id);
+        const { error } = await supabase.from('attendance_log').insert({
+          enrollment_id: e.id,
+          event_id: ev.id,
+          points_delta: safePoints,
+          recorded_by: profile?.id,
+        });
+        setBusyChild(null);
+        if (error?.code === '23505') {
+          alert(`${e.person.name} — حضوره مسجل بالفعل في هذه المناسبة`);
+          return;
+        }
+        load();
+      } else {
+        // Removal DELETES the attendance entry; a DB trigger reverts the
+        // counters (attendance -1, points -points_delta of that entry)
+        setBusyChild(e.id);
+        let query = supabase
+          .from('attendance_log')
+          .select('id')
+          .eq('enrollment_id', e.id)
+          .order('created_at', { ascending: false })
+          .limit(1);
+        if (eventId) query = query.eq('event_id', eventId);
+        const { data: rows } = await query;
+        if (!rows || rows.length === 0) {
+          setBusyChild(null);
+          alert(
+            eventId
+              ? `${e.person.name} — لا يوجد حضور مسجل في هذه المناسبة`
+              : `${e.person.name} — لا يوجد حضور مسجل`
+          );
+          return;
+        }
+        await supabase.from('attendance_log').delete().eq('id', rows[0].id);
+        setBusyChild(null);
+        load();
+      }
     } else if (job === 'points') {
       if (safePoints === 0) return;
+      // Points are registered with a CAUSE of the same class
+      const ca = causes.find((x) => x.id === causeId);
+      if (!ca) {
+        alert('اختر سبب النقاط أولاً');
+        return;
+      }
+      if (ca.class_id !== e.class_id) {
+        alert('السبب المختار لا يخص فصل هذا المخدوم');
+        return;
+      }
       setBusyChild(e.id);
       await supabase.from('points_log').insert({
         enrollment_id: e.id,
+        cause_id: ca.id,
         delta: (pointsMode === 'add' ? 1 : -1) * safePoints,
         recorded_by: profile?.id,
       });
@@ -549,6 +641,60 @@ export default function ChildrenPage() {
           </>
         )}
       </div>
+
+      {/* ---------- Row 3b: Event selector (attendance) / Cause selector (points) ---------- */}
+      {job === 'attendance' && (
+        <div className="mb-3 flex items-center gap-2">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-50">
+            <CalendarDays className="h-5 w-5 text-violet-500" />
+          </span>
+          <select
+            id="event-selector"
+            aria-label="اختيار المناسبة"
+            className="input-field flex-1 appearance-none text-sm font-bold"
+            value={eventId}
+            onChange={(e) => setEventId(e.target.value)}
+          >
+            <option value="">
+              {attendanceMode === 'add' ? 'اختر المناسبة *' : 'كل المناسبات (آخر حضور)'}
+            </option>
+            {visibleEvents.map((ev) => (
+              <option key={ev.id} value={ev.id}>
+                {ev.name}{ev.event_date ? ` — ${ev.event_date}` : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+      {job === 'attendance' && visibleEvents.length === 0 && (
+        <p className="mb-3 rounded-xl bg-violet-50 px-3 py-2 text-xs font-bold text-violet-600">
+          لا توجد مناسبات — أضف مناسبة من الإعدادات ← إدارة المناسبات
+        </p>
+      )}
+      {job === 'points' && (
+        <div className="mb-3 flex items-center gap-2">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-50">
+            <Award className="h-5 w-5 text-amber-500" />
+          </span>
+          <select
+            id="cause-selector"
+            aria-label="اختيار سبب النقاط"
+            className="input-field flex-1 appearance-none text-sm font-bold"
+            value={causeId}
+            onChange={(e) => setCauseId(e.target.value)}
+          >
+            <option value="">اختر سبب النقاط *</option>
+            {visibleCauses.map((ca) => (
+              <option key={ca.id} value={ca.id}>{ca.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+      {job === 'points' && visibleCauses.length === 0 && (
+        <p className="mb-3 rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-600">
+          لا توجد أسباب — أضف سبباً من الإعدادات ← إدارة أسباب النقاط
+        </p>
+      )}
 
       {/* Internal messaging notice */}
       {job === 'message' && messageChannel === 'internal' && (
