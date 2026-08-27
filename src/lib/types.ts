@@ -111,18 +111,34 @@ export interface AddPersonResult {
 export const PHONE_PREFIX = '+2';
 export const PHONE_LOCAL_LENGTH = 11;
 
-// ---------- Events & Causes (migration 0013) ----------
+// ---------- Events & Causes (migrations 0013 + 0014) ----------
 
-// events — something attendable, bound to church / service / class.
-// Attendance is registered AGAINST an event.
+// Recurrence: 'once' (has event_date) or 'weekly' (weekdays[]).
+// One weekday = every week; several = week days.
+export type EventRecurrence = 'once' | 'weekly';
+
+export const RECURRENCE_LABELS: Record<EventRecurrence, string> = {
+  once: 'مرة واحدة',
+  weekly: 'أسبوعياً',
+};
+
+// events — something attendable, bound to a scope:
+//   service_id null => ALL services of the church (class null too)
+//   class_id  null => ALL classes of the (church, service)
+// Attendance is registered AGAINST an event and grants `points`.
 export interface AppEvent {
   id: string;
   church_id: string;
-  service_id: string;
-  class_id: string;
+  service_id: string | null;
+  class_id: string | null;
   name: string;
   description: string | null;
-  event_date: string | null;
+  recurrence: EventRecurrence;
+  event_date: string | null; // when recurrence = once
+  weekdays: number[] | null; // 0=Sunday..6=Saturday, when recurrence = weekly
+  start_time: string | null; // 'HH:MM:SS' Africa/Cairo
+  end_time: string | null; // 'HH:MM:SS' Africa/Cairo
+  points: number; // points granted per attendance
   created_at: string;
   created_by: string | null;
   edited_at: string;
@@ -130,18 +146,29 @@ export interface AppEvent {
 }
 
 // causes — the reason points are given/taken, bound to church / service / class.
+// (same null = "all" scope semantics as events) with a bound points amount.
 export interface Cause {
   id: string;
   church_id: string;
-  service_id: string;
-  class_id: string;
+  service_id: string | null;
+  class_id: string | null;
   name: string;
   description: string | null;
+  points: number; // points amount bound to this cause
   created_at: string;
   created_by: string | null;
   edited_at: string;
   edited_by: string | null;
 }
+
+// Does an event/cause scope apply to an enrollment's scope?
+export const scopeApplies = (
+  x: { church_id: string; service_id: string | null; class_id: string | null },
+  e: { church_id: string; service_id: string; class_id: string }
+): boolean =>
+  x.church_id === e.church_id &&
+  (x.service_id === null || x.service_id === e.service_id) &&
+  (x.class_id === null || x.class_id === e.class_id);
 
 // ---------- Log tables ----------
 
@@ -153,6 +180,7 @@ export interface AttendanceLog {
   enrollment_id: string;
   event_id: string | null; // null on legacy rows only
   points_delta: number;
+  attended_on: string; // 'YYYY-MM-DD' in Africa/Cairo — unique per event per day
   recorded_by: string | null;
   created_at: string;
 }
@@ -177,8 +205,6 @@ export const JOBS: { value: Job; label: string }[] = [
   { value: 'message', label: 'الرسائل' },
   { value: 'points', label: 'النقاط' },
 ];
-
-export const DEFAULT_ATTENDANCE_POINTS = 5;
 
 export const ROLE_LABELS: Record<AppRole, string> = {
   owner: 'مالك التطبيق',
