@@ -2,14 +2,14 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import {
-  ScanLine, Camera, CameraOff, CheckCircle2, AlertCircle, Search, Star, Loader2,
+  ScanLine, Camera, CameraOff, CheckCircle2, AlertCircle, Search, Star, Loader2, School,
 } from 'lucide-react';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
 import { createClient } from '@/lib/supabase/client';
-import type { Child } from '@/lib/types';
+import type { EnrollmentWithPerson, Person, ClassRoom } from '@/lib/types';
 
-type ScanResult = { type: 'ok' | 'dup' | 'err'; message: string; child?: Child };
+type ScanResult = { type: 'ok' | 'dup' | 'err'; message: string };
 
 export default function ScannerPage() {
   const { profile } = useAuth();
@@ -21,63 +21,86 @@ export default function ScannerPage() {
   const [cameraError, setCameraError] = useState('');
   const [result, setResult] = useState<ScanResult | null>(null);
   const [search, setSearch] = useState('');
-  const [children, setChildren] = useState<Child[]>([]);
+  const [enrollments, setEnrollments] = useState<EnrollmentWithPerson[]>([]);
+  const [classes, setClasses] = useState<ClassRoom[]>([]);
   const [busy, setBusy] = useState(false);
 
-  // Load children for manual mode
+  // When a scanned person has multiple enrollments, let the servant pick
+  const [picker, setPicker] = useState<{ person: Person; options: EnrollmentWithPerson[] } | null>(null);
+
+  // Load enrollments (person-centric) for manual mode + scan resolution
   useEffect(() => {
     if (profile?.status !== 'approved') return;
-    supabase.from('children').select('*').order('name').then(({ data }) => setChildren(data ?? []));
+    (async () => {
+      const [{ data: enr }, { data: cls }] = await Promise.all([
+        supabase.from('enrollments').select('*, person:persons(*)'),
+        supabase.from('classes').select('*'),
+      ]);
+      const list = ((enr ?? []) as EnrollmentWithPerson[])
+        .filter((e) => e.person)
+        .sort((a, b) => a.person.name.localeCompare(b.person.name, 'ar'));
+      setEnrollments(list);
+      setClasses(cls ?? []);
+    })();
   }, [profile, supabase]);
 
+  const className = useCallback(
+    (id: string) => classes.find((c) => c.id === id)?.name ?? 'فصل',
+    [classes]
+  );
+
   const recordAttendance = useCallback(
-    async (child: Child) => {
+    async (e: EnrollmentWithPerson) => {
       setBusy(true);
+      setPicker(null);
       const { error } = await supabase.from('attendance').insert({
-        child_id: child.id,
-        church_id: child.church_id,
-        service_id: child.service_id,
-        class_id: child.class_id,
+        enrollment_id: e.id,
+        church_id: e.church_id,
+        service_id: e.service_id,
+        class_id: e.class_id,
         recorded_by: profile?.id,
         points_awarded: 1,
       });
       setBusy(false);
       if (error) {
         if (error.code === '23505') {
-          setResult({ type: 'dup', message: `${child.name} — مسجل حضوره اليوم بالفعل`, child });
+          setResult({ type: 'dup', message: `${e.person.name} — مسجل حضوره اليوم بالفعل` });
         } else {
           setResult({ type: 'err', message: 'تعذر تسجيل الحضور، حاول مجدداً' });
         }
         return;
       }
-      setResult({ type: 'ok', message: `تم تسجيل حضور ${child.name} ✔`, child });
+      setResult({ type: 'ok', message: `تم تسجيل حضور ${e.person.name} ✔ (${className(e.class_id)})` });
       // refresh local counters
-      setChildren((prev) =>
-        prev.map((c) =>
-          c.id === child.id
-            ? { ...c, attendance_count: c.attendance_count + 1, points: c.points + 1 }
-            : c
+      setEnrollments((prev) =>
+        prev.map((x) =>
+          x.id === e.id
+            ? { ...x, attendance_count: x.attendance_count + 1, points: x.points + 1 }
+            : x
         )
       );
     },
-    [supabase, profile]
+    [supabase, profile, className]
   );
 
+  // Scan flow: national id (QR) -> person -> his enrollments in my scope
   const handleQr = useCallback(
     async (qrValue: string) => {
-      const code = qrValue.trim();
-      const { data: child } = await supabase
-        .from('children')
-        .select('*')
-        .eq('qr_code', code)
-        .maybeSingle();
-      if (!child) {
-        setResult({ type: 'err', message: 'رمز غير معروف أو خارج نطاق صلاحيتك' });
+      const nationalId = qrValue.trim();
+      const mine = enrollments.filter((e) => e.person.national_id === nationalId);
+      if (mine.length === 0) {
+        setResult({ type: 'err', message: 'رقم قومي غير معروف أو الشخص غير مسجل في نطاق صلاحيتك' });
         return;
       }
-      await recordAttendance(child);
+      if (mine.length === 1) {
+        await recordAttendance(mine[0]);
+        return;
+      }
+      // Person enrolled in multiple classes/services — let the servant pick
+      setResult(null);
+      setPicker({ person: mine[0].person, options: mine });
     },
-    [supabase, recordAttendance]
+    [enrollments, recordAttendance]
   );
 
   // BarcodeDetector-based scanning loop (native, no deps)
@@ -139,7 +162,12 @@ export default function ScannerPage() {
   useEffect(() => stopCamera, [stopCamera]);
 
   const filtered = search
-    ? children.filter((c) => c.name.includes(search) || (c.phone ?? '').includes(search))
+    ? enrollments.filter(
+        (e) =>
+          e.person.name.includes(search) ||
+          (e.person.phone ?? '').includes(search) ||
+          e.person.national_id.includes(search)
+      )
     : [];
 
   return (
@@ -150,7 +178,7 @@ export default function ScannerPage() {
           الماسح — تسجيل الحضور
         </h2>
         <p className="text-xs text-slate-500 mt-1">
-          امسح رمز QR الخاص بالمخدوم، أو ابحث يدوياً لتسجيل الحضور (+1 نقطة)
+          امسح الرقم القومي (QR) الخاص بالشخص، أو ابحث يدوياً لتسجيل الحضور (+1 نقطة)
         </p>
       </section>
 
@@ -208,6 +236,38 @@ export default function ScannerPage() {
         </div>
       )}
 
+      {/* Multi-enrollment picker: person is registered in several classes */}
+      {picker && (
+        <div id="enrollment-picker" className="card mb-4">
+          <p className="mb-2 text-sm font-extrabold text-slate-700">
+            {picker.person.name} مسجل في أكثر من فصل — اختر مكان تسجيل الحضور:
+          </p>
+          <ul className="space-y-2">
+            {picker.options.map((e) => (
+              <li key={e.id}>
+                <button
+                  onClick={() => recordAttendance(e)}
+                  disabled={busy}
+                  className="btn-secondary w-full flex items-center justify-between !py-2.5"
+                >
+                  <span className="flex items-center gap-2 text-sm font-bold">
+                    <School className="h-4 w-4 text-primary-600" />
+                    {className(e.class_id)}
+                  </span>
+                  <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                </button>
+              </li>
+            ))}
+          </ul>
+          <button
+            onClick={() => setPicker(null)}
+            className="mt-2 w-full text-xs font-bold text-slate-400"
+          >
+            إلغاء
+          </button>
+        </div>
+      )}
+
       {/* Manual search */}
       <section id="manual-section">
         <h3 className="mb-2 text-sm font-extrabold text-slate-500">تسجيل يدوي</h3>
@@ -216,22 +276,22 @@ export default function ScannerPage() {
           <input
             id="manual-search"
             className="input-field pr-9"
-            placeholder="ابحث عن مخدوم بالاسم..."
+            placeholder="ابحث بالاسم أو الهاتف أو الرقم القومي..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
         <ul className="space-y-2">
-          {filtered.slice(0, 8).map((child) => (
-            <li key={child.id} className="card flex items-center justify-between gap-2 !py-3">
+          {filtered.slice(0, 8).map((e) => (
+            <li key={e.id} className="card flex items-center justify-between gap-2 !py-3">
               <div className="min-w-0">
-                <p className="font-bold truncate">{child.name}</p>
+                <p className="font-bold truncate">{e.person.name}</p>
                 <p className="text-xs text-slate-400 flex items-center gap-1">
-                  <Star className="h-3 w-3 text-gold-500" /> {child.points} نقطة — {child.attendance_count} حضور
+                  <Star className="h-3 w-3 text-gold-500" /> {e.points} نقطة — {e.attendance_count} حضور — {className(e.class_id)}
                 </p>
               </div>
               <button
-                onClick={() => recordAttendance(child)}
+                onClick={() => recordAttendance(e)}
                 disabled={busy}
                 className="btn-primary !py-2 !px-3 text-sm shrink-0 flex items-center gap-1"
               >
