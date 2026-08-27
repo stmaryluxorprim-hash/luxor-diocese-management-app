@@ -113,12 +113,11 @@ export const PHONE_LOCAL_LENGTH = 11;
 
 // ---------- Log tables ----------
 
+// Simplified (migration 0012): enrollment_id already identifies
+// church / service / class, so they are not repeated here.
 export interface AttendanceLog {
   id: string;
   enrollment_id: string;
-  church_id: string;
-  service_id: string;
-  class_id: string;
   action: 'add' | 'remove';
   points_delta: number;
   recorded_by: string | null;
@@ -128,9 +127,6 @@ export interface AttendanceLog {
 export interface PointsLog {
   id: string;
   enrollment_id: string;
-  church_id: string;
-  service_id: string;
-  class_id: string;
   delta: number; // positive = add, negative = subtract
   recorded_by: string | null;
   created_at: string;
@@ -149,18 +145,6 @@ export const JOBS: { value: Job; label: string }[] = [
 ];
 
 export const DEFAULT_ATTENDANCE_POINTS = 5;
-
-export interface Attendance {
-  id: string;
-  enrollment_id: string;
-  church_id: string;
-  service_id: string;
-  class_id: string;
-  attended_on: string;
-  points_awarded: number;
-  recorded_by: string | null;
-  created_at: string;
-}
 
 export const ROLE_LABELS: Record<AppRole, string> = {
   owner: 'مالك التطبيق',

@@ -17,11 +17,15 @@ export default function StatsPage() {
   const load = useCallback(async () => {
     const since = new Date();
     since.setDate(since.getDate() - 6);
-    const sinceStr = since.toISOString().slice(0, 10);
+    since.setHours(0, 0, 0, 0);
 
     const [{ data: enr }, { data: att }] = await Promise.all([
       supabase.from('enrollments').select('*, person:persons(*)').order('points', { ascending: false }),
-      supabase.from('attendance').select('attended_on').gte('attended_on', sinceStr),
+      supabase
+        .from('attendance_log')
+        .select('created_at')
+        .eq('action', 'add')
+        .gte('created_at', since.toISOString()),
     ]);
 
     setEnrollments(((enr ?? []) as EnrollmentWithPerson[]).filter((e) => e.person));
@@ -32,7 +36,7 @@ export default function StatsPage() {
       const d = new Date();
       d.setDate(d.getDate() - i);
       const key = d.toISOString().slice(0, 10);
-      days.push({ date: key, count: (att ?? []).filter((a) => a.attended_on === key).length });
+      days.push({ date: key, count: (att ?? []).filter((a) => (a.created_at ?? '').slice(0, 10) === key).length });
     }
     setWeekCounts(days);
     setLoading(false);
@@ -46,7 +50,7 @@ export default function StatsPage() {
     if (!profile) return;
     const channel = supabase
       .channel('stats-page')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance_log' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'enrollments' }, load)
       .subscribe();
     return () => {

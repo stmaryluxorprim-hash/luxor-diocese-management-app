@@ -53,21 +53,33 @@ export default function ScannerPage() {
     async (e: EnrollmentWithPerson) => {
       setBusy(true);
       setPicker(null);
-      const { error } = await supabase.from('attendance').insert({
+
+      // enrollment_id already identifies church/service/class.
+      // Same-day duplicate check (app-level, since logs have no daily unique constraint)
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const { data: existing } = await supabase
+        .from('attendance_log')
+        .select('id')
+        .eq('enrollment_id', e.id)
+        .eq('action', 'add')
+        .gte('created_at', todayStart.toISOString())
+        .limit(1);
+      if (existing && existing.length > 0) {
+        setBusy(false);
+        setResult({ type: 'dup', message: `${e.person.name} — مسجل حضوره اليوم بالفعل` });
+        return;
+      }
+
+      const { error } = await supabase.from('attendance_log').insert({
         enrollment_id: e.id,
-        church_id: e.church_id,
-        service_id: e.service_id,
-        class_id: e.class_id,
+        action: 'add',
+        points_delta: 1,
         recorded_by: profile?.id,
-        points_awarded: 1,
       });
       setBusy(false);
       if (error) {
-        if (error.code === '23505') {
-          setResult({ type: 'dup', message: `${e.person.name} — مسجل حضوره اليوم بالفعل` });
-        } else {
-          setResult({ type: 'err', message: 'تعذر تسجيل الحضور، حاول مجدداً' });
-        }
+        setResult({ type: 'err', message: 'تعذر تسجيل الحضور، حاول مجدداً' });
         return;
       }
       setResult({ type: 'ok', message: `تم تسجيل حضور ${e.person.name} ✔ (${className(e.class_id)})` });
