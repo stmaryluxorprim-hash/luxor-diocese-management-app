@@ -111,14 +111,47 @@ export interface AddPersonResult {
 export const PHONE_PREFIX = '+2';
 export const PHONE_LOCAL_LENGTH = 11;
 
+// ---------- Events & Causes (migration 0013) ----------
+
+// events — something attendable, bound to church / service / class.
+// Attendance is registered AGAINST an event.
+export interface AppEvent {
+  id: string;
+  church_id: string;
+  service_id: string;
+  class_id: string;
+  name: string;
+  description: string | null;
+  event_date: string | null;
+  created_at: string;
+  created_by: string | null;
+  edited_at: string;
+  edited_by: string | null;
+}
+
+// causes — the reason points are given/taken, bound to church / service / class.
+export interface Cause {
+  id: string;
+  church_id: string;
+  service_id: string;
+  class_id: string;
+  name: string;
+  description: string | null;
+  created_at: string;
+  created_by: string | null;
+  edited_at: string;
+  edited_by: string | null;
+}
+
 // ---------- Log tables ----------
 
-// Simplified (migration 0012): enrollment_id already identifies
-// church / service / class, so they are not repeated here.
+// enrollment_id already identifies church / service / class.
+// Attendance rows record WHICH EVENT was attended; removing attendance
+// DELETES the row (a DB trigger reverts the counters).
 export interface AttendanceLog {
   id: string;
   enrollment_id: string;
-  action: 'add' | 'remove';
+  event_id: string | null; // null on legacy rows only
   points_delta: number;
   recorded_by: string | null;
   created_at: string;
@@ -127,6 +160,7 @@ export interface AttendanceLog {
 export interface PointsLog {
   id: string;
   enrollment_id: string;
+  cause_id: string | null; // why the points changed (null on legacy rows)
   delta: number; // positive = add, negative = subtract
   recorded_by: string | null;
   created_at: string;
