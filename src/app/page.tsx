@@ -38,10 +38,10 @@ export default function HomePage() {
     const [persons, enrollments, attendance, pending, churches, services, classes] = await Promise.all([
       supabase.from('persons').select('id', { count: 'exact', head: true }),
       supabase.from('enrollments').select('id', { count: 'exact', head: true }),
+      // every attendance_log row is an attendance (removal deletes the row)
       supabase
         .from('attendance_log')
         .select('id', { count: 'exact', head: true })
-        .eq('action', 'add')
         .gte('created_at', todayStart.toISOString()),
       supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
       supabase.from('churches').select('id', { count: 'exact', head: true }),
