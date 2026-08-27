@@ -178,18 +178,17 @@ function CauseModal({
     if (!cls) return setError('اختر الفصل');
     setSaving(true);
 
-    const payload = {
+    const base = {
       church_id: cls.church_id,
       service_id: cls.service_id,
       class_id: cls.id,
       name: name.trim(),
       description: description.trim() || null,
-      ...(mode === 'add' ? { created_by: profile?.id } : { edited_by: profile?.id }),
     };
 
     const { error: err } = mode === 'add'
-      ? await supabase.from('causes').insert(payload)
-      : await supabase.from('causes').update(payload).eq('id', cause!.id);
+      ? await supabase.from('causes').insert({ ...base, created_by: profile?.id })
+      : await supabase.from('causes').update({ ...base, edited_by: profile?.id }).eq('id', cause!.id);
 
     if (err) {
       setError('تعذر الحفظ، تأكد من الصلاحيات');

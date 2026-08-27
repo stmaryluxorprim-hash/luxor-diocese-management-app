@@ -182,19 +182,18 @@ function EventModal({
     if (!cls) return setError('اختر الفصل');
     setSaving(true);
 
-    const payload = {
+    const base = {
       church_id: cls.church_id,
       service_id: cls.service_id,
       class_id: cls.id,
       name: name.trim(),
       description: description.trim() || null,
       event_date: eventDate || null,
-      ...(mode === 'add' ? { created_by: profile?.id } : { edited_by: profile?.id }),
     };
 
     const { error: err } = mode === 'add'
-      ? await supabase.from('events').insert(payload)
-      : await supabase.from('events').update(payload).eq('id', event!.id);
+      ? await supabase.from('events').insert({ ...base, created_by: profile?.id })
+      : await supabase.from('events').update({ ...base, edited_by: profile?.id }).eq('id', event!.id);
 
     if (err) {
       setError('تعذر الحفظ، تأكد من الصلاحيات');
