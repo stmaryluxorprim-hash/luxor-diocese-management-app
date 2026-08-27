@@ -153,6 +153,30 @@ export function eventAvailability(ev: AppEvent, now: Date = new Date()): EventAv
   return { ok: true, reason: null };
 }
 
+// ---------- Event phase (for child-card coloring) ----------
+// 'wrong_day' -> today is not the event's day
+// 'before'    -> event day, but before start_time
+// 'during'    -> we are inside the event window (or no window given)
+// 'after'     -> event day, after end_time (absent if not attended)
+export type EventPhase = 'wrong_day' | 'before' | 'during' | 'after';
+
+export function eventPhase(ev: AppEvent, now: Date = new Date()): EventPhase {
+  const today = cairoToday(now);
+  const weekday = cairoWeekday(now);
+  const nowHM = cairoTimeHM(now);
+
+  if (ev.recurrence === 'once') {
+    if (ev.event_date && ev.event_date !== today) return 'wrong_day';
+  } else if (ev.recurrence === 'weekly') {
+    const days = ev.weekdays ?? [];
+    if (days.length > 0 && !days.includes(weekday)) return 'wrong_day';
+  }
+
+  if (ev.start_time && nowHM < hm(ev.start_time)) return 'before';
+  if (ev.end_time && nowHM > hm(ev.end_time)) return 'after';
+  return 'during';
+}
+
 // Human description of an event schedule (for lists / selectors)
 export function describeEventSchedule(ev: AppEvent): string {
   const parts: string[] = [];
