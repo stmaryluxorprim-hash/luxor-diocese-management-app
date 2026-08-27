@@ -362,7 +362,7 @@ function SingleAddTab({
         address: address.trim() || null,
         notes: notes.trim() || null,
         points,
-        photo_url: photoUrl,
+        image_url: photoUrl,
         created_by: profile?.id,
       };
       if (code.trim()) insert.qr_code = code.trim();
@@ -688,17 +688,23 @@ function SingleAddTab({
 // TAB 2 — Bulk add (Excel import or pasted data + column mapping)
 // =====================================================================
 
-type BulkField = 'name' | 'gender' | 'phone' | 'birthdate' | 'address' | 'notes' | 'points' | 'code' | 'skip';
+type BulkField =
+  | 'name' | 'gender' | 'phone'
+  | 'birthdate' | 'birth_day' | 'birth_month' | 'birth_year'
+  | 'address' | 'notes' | 'points' | 'code' | 'skip';
 
 const BULK_FIELDS: { value: BulkField; label: string }[] = [
   { value: 'skip', label: '— تجاهل —' },
   { value: 'name', label: 'الاسم' },
   { value: 'gender', label: 'النوع' },
   { value: 'phone', label: 'رقم الهاتف' },
-  { value: 'birthdate', label: 'تاريخ الميلاد' },
+  { value: 'birthdate', label: 'تاريخ الميلاد (كامل)' },
+  { value: 'birth_day', label: 'يوم الميلاد' },
+  { value: 'birth_month', label: 'شهر الميلاد' },
+  { value: 'birth_year', label: 'سنة الميلاد' },
   { value: 'address', label: 'العنوان' },
   { value: 'notes', label: 'ملاحظات' },
-  { value: 'points', label: 'نقاط البداية' },
+  { value: 'points', label: 'نقاط' },
   { value: 'code', label: 'الكود' },
 ];
 
@@ -708,6 +714,9 @@ const guessField = (header: string): BulkField => {
   if (/اسم|name/.test(h)) return 'name';
   if (/نوع|جنس|gender|sex/.test(h)) return 'gender';
   if (/هاتف|موبايل|تليفون|phone|mobile|tel/.test(h)) return 'phone';
+  if (/يوم|day/.test(h)) return 'birth_day';
+  if (/شهر|month/.test(h)) return 'birth_month';
+  if (/سنة|عام|year/.test(h)) return 'birth_year';
   if (/ميلاد|تاريخ|birth|date|dob/.test(h)) return 'birthdate';
   if (/عنوان|address/.test(h)) return 'address';
   if (/ملاحظ|note/.test(h)) return 'notes';
@@ -716,19 +725,86 @@ const guessField = (header: string): BulkField => {
   return 'skip';
 };
 
-/** Parse a birthdate cell: Excel serial, dd/mm/yyyy, yyyy-mm-dd */
-const parseBirthdate = (v: unknown): string | null => {
-  if (v == null || v === '') return null;
-  if (typeof v === 'number' && v > 20000 && v < 60000) {
-    // Excel serial date
-    const d = new Date(Math.round((v - 25569) * 86400 * 1000));
+// ---------- Date parsing ----------
+
+type DateOrder = 'dmy' | 'mdy' | 'auto';
+
+const MONTH_NAMES: Record<string, number> = {
+  // English
+  jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3, apr: 4, april: 4,
+  may: 5, jun: 6, june: 6, jul: 7, july: 7, aug: 8, august: 8,
+  sep: 9, sept: 9, september: 9, oct: 10, october: 10, nov: 11, november: 11, dec: 12, december: 12,
+  // Arabic (standard)
+  'يناير': 1, 'فبراير': 2, 'مارس': 3, 'أبريل': 4, 'ابريل': 4, 'مايو': 5, 'يونيو': 6, 'يونيه': 6,
+  'يوليو': 7, 'يوليه': 7, 'أغسطس': 8, 'اغسطس': 8, 'سبتمبر': 9, 'أكتوبر': 10, 'اكتوبر': 10,
+  'نوفمبر': 11, 'ديسمبر': 12,
+  // Arabic (levant)
+  'كانون الثاني': 1, 'شباط': 2, 'آذار': 3, 'اذار': 3, 'نيسان': 4, 'أيار': 5, 'ايار': 5,
+  'حزيران': 6, 'تموز': 7, 'آب': 8, 'اب': 8, 'أيلول': 9, 'ايلول': 9,
+  'تشرين الأول': 10, 'تشرين الاول': 10, 'تشرين الثاني': 11, 'كانون الأول': 12, 'كانون الاول': 12,
+};
+
+/** Arabic-indic digits → latin */
+const toLatinDigits = (s: string) =>
+  s.replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+   .replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)));
+
+/** Parse a month cell: number, or Arabic/English month name */
+const parseMonth = (v: string): number | null => {
+  const s = toLatinDigits(String(v ?? '').trim().toLowerCase());
+  if (!s) return null;
+  const n = Number(s);
+  if (Number.isInteger(n) && n >= 1 && n <= 12) return n;
+  if (MONTH_NAMES[s] != null) return MONTH_NAMES[s];
+  // partial match (e.g. "شهر يناير")
+  for (const [name, num] of Object.entries(MONTH_NAMES)) {
+    if (s.includes(name)) return num;
+  }
+  return null;
+};
+
+const validDate = (y: number, m: number, d: number): string | null => {
+  if (y < 1900 || y > 2100 || m < 1 || m > 12 || d < 1) return null;
+  if (d > new Date(y, m, 0).getDate()) return null;
+  return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+};
+
+/** Parse a full-date cell with an explicit day/month order preference */
+const parseFullDate = (raw: string, order: DateOrder): string | null => {
+  const s = toLatinDigits(String(raw ?? '').trim());
+  if (!s) return null;
+
+  // Excel serial number
+  const asNum = Number(s);
+  if (Number.isFinite(asNum) && asNum > 20000 && asNum < 60000 && /^\d+(\.\d+)?$/.test(s)) {
+    const d = new Date(Math.round((asNum - 25569) * 86400 * 1000));
     return d.toISOString().slice(0, 10);
   }
-  const s = String(v).trim();
-  let m = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
-  if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
-  m = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
-  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+
+  // ISO yyyy-mm-dd (unambiguous)
+  let m = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  if (m) return validDate(+m[1], +m[2], +m[3]);
+
+  // a/b/yyyy — order decided by the user
+  m = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})/);
+  if (m) {
+    const a = +m[1], b = +m[2];
+    let y = +m[3];
+    if (y < 100) y += y > 30 ? 1900 : 2000;
+    if (order === 'mdy') return validDate(y, a, b);
+    if (order === 'dmy') return validDate(y, b, a);
+    // auto: self-resolve when one side can't be a month
+    if (a > 12) return validDate(y, b, a);      // a is the day → dmy
+    if (b > 12) return validDate(y, a, b);      // b is the day → mdy
+    return validDate(y, b, a);                  // ambiguous → assume dd/mm
+  }
+
+  // "12 يناير 2015" style
+  m = s.match(/^(\d{1,2})\s+(\S+)\s+(\d{4})/);
+  if (m) {
+    const mo = parseMonth(m[2]);
+    if (mo) return validDate(+m[3], mo, +m[1]);
+  }
   return null;
 };
 
@@ -740,7 +816,9 @@ const parseGender = (v: unknown): Gender | null => {
 };
 
 interface BulkRow {
+  key: number;
   cells: string[];
+  genderOverride?: Gender | null;   // per-row manual gender (wins over everything)
   status: 'pending' | 'ok' | 'error';
   message?: string;
 }
@@ -764,6 +842,12 @@ function BulkAddTab({
   const [done, setDone] = useState<{ ok: number; fail: number } | null>(null);
   const excelInputRef = useRef<HTMLInputElement>(null);
 
+  // ---- Import options ----
+  const [defaultGender, setDefaultGender] = useState<Gender | ''>('');   // all boys / all girls
+  const [autoCodes, setAutoCodes] = useState(false);                     // generate codes
+  const [dateOrder, setDateOrder] = useState<DateOrder>('auto');         // dd/mm vs mm/dd
+  const [defaultPoints, setDefaultPoints] = useState('0');               // points for every child
+
   const colCount = rows.length ? Math.max(...rows.map((r) => r.cells.length)) : 0;
 
   const applyData = useCallback((matrix: string[][]) => {
@@ -773,13 +857,9 @@ function BulkAddTab({
     if (!clean.length) { setError('لا توجد بيانات'); return; }
     setError('');
     setDone(null);
-    setRows(clean.map((cells) => ({ cells, status: 'pending' })));
-    // Guess mapping from first row headers
+    setRows(clean.map((cells, i) => ({ key: i, cells, status: 'pending' })));
     const cols = Math.max(...clean.map((r) => r.length));
-    const guessed: BulkField[] = Array.from({ length: cols }, (_, i) =>
-      guessField(clean[0][i] ?? '')
-    );
-    // if nothing matched, default first col to name
+    const guessed: BulkField[] = Array.from({ length: cols }, (_, i) => guessField(clean[0][i] ?? ''));
     if (!guessed.includes('name') && cols > 0) guessed[0] = 'name';
     setMapping(guessed);
   }, []);
@@ -795,10 +875,7 @@ function BulkAddTab({
       const wb = XLSX.read(buf, { type: 'array' });
       const ws = wb.Sheets[wb.SheetNames[0]];
       const matrix = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, raw: true, defval: '' })
-        .map((r) => (r as unknown[]).map((c) => {
-          if (typeof c === 'number' && c > 20000 && c < 60000) return String(c); // keep serial for date parsing
-          return String(c ?? '');
-        }));
+        .map((r) => (r as unknown[]).map((c) => String(c ?? '')));
       applyData(matrix);
     } catch {
       setError('تعذر قراءة ملف الإكسل');
@@ -817,7 +894,6 @@ function BulkAddTab({
   const setColMapping = (i: number, f: BulkField) =>
     setMapping((m) => {
       const next = [...m];
-      // A field (except skip) can map to only one column
       if (f !== 'skip') {
         for (let j = 0; j < next.length; j++) if (next[j] === f) next[j] = 'skip';
       }
@@ -825,83 +901,164 @@ function BulkAddTab({
       return next;
     });
 
-  const dataRows = useMemo(
-    () => (hasHeader ? rows.slice(1) : rows),
-    [rows, hasHeader]
+  const dataRows = useMemo(() => (hasHeader ? rows.slice(1) : rows), [rows, hasHeader]);
+
+  const col = useCallback((f: BulkField) => mapping.indexOf(f), [mapping]);
+  const cellOf = useCallback(
+    (row: BulkRow, f: BulkField) => {
+      const idx = col(f);
+      return idx === -1 ? '' : (row.cells[idx] ?? '').trim();
+    },
+    [col]
   );
 
-  const removeRow = (idx: number) => {
-    const realIdx = hasHeader ? idx + 1 : idx;
-    setRows((r) => r.filter((_, i) => i !== realIdx));
-  };
+  const hasGenderData = col('gender') !== -1;
+  const hasCodeCol = col('code') !== -1;
+  const hasFullDate = col('birthdate') !== -1;
+  const hasSplitDate = col('birth_day') !== -1 || col('birth_month') !== -1 || col('birth_year') !== -1;
+  const hasPointsCol = col('points') !== -1;
 
-  const nameCol = mapping.indexOf('name');
+  // ---------- Resolve each row into final values (live preview) ----------
+  interface Resolved {
+    row: BulkRow;
+    name: string;
+    gender: Gender | null;
+    code: string;
+    birthdate: string | null;
+    birthdateRaw: string;
+    phone: string | null | undefined;   // undefined = invalid
+    points: number;
+    address: string;
+    notes: string;
+  }
 
+  const resolved: Resolved[] = useMemo(() => {
+    const fallbackPoints = Math.max(0, Math.floor(Number(defaultPoints) || 0));
+    return dataRows.map((row) => {
+      // gender: per-row override > cell value > global default
+      let gender: Gender | null = null;
+      if (row.genderOverride !== undefined) gender = row.genderOverride;
+      else {
+        gender = hasGenderData ? parseGender(cellOf(row, 'gender')) : null;
+        if (!gender && defaultGender) gender = defaultGender;
+      }
+
+      // code: cell value; else auto-generated when enabled
+      let code = cellOf(row, 'code');
+      if (!code && autoCodes) code = 'AUTO';   // placeholder — real code generated at import
+
+      // birthdate
+      let birthdate: string | null = null;
+      let birthdateRaw = '';
+      if (hasFullDate) {
+        birthdateRaw = cellOf(row, 'birthdate');
+        birthdate = parseFullDate(birthdateRaw, dateOrder);
+      } else if (hasSplitDate) {
+        const dRaw = toLatinDigits(cellOf(row, 'birth_day'));
+        const mRaw = cellOf(row, 'birth_month');
+        const yRaw = toLatinDigits(cellOf(row, 'birth_year'));
+        birthdateRaw = [dRaw, mRaw, yRaw].filter(Boolean).join(' / ');
+        const d = Number(dRaw), mo = parseMonth(mRaw);
+        let y = Number(yRaw);
+        if (y > 0 && y < 100) y += y > 30 ? 1900 : 2000;
+        if (d && mo && y) birthdate = validDate(y, mo, d);
+      }
+
+      const rowPoints = hasPointsCol ? cellOf(row, 'points') : '';
+      const points = rowPoints !== '' && !Number.isNaN(Number(rowPoints))
+        ? Math.max(0, Math.floor(Number(rowPoints)))
+        : fallbackPoints;
+
+      return {
+        row,
+        name: cellOf(row, 'name'),
+        gender,
+        code,
+        birthdate,
+        birthdateRaw,
+        phone: normalizePhone(cellOf(row, 'phone')),
+        points,
+        address: cellOf(row, 'address'),
+        notes: cellOf(row, 'notes'),
+      };
+    });
+  }, [dataRows, cellOf, hasGenderData, defaultGender, autoCodes, hasFullDate, hasSplitDate, dateOrder, hasPointsCol, defaultPoints]);
+
+  // Cycle a row's gender: null → boy → girl → null
+  const cycleGender = (key: number) =>
+    setRows((rs) =>
+      rs.map((r) => {
+        if (r.key !== key) return r;
+        const current =
+          r.genderOverride !== undefined
+            ? r.genderOverride
+            : (hasGenderData ? parseGender(cellOf(r, 'gender')) : null) || (defaultGender || null);
+        const next: Gender | null = current === null ? 'boy' : current === 'boy' ? 'girl' : null;
+        return { ...r, genderOverride: next };
+      })
+    );
+
+  const removeRow = (key: number) => setRows((rs) => rs.filter((r) => r.key !== key));
+
+  const nameCol = col('name');
+  const invalidPhones = resolved.filter((r) => r.phone === undefined).length;
+  const unparsedDates = resolved.filter((r) => r.birthdateRaw && !r.birthdate).length;
+
+  // ---------- Import ----------
   const doImport = async () => {
     setError('');
     const cls = scope.selectedClass;
     if (!cls) { setError('اختر الكنيسة والخدمة والفصل أولًا'); return; }
     if (nameCol === -1) { setError('حدد عمود الاسم'); return; }
-    if (!dataRows.length) { setError('لا توجد صفوف للاستيراد'); return; }
+    if (!resolved.length) { setError('لا توجد صفوف للاستيراد'); return; }
 
     setImporting(true);
     let ok = 0, fail = 0;
-    const startIdx = hasHeader ? 1 : 0;
-    const updated = [...rows];
 
-    for (let i = 0; i < dataRows.length; i++) {
-      const row = dataRows[i];
-      const cell = (f: BulkField) => {
-        const idx = mapping.indexOf(f);
-        return idx === -1 ? '' : (row.cells[idx] ?? '').trim();
-      };
-      const name = cell('name');
-      if (!name) {
-        updated[startIdx + i] = { ...row, status: 'error', message: 'الاسم مفقود' };
-        fail++;
-        continue;
-      }
-      const rawPhone = cell('phone');
-      const phone = normalizePhone(rawPhone);
-      if (phone === undefined) {
-        updated[startIdx + i] = { ...row, status: 'error', message: `رقم هاتف غير صالح (${rawPhone})` };
-        fail++;
-        continue;
-      }
+    for (const r of resolved) {
+      if (r.row.status === 'ok') continue;   // already imported in a previous run
+
+      const setStatus = (status: BulkRow['status'], message?: string) =>
+        setRows((rs) => rs.map((x) => (x.key === r.row.key ? { ...x, status, message } : x)));
+
+      if (!r.name) { setStatus('error', 'الاسم مفقود'); fail++; continue; }
+      if (r.phone === undefined) { setStatus('error', 'رقم هاتف غير صالح'); fail++; continue; }
+
       const insert: Record<string, unknown> = {
         church_id: cls.church_id,
         service_id: cls.service_id,
         class_id: cls.id,
-        name,
-        gender: parseGender(cell('gender')),
-        phone,
-        birthdate: parseBirthdate(cell('birthdate')),
-        address: cell('address') || null,
-        notes: cell('notes') || null,
-        points: Math.max(0, Math.floor(Number(cell('points')) || 0)),
+        name: r.name,
+        gender: r.gender,
+        birthdate: r.birthdate,
+        phone: r.phone,
+        address: r.address || null,
+        notes: r.notes || null,
+        points: r.points,
         created_by: profile?.id,
       };
-      const codeVal = cell('code');
+      const codeVal = r.code === 'AUTO' ? generateCode() : r.code;
       if (codeVal) insert.qr_code = codeVal;
 
       const { error: err } = await supabase.from('children').insert(insert);
       if (err) {
-        updated[startIdx + i] = {
-          ...row, status: 'error',
-          message: err.code === '23505' ? 'كود مكرر' : 'فشل الحفظ',
-        };
+        setStatus('error', err.code === '23505' ? 'كود مكرر' : 'فشل الحفظ');
         fail++;
       } else {
-        updated[startIdx + i] = { ...row, status: 'ok' };
+        setStatus('ok');
         ok++;
       }
-      setRows([...updated]);
     }
     setImporting(false);
     setDone({ ok, fail });
   };
 
-  const reset = () => { setRows([]); setMapping([]); setDone(null); setError(''); };
+  const reset = () => {
+    setRows([]); setMapping([]); setDone(null); setError('');
+    setDefaultGender(''); setAutoCodes(false); setDateOrder('auto'); setDefaultPoints('0');
+  };
+
+  const pendingCount = resolved.filter((r) => r.row.status !== 'ok').length;
 
   return (
     <div className="space-y-4 pb-6">
@@ -944,12 +1101,12 @@ function BulkAddTab({
         </div>
       )}
 
-      {/* Mapping + preview */}
       {rows.length > 0 && (
         <>
+          {/* ---------- Column mapping ---------- */}
           <div className="card space-y-3">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-extrabold text-slate-700">تحديد الأعمدة</h3>
+              <h3 className="text-sm font-extrabold text-slate-700">١· تحديد الأعمدة</h3>
               <button
                 id="bulk-reset"
                 type="button"
@@ -971,7 +1128,6 @@ function BulkAddTab({
               الصف الأول عناوين (يتم تجاهله)
             </label>
 
-            {/* Column mapping table */}
             <div className="overflow-x-auto -mx-4 px-4">
               <table className="w-full min-w-max text-xs">
                 <thead>
@@ -981,7 +1137,7 @@ function BulkAddTab({
                         <select
                           id={`bulk-map-${i}`}
                           aria-label={`عمود ${i + 1}`}
-                          className={`input-field !w-28 !px-2 !py-1.5 !text-xs font-extrabold ${
+                          className={`input-field !w-32 !px-2 !py-1.5 !text-xs font-extrabold ${
                             (mapping[i] ?? 'skip') !== 'skip' ? '!border-primary-300 !bg-primary-50' : ''
                           }`}
                           value={mapping[i] ?? 'skip'}
@@ -993,34 +1149,235 @@ function BulkAddTab({
                         </select>
                       </th>
                     ))}
-                    <th className="p-1 w-8" />
                   </tr>
                 </thead>
                 <tbody>
-                  {dataRows.slice(0, 50).map((row, ri) => (
-                    <tr
-                      key={ri}
-                      className={
-                        row.status === 'ok' ? 'bg-emerald-50'
-                        : row.status === 'error' ? 'bg-red-50'
-                        : ri % 2 ? 'bg-slate-50' : ''
-                      }
-                    >
+                  {dataRows.slice(0, 5).map((row, ri) => (
+                    <tr key={row.key} className={ri % 2 ? 'bg-slate-50' : ''}>
                       {Array.from({ length: colCount }, (_, ci) => (
                         <td key={ci} className="max-w-[130px] truncate border-t border-indigo-50 p-1.5 font-bold text-slate-600">
                           {row.cells[ci] ?? ''}
                         </td>
                       ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-[11px] font-bold text-slate-400">معاينة أول 5 صفوف — إجمالي {dataRows.length} صفًا</p>
+          </div>
+
+          {/* ---------- Import options ---------- */}
+          <div className="card space-y-4">
+            <h3 className="text-sm font-extrabold text-slate-700">٢· خيارات الاستيراد</h3>
+
+            {/* Gender */}
+            <div>
+              <label className="mb-1 block text-xs font-bold text-slate-500">
+                النوع {hasGenderData ? '— يُقرأ من العمود، ويمكن تعديل كل صف من المعاينة' : '— لا يوجد عمود نوع، اختر للجميع:'}
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  id="bulk-gender-none"
+                  type="button"
+                  aria-pressed={defaultGender === ''}
+                  onClick={() => setDefaultGender('')}
+                  className={`rounded-xl py-2 text-xs font-extrabold transition active:scale-95 ${
+                    defaultGender === '' ? 'bg-slate-600 text-white shadow' : 'bg-slate-100 text-slate-500'
+                  }`}
+                >
+                  {hasGenderData ? 'من العمود' : 'بدون'}
+                </button>
+                <button
+                  id="bulk-gender-boys"
+                  type="button"
+                  aria-pressed={defaultGender === 'boy'}
+                  onClick={() => setDefaultGender(defaultGender === 'boy' ? '' : 'boy')}
+                  className={`rounded-xl py-2 text-xs font-extrabold transition active:scale-95 ${
+                    defaultGender === 'boy' ? 'bg-primary-600 text-white shadow' : 'bg-primary-50 text-primary-600'
+                  }`}
+                >
+                  الكل ولاد 👦
+                </button>
+                <button
+                  id="bulk-gender-girls"
+                  type="button"
+                  aria-pressed={defaultGender === 'girl'}
+                  onClick={() => setDefaultGender(defaultGender === 'girl' ? '' : 'girl')}
+                  className={`rounded-xl py-2 text-xs font-extrabold transition active:scale-95 ${
+                    defaultGender === 'girl' ? 'bg-pink-500 text-white shadow' : 'bg-pink-50 text-pink-500'
+                  }`}
+                >
+                  الكل بنات 👧
+                </button>
+              </div>
+              {hasGenderData && defaultGender && (
+                <p className="mt-1 text-[11px] font-bold text-amber-600">
+                  سيُطبق على الصفوف التي لا يوجد بها نوع صريح فقط
+                </p>
+              )}
+            </div>
+
+            {/* Codes */}
+            <div>
+              <label className="mb-1 block text-xs font-bold text-slate-500">الأكواد</label>
+              <label className="flex items-center gap-2 text-xs font-bold text-slate-600">
+                <input
+                  id="bulk-auto-codes"
+                  type="checkbox"
+                  checked={autoCodes}
+                  onChange={(e) => setAutoCodes(e.target.checked)}
+                  className="h-4 w-4 accent-primary-600"
+                />
+                <Wand2 className="h-4 w-4 text-primary-500" />
+                توليد كود تلقائي (CH-XXXXXX) {hasCodeCol ? 'للصفوف التي بلا كود' : 'لكل المخدومين'}
+              </label>
+            </div>
+
+            {/* Date format */}
+            {(hasFullDate || hasSplitDate) && (
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-500">تاريخ الميلاد</label>
+                {hasFullDate ? (
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      id="bulk-date-auto"
+                      type="button"
+                      aria-pressed={dateOrder === 'auto'}
+                      onClick={() => setDateOrder('auto')}
+                      className={`rounded-xl py-2 text-xs font-extrabold transition active:scale-95 ${
+                        dateOrder === 'auto' ? 'bg-slate-600 text-white shadow' : 'bg-slate-100 text-slate-500'
+                      }`}
+                    >
+                      تلقائي
+                    </button>
+                    <button
+                      id="bulk-date-dmy"
+                      type="button"
+                      aria-pressed={dateOrder === 'dmy'}
+                      onClick={() => setDateOrder('dmy')}
+                      className={`rounded-xl py-2 text-xs font-extrabold transition active:scale-95 ${
+                        dateOrder === 'dmy' ? 'bg-primary-600 text-white shadow' : 'bg-primary-50 text-primary-600'
+                      }`}
+                      dir="ltr"
+                    >
+                      dd/mm/yyyy
+                    </button>
+                    <button
+                      id="bulk-date-mdy"
+                      type="button"
+                      aria-pressed={dateOrder === 'mdy'}
+                      onClick={() => setDateOrder('mdy')}
+                      className={`rounded-xl py-2 text-xs font-extrabold transition active:scale-95 ${
+                        dateOrder === 'mdy' ? 'bg-primary-600 text-white shadow' : 'bg-primary-50 text-primary-600'
+                      }`}
+                      dir="ltr"
+                    >
+                      mm/dd/yyyy
+                    </button>
+                  </div>
+                ) : (
+                  <p className="rounded-xl bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-500">
+                    التاريخ من 3 أعمدة (يوم/شهر/سنة) — الشهر يُقبل رقمًا أو اسمًا (يناير، January...)
+                  </p>
+                )}
+                {unparsedDates > 0 && (
+                  <p className="mt-1 text-[11px] font-bold text-amber-600">
+                    ⚠ {unparsedDates} تاريخ لم يُفهم — راجع الصيغة أو ستُحفظ بدون تاريخ
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Points */}
+            <div>
+              <label className="mb-1 flex items-center gap-1 text-xs font-bold text-slate-500">
+                <Star className="h-3.5 w-3.5 text-gold-500" />
+                نقاط لكل مخدوم {hasPointsCol && '(عمود النقاط له الأولوية)'}
+              </label>
+              <input
+                id="bulk-default-points"
+                type="number"
+                min={0}
+                className="input-field !w-28"
+                value={defaultPoints}
+                onChange={(e) => setDefaultPoints(e.target.value)}
+              />
+            </div>
+          </div>
+
+          {/* ---------- Resolved preview ---------- */}
+          <div className="card space-y-2">
+            <h3 className="text-sm font-extrabold text-slate-700">٣· المعاينة النهائية</h3>
+            <p className="text-[11px] font-bold text-slate-400">اضغط على النوع لتغييره لكل صف على حدة</p>
+            <div className="overflow-x-auto -mx-4 px-4">
+              <table className="w-full min-w-max text-xs">
+                <thead>
+                  <tr className="text-right text-[11px] font-extrabold text-slate-400">
+                    <th className="p-1.5">الاسم</th>
+                    <th className="p-1.5">النوع</th>
+                    <th className="p-1.5">الكود</th>
+                    <th className="p-1.5">الميلاد</th>
+                    <th className="p-1.5">الهاتف</th>
+                    <th className="p-1.5">نقاط</th>
+                    <th className="p-1.5 w-8" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {resolved.slice(0, 100).map((r) => (
+                    <tr
+                      key={r.row.key}
+                      className={
+                        r.row.status === 'ok' ? 'bg-emerald-50'
+                        : r.row.status === 'error' ? 'bg-red-50'
+                        : ''
+                      }
+                    >
+                      <td className="max-w-[120px] truncate border-t border-indigo-50 p-1.5 font-extrabold text-slate-700">
+                        {r.name || <span className="text-red-500">؟</span>}
+                      </td>
                       <td className="border-t border-indigo-50 p-1">
-                        {row.status === 'ok' ? (
+                        <button
+                          type="button"
+                          aria-label="تبديل النوع"
+                          onClick={() => cycleGender(r.row.key)}
+                          className={`rounded-lg px-2 py-1 text-[11px] font-extrabold transition active:scale-95 ${
+                            r.gender === 'boy' ? 'bg-primary-100 text-primary-700'
+                            : r.gender === 'girl' ? 'bg-pink-100 text-pink-600'
+                            : 'bg-slate-100 text-slate-400'
+                          }`}
+                        >
+                          {r.gender === 'boy' ? '👦 ولد' : r.gender === 'girl' ? '👧 بنت' : '—'}
+                        </button>
+                      </td>
+                      <td className="border-t border-indigo-50 p-1.5 font-bold text-slate-500" dir="ltr">
+                        {r.code === 'AUTO' ? <span className="text-primary-500">تلقائي ✨</span> : r.code || '—'}
+                      </td>
+                      <td className="border-t border-indigo-50 p-1.5 font-bold" dir="ltr">
+                        {r.birthdate ? (
+                          <span className="text-slate-600">{r.birthdate.split('-').reverse().join('/')}</span>
+                        ) : r.birthdateRaw ? (
+                          <span className="text-amber-500" title={r.birthdateRaw}>⚠ {r.birthdateRaw}</span>
+                        ) : '—'}
+                      </td>
+                      <td className="border-t border-indigo-50 p-1.5 font-bold" dir="ltr">
+                        {r.phone === undefined ? (
+                          <span className="text-red-500">✗ غير صالح</span>
+                        ) : r.phone ? (
+                          <span className="text-slate-600">{r.phone}</span>
+                        ) : '—'}
+                      </td>
+                      <td className="border-t border-indigo-50 p-1.5 font-extrabold text-gold-600">{r.points}</td>
+                      <td className="border-t border-indigo-50 p-1">
+                        {r.row.status === 'ok' ? (
                           <Check className="h-4 w-4 text-emerald-500" />
-                        ) : row.status === 'error' ? (
-                          <span title={row.message}><X className="h-4 w-4 text-red-500" /></span>
+                        ) : r.row.status === 'error' ? (
+                          <span title={r.row.message}><X className="h-4 w-4 text-red-500" /></span>
                         ) : (
                           <button
                             type="button"
                             aria-label="حذف الصف"
-                            onClick={() => removeRow(ri)}
+                            onClick={() => removeRow(r.row.key)}
                             className="text-slate-300 hover:text-red-400"
                           >
                             <Trash2 className="h-4 w-4" />
@@ -1032,18 +1389,17 @@ function BulkAddTab({
                 </tbody>
               </table>
             </div>
-            {dataRows.length > 50 && (
+            {resolved.length > 100 && (
               <p className="text-[11px] font-bold text-slate-400">
-                يتم عرض أول 50 صفًا فقط — سيتم استيراد {dataRows.length} صفًا
+                يتم عرض أول 100 صف — سيتم استيراد الكل ({resolved.length})
               </p>
             )}
 
-            {/* Error rows messages */}
             {dataRows.some((r) => r.status === 'error') && (
               <ul className="space-y-1 rounded-xl bg-red-50 p-2 text-[11px] font-bold text-red-600">
-                {dataRows.map((r, i) =>
-                  r.status === 'error' ? (
-                    <li key={i}>صف {i + 1}: {r.message} — {r.cells[nameCol] ?? ''}</li>
+                {resolved.map((r, i) =>
+                  r.row.status === 'error' ? (
+                    <li key={r.row.key}>صف {i + 1}: {r.row.message} — {r.name}</li>
                   ) : null
                 )}
               </ul>
@@ -1058,16 +1414,21 @@ function BulkAddTab({
               ✓ تم استيراد {done.ok} مخدومًا{done.fail > 0 ? ` — فشل ${done.fail}` : ''}
             </p>
           )}
+          {invalidPhones > 0 && !done && (
+            <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-600">
+              ⚠ {invalidPhones} رقم هاتف غير صالح (يجب {PHONE_LOCAL_LENGTH} رقمًا) — هذه الصفوف لن تُستورد
+            </p>
+          )}
 
           <button
             id="bulk-import"
             type="button"
             onClick={doImport}
-            disabled={importing || nameCol === -1 || !scope.classId}
+            disabled={importing || nameCol === -1 || !scope.classId || pendingCount === 0}
             className="btn-primary w-full flex items-center justify-center gap-2"
           >
             {importing ? <Loader2 className="h-5 w-5 animate-spin" /> : <Upload className="h-5 w-5" />}
-            استيراد {dataRows.filter((r) => r.status !== 'ok').length} مخدومًا
+            استيراد {pendingCount} مخدومًا
           </button>
         </>
       )}

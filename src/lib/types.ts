@@ -57,24 +57,26 @@ export const GENDER_LABELS: Record<Gender, string> = {
   girl: 'بنت',
 };
 
+// Mirrors the column order of public.children (migration 0010)
 export interface Child {
   id: string;
   church_id: string;
   service_id: string;
   class_id: string;
+  qr_code: string | null;
   name: string;
   gender: Gender | null;
-  phone: string | null;
   birthdate: string | null;
+  phone: string | null;
   address: string | null;
   notes: string | null;
   attendance_count: number;
   points: number;
-  qr_code: string | null;
-  photo_url: string | null;
-  created_by: string | null;
+  image_url: string | null;
   created_at: string;
-  updated_at: string;
+  created_by: string | null;
+  edited_at: string;
+  edited_by: string | null;
 }
 
 // Egypt phone: displayed prefix +2 followed by exactly 11 digits (e.g. 01xxxxxxxxx)
