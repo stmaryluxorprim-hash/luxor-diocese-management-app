@@ -6,6 +6,7 @@ import { Menu } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { ROLE_LABELS } from '@/lib/types';
 import SideMenu from '@/components/SideMenu';
+import AppDateButton from '@/components/AppDateButton';
 
 export default function AppHeader() {
   const { profile, church, service } = useAuth();
@@ -38,6 +39,9 @@ export default function AppHeader() {
               {service?.name ?? (profile ? ROLE_LABELS[profile.role] : '')}
             </p>
           </div>
+
+          {/* Working-date button (opens date/time selector modal) */}
+          <AppDateButton />
 
           {/* Side menu button (replaces the bell, at the end of the header) */}
           <button

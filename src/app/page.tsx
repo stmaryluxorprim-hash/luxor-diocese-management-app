@@ -10,6 +10,7 @@ import { useAuth } from '@/lib/auth-context';
 import { createClient } from '@/lib/supabase/client';
 import { ROLE_LABELS } from '@/lib/types';
 import { cairoDayStartISO } from '@/lib/time';
+import { useAppDate } from '@/lib/app-date-context';
 
 interface Counts {
   persons: number;
@@ -24,6 +25,7 @@ interface Counts {
 export default function HomePage() {
   const { profile } = useAuth();
   const supabase = createClient();
+  const { now } = useAppDate();
   const [counts, setCounts] = useState<Counts>({
     persons: 0, enrollments: 0, todayAttendance: 0, pendingServants: 0, churches: 0, services: 0, classes: 0,
   });
@@ -33,8 +35,8 @@ export default function HomePage() {
 
   const loadCounts = useCallback(async () => {
     if (!profile || profile.status !== 'approved') return;
-    // "today" starts at midnight Africa/Cairo, not the device timezone
-    const todayStartISO = cairoDayStartISO();
+    // "today" starts at midnight Africa/Cairo of the app working date
+    const todayStartISO = cairoDayStartISO(now());
 
     const [persons, enrollments, attendance, pending, churches, services, classes] = await Promise.all([
       supabase.from('persons').select('id', { count: 'exact', head: true }),
@@ -59,7 +61,7 @@ export default function HomePage() {
       services: services.count ?? 0,
       classes: classes.count ?? 0,
     });
-  }, [profile, supabase]);
+  }, [profile, supabase, now]);
 
   useEffect(() => {
     loadCounts();

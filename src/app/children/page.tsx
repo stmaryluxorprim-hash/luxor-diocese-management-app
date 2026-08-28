@@ -3,9 +3,9 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  Users, Search, Plus, Phone, MapPin, Star, CalendarCheck, X, Loader2, StickyNote,
+  Users, Search, Plus, Phone, MapPin, Star, CalendarCheck, X, Loader2,
   SlidersHorizontal, ChevronDown, School, Check, Minus,
-  MessageSquare, Inbox, PenSquare, CalendarDays, Award,
+  MessageSquare, Inbox, PenSquare,
 } from 'lucide-react';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
@@ -15,7 +15,9 @@ import {
   type Job, type EnrollmentWithPerson, type ClassRoom, type Church, type Service,
   type AppEvent, type Cause,
 } from '@/lib/types';
-import { eventAvailability, describeEventSchedule, cairoToday } from '@/lib/time';
+import { eventAvailability, eventPhase, describeEventSchedule, cairoToday } from '@/lib/time';
+import { useAppDate } from '@/lib/app-date-context';
+import NumPadModal from '@/components/NumPadModal';
 
 const ALL = 'all';
 
@@ -92,6 +94,28 @@ export default function ChildrenPage() {
     setOpenGroups((g) => ({ ...g, [id]: !g[id] }));
 
   const [busyChild, setBusyChild] = useState<string | null>(null);
+
+  // Working date (header date button) — ALL date operations use this instant
+  const { now } = useAppDate();
+
+  // Points override for editable/open modes (entered via numpad)
+  const [eventPtsOverride, setEventPtsOverride] = useState<number | null>(null);
+  const [causePtsOverride, setCausePtsOverride] = useState<number | null>(null);
+  const [numpadFor, setNumpadFor] = useState<'event' | 'cause' | null>(null);
+
+  // Control panel auto-collapses on scroll (with animation)
+  const [selectorsCollapsed, setSelectorsCollapsed] = useState(false);
+  useEffect(() => {
+    let lastY = window.scrollY;
+    const onScroll = () => {
+      const y = window.scrollY;
+      if (y > lastY + 4 && y > 80) setSelectorsCollapsed(true);
+      else if (y < lastY - 4 || y < 20) setSelectorsCollapsed(false);
+      lastY = y;
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
 
   const load = useCallback(async () => {
     // Person-centric: an enrollment = a person bound to church/service/class
@@ -191,16 +215,68 @@ export default function ChildrenPage() {
     [causes, causeId]
   );
 
-  // Cairo clock tick (every 30s) so the day/time availability stays fresh
-  const [nowTick, setNowTick] = useState(() => Date.now());
+  // Clock tick (every 30s) so day/time availability stays fresh; respects
+  // the working date chosen from the header date button
+  const [tick, setTick] = useState(0);
   useEffect(() => {
-    const t = setInterval(() => setNowTick(Date.now()), 30_000);
+    const t = setInterval(() => setTick((x) => x + 1), 30_000);
     return () => clearInterval(t);
   }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const nowDate = useMemo(() => now(), [now, tick]);
   const eventAvail = useMemo(
-    () => (selectedEvent ? eventAvailability(selectedEvent, new Date(nowTick)) : null),
-    [selectedEvent, nowTick]
+    () => (selectedEvent ? eventAvailability(selectedEvent, nowDate) : null),
+    [selectedEvent, nowDate]
   );
+  const phase = useMemo(
+    () => (selectedEvent ? eventPhase(selectedEvent, nowDate) : null),
+    [selectedEvent, nowDate]
+  );
+
+  // Who attended the selected event on the working day? (for card coloring)
+  const [attendedSet, setAttendedSet] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (!selectedEvent) { setAttendedSet(new Set()); return; }
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from('attendance_log')
+        .select('enrollment_id')
+        .eq('event_id', selectedEvent.id)
+        .eq('attended_on', cairoToday(nowDate));
+      if (!cancelled) setAttendedSet(new Set((data ?? []).map((r) => r.enrollment_id)));
+    })();
+    return () => { cancelled = true; };
+  }, [selectedEvent, supabase, nowDate, enrollments]);
+
+  // reset numpad overrides when the selection changes
+  useEffect(() => { setEventPtsOverride(null); }, [eventId]);
+  useEffect(() => { setCausePtsOverride(null); }, [causeId]);
+
+  // Preselect the DEFAULT event / cause (marked in settings)
+  useEffect(() => {
+    setEventId((cur) => cur || (events.find((ev) => ev.is_default)?.id ?? ''));
+  }, [events]);
+  useEffect(() => {
+    setCauseId((cur) => cur || (causes.find((ca) => ca.is_default)?.id ?? ''));
+  }, [causes]);
+
+  // Effective points respecting points_mode:
+  // fixed -> bound number; editable -> override or bound; open -> override only
+  const effectiveEventPoints: number | null = selectedEvent
+    ? selectedEvent.points_mode === 'fixed'
+      ? selectedEvent.points
+      : selectedEvent.points_mode === 'editable'
+        ? (eventPtsOverride ?? selectedEvent.points)
+        : eventPtsOverride
+    : null;
+  const effectiveCausePoints: number | null = selectedCause
+    ? selectedCause.points_mode === 'fixed'
+      ? selectedCause.points
+      : selectedCause.points_mode === 'editable'
+        ? (causePtsOverride ?? selectedCause.points)
+        : causePtsOverride
+    : null;
 
   // keep selections valid when scope changes
   useEffect(() => {
@@ -224,8 +300,13 @@ export default function ChildrenPage() {
           alert('المناسبة المختارة لا تشمل هذا المخدوم');
           return;
         }
-        // Day / time check (Africa/Cairo) — warn but allow override
-        const avail = eventAvailability(ev);
+        if (effectiveEventPoints === null) {
+          alert('حدد عدد النقاط أولاً — اضغط على شارة النقاط ⭐');
+          setNumpadFor('event');
+          return;
+        }
+        // Day / time check (Africa/Cairo, working date) — warn but allow override
+        const avail = eventAvailability(ev, now());
         if (!avail.ok) {
           const go = confirm(`${avail.reason}\n\nهل تريد تسجيل الحضور رغم ذلك؟`);
           if (!go) return;
@@ -234,8 +315,8 @@ export default function ChildrenPage() {
         const { error } = await supabase.from('attendance_log').insert({
           enrollment_id: e.id,
           event_id: ev.id,
-          points_delta: ev.points,
-          attended_on: cairoToday(),
+          points_delta: effectiveEventPoints,
+          attended_on: cairoToday(now()),
           recorded_by: profile?.id,
         });
         setBusyChild(null);
@@ -281,12 +362,17 @@ export default function ChildrenPage() {
         alert('السبب المختار لا يشمل هذا المخدوم');
         return;
       }
-      if (ca.points === 0) return;
+      if (effectiveCausePoints === null) {
+        alert('حدد عدد النقاط أولاً — اضغط على شارة النقاط ⭐');
+        setNumpadFor('cause');
+        return;
+      }
+      if (effectiveCausePoints === 0) return;
       setBusyChild(e.id);
       await supabase.from('points_log').insert({
         enrollment_id: e.id,
         cause_id: ca.id,
-        delta: (pointsMode === 'add' ? 1 : -1) * ca.points,
+        delta: (pointsMode === 'add' ? 1 : -1) * effectiveCausePoints,
         recorded_by: profile?.id,
       });
       setBusyChild(null);
@@ -360,6 +446,16 @@ export default function ChildrenPage() {
     setAddressFilter('');
     setMinPoints('');
     setMinAttendance('');
+  };
+
+  // ---------- Card tone (attendance job) ----------
+  // pale green = present on the working day; white = event running & not yet
+  // present (or not event day); pale red = event over & absent
+  const cardTone = (child: EnrollmentWithPerson): string => {
+    if (job !== 'attendance' || !selectedEvent || !scopeApplies(selectedEvent, child)) return 'bg-white';
+    if (attendedSet.has(child.id)) return 'bg-emerald-50';
+    if (phase === 'after') return 'bg-red-50';
+    return 'bg-white';
   };
 
   // ---------- Per-person button appearance by job + activated mode ----------
@@ -460,6 +556,28 @@ export default function ChildrenPage() {
         />
       </div>
 
+      {/* Collapsed indicator — tap to re-expand the control panel */}
+      {selectorsCollapsed && (
+        <button
+          id="expand-selectors"
+          onClick={() => setSelectorsCollapsed(false)}
+          className="mb-3 flex w-full items-center justify-center gap-2 rounded-xl bg-primary-50 py-2 text-xs font-extrabold text-primary-600 animate-[slideUp_0.25s_ease-out]"
+        >
+          <SlidersHorizontal className="h-3.5 w-3.5" />
+          إظهار أدوات التحكم
+          <ChevronDown className="h-3.5 w-3.5" />
+        </button>
+      )}
+
+      {/* ---------- Collapsible control panel (auto-collapses on scroll) ---------- */}
+      <div
+        id="control-panel"
+        className={`transition-all duration-300 ease-in-out ${
+          selectorsCollapsed
+            ? 'max-h-0 opacity-0 -translate-y-3 overflow-hidden pointer-events-none'
+            : 'max-h-[900px] opacity-100 translate-y-0'
+        }`}
+      >
       {/* ---------- Row 2: Scope selectors (church / service / class) ---------- */}
       {/* Each dropdown only contains what the current user can see (RLS-scoped). */}
       <div className="mb-3 grid grid-cols-3 gap-2">
@@ -520,7 +638,7 @@ export default function ChildrenPage() {
         <select
           id="job-selector"
           aria-label="اختيار الوظيفة"
-          className="input-field !w-auto flex-1 appearance-none text-sm font-bold"
+          className="input-field !w-32 shrink-0 appearance-none text-sm font-bold"
           value={job}
           onChange={(e) => setJob(e.target.value as Job)}
         >
@@ -529,7 +647,48 @@ export default function ChildrenPage() {
           ))}
         </select>
 
-        {/* Attendance: register / remove mode buttons + points */}
+        {/* Event selector NEXT TO the attendance job */}
+        {job === 'attendance' && (
+          <select
+            id="event-selector"
+            aria-label="اختيار المناسبة"
+            className="input-field flex-1 min-w-0 appearance-none text-xs font-bold"
+            value={eventId}
+            onChange={(e) => setEventId(e.target.value)}
+          >
+            <option value="">
+              {attendanceMode === 'add' ? 'اختر المناسبة *' : 'كل المناسبات (آخر حضور)'}
+            </option>
+            {visibleEvents.map((ev) => (
+              <option key={ev.id} value={ev.id}>
+                {ev.name} — {describeEventSchedule(ev)}
+              </option>
+            ))}
+          </select>
+        )}
+
+        {/* Cause selector NEXT TO the points job */}
+        {job === 'points' && (
+          <select
+            id="cause-selector"
+            aria-label="اختيار سبب النقاط"
+            className="input-field flex-1 min-w-0 appearance-none text-xs font-bold"
+            value={causeId}
+            onChange={(e) => setCauseId(e.target.value)}
+          >
+            <option value="">اختر سبب النقاط *</option>
+            {visibleCauses.map((ca) => (
+              <option key={ca.id} value={ca.id}>
+                {ca.name}{ca.points_mode !== 'open' ? ` — ${ca.points} نقطة` : ''}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
+
+      {/* ---------- Row below: mode buttons + points ---------- */}
+      <div className="mb-3 flex items-center gap-2">
+        {/* Attendance: register / remove mode buttons + event-bound points */}
         {job === 'attendance' && (
           <>
             <button
@@ -558,15 +717,22 @@ export default function ChildrenPage() {
             >
               <X className="h-5 w-5" />
             </button>
-            {/* Points are bound to the selected event */}
-            <span
+            {/* Event points — tap opens numpad when editable/open */}
+            <button
               id="event-points-badge"
+              type="button"
               aria-label="نقاط المناسبة"
-              className="flex h-10 min-w-16 shrink-0 items-center justify-center gap-1 rounded-xl bg-gold-100 px-2 text-sm font-extrabold text-gold-600"
+              disabled={!selectedEvent || selectedEvent.points_mode === 'fixed'}
+              onClick={() => setNumpadFor('event')}
+              className={`flex h-10 min-w-16 shrink-0 items-center justify-center gap-1 rounded-xl px-2 text-sm font-extrabold transition ${
+                selectedEvent && selectedEvent.points_mode !== 'fixed'
+                  ? 'bg-gold-400 text-white shadow ring-2 ring-gold-200 active:scale-95'
+                  : 'bg-gold-100 text-gold-600'
+              }`}
             >
               <Star className="h-4 w-4" />
-              {selectedEvent ? selectedEvent.points : '—'}
-            </span>
+              {!selectedEvent ? '—' : effectiveEventPoints === null ? '؟' : effectiveEventPoints}
+            </button>
           </>
         )}
 
@@ -599,15 +765,22 @@ export default function ChildrenPage() {
             >
               <Minus className="h-5 w-5" />
             </button>
-            {/* Points amount is bound to the selected cause */}
-            <span
+            {/* Cause points — tap opens numpad when editable/open */}
+            <button
               id="cause-points-badge"
+              type="button"
               aria-label="نقاط السبب"
-              className="flex h-10 min-w-16 shrink-0 items-center justify-center gap-1 rounded-xl bg-gold-100 px-2 text-sm font-extrabold text-gold-600"
+              disabled={!selectedCause || selectedCause.points_mode === 'fixed'}
+              onClick={() => setNumpadFor('cause')}
+              className={`flex h-10 min-w-16 shrink-0 items-center justify-center gap-1 rounded-xl px-2 text-sm font-extrabold transition ${
+                selectedCause && selectedCause.points_mode !== 'fixed'
+                  ? 'bg-gold-400 text-white shadow ring-2 ring-gold-200 active:scale-95'
+                  : 'bg-gold-100 text-gold-600'
+              }`}
             >
               <Star className="h-4 w-4" />
-              {selectedCause ? selectedCause.points : '—'}
-            </span>
+              {!selectedCause ? '—' : effectiveCausePoints === null ? '؟' : effectiveCausePoints}
+            </button>
           </>
         )}
 
@@ -669,30 +842,7 @@ export default function ChildrenPage() {
         )}
       </div>
 
-      {/* ---------- Row 3b: Event selector (attendance) / Cause selector (points) ---------- */}
-      {job === 'attendance' && (
-        <div className="mb-3 flex items-center gap-2">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-50">
-            <CalendarDays className="h-5 w-5 text-violet-500" />
-          </span>
-          <select
-            id="event-selector"
-            aria-label="اختيار المناسبة"
-            className="input-field flex-1 appearance-none text-sm font-bold"
-            value={eventId}
-            onChange={(e) => setEventId(e.target.value)}
-          >
-            <option value="">
-              {attendanceMode === 'add' ? 'اختر المناسبة *' : 'كل المناسبات (آخر حضور)'}
-            </option>
-            {visibleEvents.map((ev) => (
-              <option key={ev.id} value={ev.id}>
-                {ev.name} — {describeEventSchedule(ev)} — {ev.points} نقطة
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
+      {/* Availability warning (working date) */}
       {job === 'attendance' && attendanceMode === 'add' && eventAvail && !eventAvail.ok && (
         <p id="event-time-warning" className="mb-3 rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-600">
           ⚠ {eventAvail.reason}
@@ -702,25 +852,6 @@ export default function ChildrenPage() {
         <p className="mb-3 rounded-xl bg-violet-50 px-3 py-2 text-xs font-bold text-violet-600">
           لا توجد مناسبات — أضف مناسبة من الإعدادات ← إدارة المناسبات
         </p>
-      )}
-      {job === 'points' && (
-        <div className="mb-3 flex items-center gap-2">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-50">
-            <Award className="h-5 w-5 text-amber-500" />
-          </span>
-          <select
-            id="cause-selector"
-            aria-label="اختيار سبب النقاط"
-            className="input-field flex-1 appearance-none text-sm font-bold"
-            value={causeId}
-            onChange={(e) => setCauseId(e.target.value)}
-          >
-            <option value="">اختر سبب النقاط *</option>
-            {visibleCauses.map((ca) => (
-              <option key={ca.id} value={ca.id}>{ca.name} — {ca.points} نقطة</option>
-            ))}
-          </select>
-        </div>
       )}
       {job === 'points' && visibleCauses.length === 0 && (
         <p className="mb-3 rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-600">
@@ -805,6 +936,8 @@ export default function ChildrenPage() {
           </div>
         )}
       </div>
+      {/* end collapsible control panel */}
+      </div>
 
       {/* ---------- Grouped-by-class expandable view ---------- */}
       {loading ? (
@@ -841,7 +974,7 @@ export default function ChildrenPage() {
                 {open && (
                   <ul className="divide-y divide-indigo-50 border-t border-indigo-100">
                     {kids.map((child) => (
-                      <li key={child.id} className="px-4 py-3">
+                      <li key={child.id} className={`px-4 py-3 transition-colors duration-300 ${cardTone(child)}`}>
                         <div className="flex items-center justify-between gap-3">
                           {/* Name + points/attendance below it */}
                           <div className="min-w-0 flex-1">
@@ -859,22 +992,6 @@ export default function ChildrenPage() {
                           {/* Single job button */}
                           <div className="shrink-0">{childButton(child)}</div>
                         </div>
-
-                        {/* Extra info (no phone number) */}
-                        {(child.person.address || child.person.notes) && (
-                          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
-                            {child.person.address && (
-                              <span className="flex items-center gap-1">
-                                <MapPin className="h-3 w-3" /> {child.person.address}
-                              </span>
-                            )}
-                            {child.person.notes && (
-                              <span className="flex items-center gap-1">
-                                <StickyNote className="h-3 w-3" /> {child.person.notes}
-                              </span>
-                            )}
-                          </div>
-                        )}
                       </li>
                     ))}
                   </ul>
@@ -883,6 +1000,24 @@ export default function ChildrenPage() {
             );
           })}
         </div>
+      )}
+
+      {/* NumPad for editable/open points */}
+      {numpadFor === 'event' && selectedEvent && (
+        <NumPadModal
+          title={`نقاط «${selectedEvent.name}»`}
+          initial={effectiveEventPoints ?? selectedEvent.points}
+          onConfirm={(v) => { setEventPtsOverride(v); setNumpadFor(null); }}
+          onClose={() => setNumpadFor(null)}
+        />
+      )}
+      {numpadFor === 'cause' && selectedCause && (
+        <NumPadModal
+          title={`نقاط «${selectedCause.name}»`}
+          initial={effectiveCausePoints ?? selectedCause.points}
+          onConfirm={(v) => { setCausePtsOverride(v); setNumpadFor(null); }}
+          onClose={() => setNumpadFor(null)}
+        />
       )}
 
       {showCompose && (

@@ -122,6 +122,18 @@ export const RECURRENCE_LABELS: Record<EventRecurrence, string> = {
   weekly: 'أسبوعياً',
 };
 
+// How the points amount behaves when recording (migration 0015):
+//   'fixed'    -> bound number, cannot be changed
+//   'editable' -> bound number as default, can be changed
+//   'open'     -> no bound number, entered each time
+export type PointsMode = 'fixed' | 'editable' | 'open';
+
+export const POINTS_MODE_LABELS: Record<PointsMode, string> = {
+  fixed: 'رقم ثابت',
+  editable: 'قابل للتعديل',
+  open: 'مفتوح',
+};
+
 // events — something attendable, bound to a scope:
 //   service_id null => ALL services of the church (class null too)
 //   class_id  null => ALL classes of the (church, service)
@@ -139,6 +151,8 @@ export interface AppEvent {
   start_time: string | null; // 'HH:MM:SS' Africa/Cairo
   end_time: string | null; // 'HH:MM:SS' Africa/Cairo
   points: number; // points granted per attendance
+  points_mode: PointsMode; // fixed / editable / open (migration 0015)
+  is_default: boolean; // preselected on children & scanner pages
   created_at: string;
   created_by: string | null;
   edited_at: string;
@@ -155,6 +169,8 @@ export interface Cause {
   name: string;
   description: string | null;
   points: number; // points amount bound to this cause
+  points_mode: PointsMode; // fixed / editable / open (migration 0015)
+  is_default: boolean; // preselected on the children page
   created_at: string;
   created_by: string | null;
   edited_at: string;

@@ -9,6 +9,8 @@ import { useAuth } from '@/lib/auth-context';
 import { createClient } from '@/lib/supabase/client';
 import { scopeApplies, type EnrollmentWithPerson, type Person, type ClassRoom, type AppEvent } from '@/lib/types';
 import { eventAvailability, describeEventSchedule, cairoToday } from '@/lib/time';
+import { useAppDate } from '@/lib/app-date-context';
+import NumPadModal from '@/components/NumPadModal';
 
 type ScanResult = { type: 'ok' | 'dup' | 'err'; message: string };
 
@@ -27,6 +29,21 @@ export default function ScannerPage() {
   const [events, setEvents] = useState<AppEvent[]>([]);
   const [eventId, setEventId] = useState<string>('');
   const [busy, setBusy] = useState(false);
+  const { now } = useAppDate();
+
+  // Points override (numpad) — for 'editable' and 'open' modes
+  const [ptsOverride, setPtsOverride] = useState<number | null>(null);
+  const [numpadOpen, setNumpadOpen] = useState(false);
+  useEffect(() => setPtsOverride(null), [eventId]);
+
+  const selectedEvent = events.find((x) => x.id === eventId) ?? null;
+  const effectivePoints: number | null = selectedEvent
+    ? selectedEvent.points_mode === 'fixed'
+      ? selectedEvent.points
+      : selectedEvent.points_mode === 'editable'
+      ? ptsOverride ?? selectedEvent.points
+      : ptsOverride // open: must be entered
+    : null;
 
   // When a scanned person has multiple enrollments, let the servant pick
   const [picker, setPicker] = useState<{ person: Person; options: EnrollmentWithPerson[] } | null>(null);
@@ -46,6 +63,9 @@ export default function ScannerPage() {
       setEnrollments(list);
       setClasses(cls ?? []);
       setEvents(evs ?? []);
+      // Preselect the default event if none chosen yet
+      const def = ((evs ?? []) as AppEvent[]).find((ev) => ev.is_default);
+      if (def) setEventId((cur) => cur || def.id);
     })();
   }, [profile, supabase]);
 
@@ -66,8 +86,13 @@ export default function ScannerPage() {
         setResult({ type: 'err', message: `المناسبة المختارة لا تشمل ${e.person.name}` });
         return;
       }
-      // Day / time check (Africa/Cairo) — warn but allow override
-      const avail = eventAvailability(ev);
+      if (effectivePoints === null) {
+        setResult({ type: 'err', message: 'أدخل عدد النقاط أولاً — المناسبة نقاطها مفتوحة' });
+        setNumpadOpen(true);
+        return;
+      }
+      // Day / time check (Africa/Cairo, working date) — warn but allow override
+      const avail = eventAvailability(ev, now());
       if (!avail.ok) {
         const go = confirm(`${avail.reason}\n\nهل تريد تسجيل الحضور رغم ذلك؟`);
         if (!go) return;
@@ -78,8 +103,8 @@ export default function ScannerPage() {
       const { error } = await supabase.from('attendance_log').insert({
         enrollment_id: e.id,
         event_id: ev.id,
-        points_delta: ev.points,
-        attended_on: cairoToday(),
+        points_delta: effectivePoints,
+        attended_on: cairoToday(now()),
         recorded_by: profile?.id,
       });
       setBusy(false);
@@ -92,17 +117,17 @@ export default function ScannerPage() {
         }
         return;
       }
-      setResult({ type: 'ok', message: `تم تسجيل حضور ${e.person.name} ✔ (${className(e.class_id)}) +${ev.points} نقطة` });
+      setResult({ type: 'ok', message: `تم تسجيل حضور ${e.person.name} ✔ (${className(e.class_id)}) +${effectivePoints} نقطة` });
       // refresh local counters
       setEnrollments((prev) =>
         prev.map((x) =>
           x.id === e.id
-            ? { ...x, attendance_count: x.attendance_count + 1, points: x.points + ev.points }
+            ? { ...x, attendance_count: x.attendance_count + 1, points: x.points + effectivePoints }
             : x
         )
       );
     },
-    [supabase, profile, className, events, eventId]
+    [supabase, profile, className, events, eventId, effectivePoints, now]
   );
 
   // Scan flow: national id (QR) -> person -> his enrollments in my scope
@@ -219,15 +244,31 @@ export default function ScannerPage() {
           <option value="">اختر المناسبة *</option>
           {events.map((ev) => (
             <option key={ev.id} value={ev.id}>
-              {ev.name} — {describeEventSchedule(ev)} — {ev.points} نقطة
+              {ev.name} — {describeEventSchedule(ev)}
             </option>
           ))}
         </select>
+        {selectedEvent && (
+          <button
+            id="scanner-points-badge"
+            type="button"
+            disabled={selectedEvent.points_mode === 'fixed'}
+            onClick={() => setNumpadOpen(true)}
+            className={`shrink-0 flex items-center gap-1 rounded-xl px-3 py-2 text-sm font-extrabold transition ${
+              selectedEvent.points_mode === 'fixed'
+                ? 'bg-slate-100 text-slate-500'
+                : 'bg-gold-400 text-white shadow active:scale-95'
+            }`}
+          >
+            <Star className="h-4 w-4" />
+            {effectivePoints ?? '؟'}
+          </button>
+        )}
       </section>
       {(() => {
-        const ev = events.find((x) => x.id === eventId);
+        const ev = selectedEvent;
         if (!ev) return null;
-        const avail = eventAvailability(ev);
+        const avail = eventAvailability(ev, now());
         if (avail.ok) return null;
         return (
           <p id="scanner-event-time-warning" className="mb-4 rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-600">
@@ -325,6 +366,15 @@ export default function ScannerPage() {
             إلغاء
           </button>
         </div>
+      )}
+
+      {numpadOpen && selectedEvent && (
+        <NumPadModal
+          title={`نقاط ${selectedEvent.name}`}
+          initial={effectivePoints ?? 0}
+          onConfirm={(v) => { setPtsOverride(v); setNumpadOpen(false); }}
+          onClose={() => setNumpadOpen(false)}
+        />
       )}
 
       {/* Manual search */}

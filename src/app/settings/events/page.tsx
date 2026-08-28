@@ -8,7 +8,8 @@ import {
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
 import { createClient } from '@/lib/supabase/client';
-import type { AppEvent, ClassRoom, Service, Church, EventRecurrence } from '@/lib/types';
+import type { AppEvent, ClassRoom, Service, Church, EventRecurrence, PointsMode } from '@/lib/types';
+import { POINTS_MODE_LABELS } from '@/lib/types';
 import { WEEKDAY_LABELS, describeEventSchedule } from '@/lib/time';
 
 // Sentinel for "all services / all classes" in select controls (null in DB)
@@ -106,8 +107,13 @@ export default function EventsPage() {
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="font-extrabold">{ev.name}</p>
                   <span className="badge bg-amber-100 text-amber-700 flex items-center gap-1">
-                    <Star className="h-3 w-3" /> {ev.points} نقطة
+                    <Star className="h-3 w-3" />
+                    {ev.points_mode === 'open' ? 'مفتوح' : `${ev.points} نقطة`}
+                    {ev.points_mode === 'editable' && ' ✎'}
                   </span>
+                  {ev.is_default && (
+                    <span className="badge bg-emerald-100 text-emerald-700">افتراضي</span>
+                  )}
                 </div>
                 <p className="text-xs text-slate-400 mt-0.5">{scopeLabel(ev)}</p>
                 <p className="text-xs font-bold text-violet-600 mt-1 flex items-center gap-1">
@@ -188,6 +194,8 @@ function EventModal({
   const [startTime, setStartTime] = useState(event?.start_time?.slice(0, 5) ?? '');
   const [endTime, setEndTime] = useState(event?.end_time?.slice(0, 5) ?? '');
   const [points, setPoints] = useState(String(event?.points ?? 1));
+  const [pointsMode, setPointsMode] = useState<PointsMode>(event?.points_mode ?? 'fixed');
+  const [isDefault, setIsDefault] = useState<boolean>(event?.is_default ?? false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -223,7 +231,14 @@ function EventModal({
       start_time: startTime || null,
       end_time: endTime || null,
       points: pts,
+      points_mode: pointsMode,
+      is_default: isDefault,
     };
+
+    // Only one default event: clear others first when marking this one
+    if (isDefault) {
+      await supabase.from('events').update({ is_default: false }).eq('is_default', true);
+    }
 
     const { error: err } = mode === 'add'
       ? await supabase.from('events').insert({ ...base, created_by: profile?.id })
@@ -372,15 +387,54 @@ function EventModal({
           </p>
 
           <div>
-            <label className="mb-1 block text-xs font-bold text-slate-500">نقاط الحضور *</label>
-            <div className="flex items-center gap-2">
-              <Star className="h-5 w-5 text-amber-500" />
-              <input
-                type="number" min={0} className="input-field" value={points}
-                onChange={(e) => setPoints(e.target.value)} required
-              />
+            <label className="mb-1 block text-xs font-bold text-slate-500">نظام النقاط *</label>
+            <div className="grid grid-cols-3 gap-2">
+              {(['fixed', 'editable', 'open'] as PointsMode[]).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setPointsMode(m)}
+                  aria-pressed={pointsMode === m}
+                  className={`rounded-xl px-2 py-2 text-xs font-bold ring-2 transition ${
+                    pointsMode === m
+                      ? 'bg-amber-500 text-white ring-amber-500'
+                      : 'bg-white text-slate-600 ring-slate-200 hover:ring-amber-300'
+                  }`}
+                >
+                  {POINTS_MODE_LABELS[m]}
+                </button>
+              ))}
             </div>
+            <p className="mt-1 text-[10px] font-bold text-slate-400">
+              ثابت: لا يمكن تغيير الرقم · قابل للتعديل: الرقم افتراضي ويمكن تغييره · مفتوح: يُكتب الرقم كل مرة
+            </p>
           </div>
+
+          {pointsMode !== 'open' && (
+            <div>
+              <label className="mb-1 block text-xs font-bold text-slate-500">نقاط الحضور *</label>
+              <div className="flex items-center gap-2">
+                <Star className="h-5 w-5 text-amber-500" />
+                <input
+                  type="number" min={0} className="input-field" value={points}
+                  onChange={(e) => setPoints(e.target.value)} required
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Default radio — preselected on children & scanner pages */}
+          <label className="flex items-center gap-2 rounded-xl bg-emerald-50 px-3 py-2.5 text-sm font-bold text-emerald-700 cursor-pointer">
+            <input
+              id="event-default-radio"
+              type="radio"
+              checked={isDefault}
+              onClick={() => setIsDefault((v) => !v)}
+              onChange={() => {}}
+              className="h-4 w-4 accent-emerald-600"
+            />
+            جعل هذه المناسبة الافتراضية (تُختار تلقائياً عند تسجيل الحضور)
+          </label>
 
           <textarea className="input-field" placeholder="وصف المناسبة" rows={2} value={description}
             onChange={(e) => setDescription(e.target.value)} />
