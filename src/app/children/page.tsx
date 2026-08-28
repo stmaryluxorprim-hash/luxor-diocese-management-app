@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import {
   Users, Search, Plus, Phone, MapPin, Star, CalendarCheck, X, Loader2,
   SlidersHorizontal, ChevronDown, School, Check, Minus,
-  MessageSquare, Inbox, PenSquare,
+  MessageSquare, Inbox, PenSquare, ArrowUpDown, ArrowUp, ArrowDown,
 } from 'lucide-react';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
@@ -24,6 +24,16 @@ const ALL = 'all';
 type AttendanceMode = 'add' | 'remove';
 type PointsMode = 'add' | 'subtract';
 type MessageChannel = 'whatsapp' | 'sms' | 'internal';
+
+// ---------- Sorting ----------
+type SortKey = 'name' | 'age' | 'points' | 'attendance';
+type SortDir = 'asc' | 'desc';
+const SORT_KEYS: { value: SortKey; label: string }[] = [
+  { value: 'name', label: 'الاسم' },
+  { value: 'age', label: 'العمر' },
+  { value: 'points', label: 'النقاط' },
+  { value: 'attendance', label: 'الحضور' },
+];
 
 // ---------- Message template variables ----------
 const MSG_VARS = [
@@ -88,6 +98,11 @@ export default function ChildrenPage() {
   const [minPoints, setMinPoints] = useState('');
   const [minAttendance, setMinAttendance] = useState('');
 
+  // ---------- Sort accordion ----------
+  const [sortOpen, setSortOpen] = useState(false);
+  const [sortKey, setSortKey] = useState<SortKey>('name');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
+
   // ---------- Expandable class groups ----------
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   const toggleGroup = (id: string) =>
@@ -103,14 +118,23 @@ export default function ChildrenPage() {
   const [causePtsOverride, setCausePtsOverride] = useState<number | null>(null);
   const [numpadFor, setNumpadFor] = useState<'event' | 'cause' | null>(null);
 
-  // Control panel auto-collapses on scroll (with animation)
+  // Control panel auto-collapses on scroll (with animation).
+  // A short cooldown after each toggle prevents the collapse itself (which
+  // changes the page height / scroll position) from re-triggering a toggle
+  // — this was the source of the animation jitter.
   const [selectorsCollapsed, setSelectorsCollapsed] = useState(false);
   useEffect(() => {
     let lastY = window.scrollY;
+    let lockUntil = 0;
     const onScroll = () => {
       const y = window.scrollY;
-      if (y > lastY + 4 && y > 80) setSelectorsCollapsed(true);
-      else if (y < lastY - 4 || y < 20) setSelectorsCollapsed(false);
+      const t = Date.now();
+      if (t < lockUntil) { lastY = y; return; }
+      if (y > lastY + 6 && y > 160) {
+        setSelectorsCollapsed((c) => { if (!c) lockUntil = t + 450; return true; });
+      } else if (y < lastY - 6 || y < 24) {
+        setSelectorsCollapsed((c) => { if (c) lockUntil = t + 450; return false; });
+      }
       lastY = y;
     };
     window.addEventListener('scroll', onScroll, { passive: true });
@@ -422,10 +446,32 @@ export default function ChildrenPage() {
     [enrollments, churchFilter, serviceFilter, classFilter, search, addressFilter, minPoints, minAttendance]
   );
 
+  // ---------- Sorting (name / age / points / attendance) ----------
+  const sorted = useMemo(() => {
+    const arr = [...filtered];
+    arr.sort((a, b) => {
+      let r = 0;
+      if (sortKey === 'name') r = a.person.name.localeCompare(b.person.name, 'ar');
+      else if (sortKey === 'points') r = a.points - b.points;
+      else if (sortKey === 'attendance') r = a.attendance_count - b.attendance_count;
+      else {
+        // age from birthdate; unknown birthdates ALWAYS go last
+        const ba = a.person.birthdate ? new Date(a.person.birthdate).getTime() : null;
+        const bb = b.person.birthdate ? new Date(b.person.birthdate).getTime() : null;
+        if (ba === null && bb === null) r = 0;
+        else if (ba === null) return 1;
+        else if (bb === null) return -1;
+        else r = bb - ba; // younger (later birthdate) first when ascending
+      }
+      return sortDir === 'asc' ? r : -r;
+    });
+    return arr;
+  }, [filtered, sortKey, sortDir]);
+
   // ---------- Group by class (sorted by class name) ----------
   const groups = useMemo(() => {
     const byClass = new Map<string, EnrollmentWithPerson[]>();
-    filtered.forEach((e) => {
+    sorted.forEach((e) => {
       const arr = byClass.get(e.class_id) ?? [];
       arr.push(e);
       byClass.set(e.class_id, arr);
@@ -437,7 +483,7 @@ export default function ChildrenPage() {
         kids,
       }))
       .sort((a, b) => a.className.localeCompare(b.className, 'ar'));
-  }, [filtered, classes]);
+  }, [sorted, classes]);
 
   const activeFilterCount =
     (addressFilter ? 1 : 0) + (minPoints ? 1 : 0) + (minAttendance ? 1 : 0);
@@ -544,8 +590,15 @@ export default function ChildrenPage() {
         </button>
       </section>
 
+      {/* ---------- FROZEN control zone (sticky below the app header) ----------
+          The search bar + collapsed pill + control panel stay frozen at the
+          top while the children list scrolls underneath. */}
+      <div
+        id="control-zone"
+        className="sticky top-[71px] z-30 -mx-4 px-4 pb-2 bg-slate-50/95 backdrop-blur-md"
+      >
       {/* ---------- Row 1: Search ---------- */}
-      <div className="relative mb-3">
+      <div className="relative mb-2 pt-1">
         <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
         <input
           id="search-input"
@@ -556,28 +609,35 @@ export default function ChildrenPage() {
         />
       </div>
 
-      {/* Collapsed indicator — tap to re-expand the control panel */}
-      {selectorsCollapsed && (
-        <button
-          id="expand-selectors"
-          onClick={() => setSelectorsCollapsed(false)}
-          className="mb-3 flex w-full items-center justify-center gap-2 rounded-xl bg-primary-50 py-2 text-xs font-extrabold text-primary-600 animate-[slideUp_0.25s_ease-out]"
-        >
-          <SlidersHorizontal className="h-3.5 w-3.5" />
-          إظهار أدوات التحكم
-          <ChevronDown className="h-3.5 w-3.5" />
-        </button>
-      )}
-
-      {/* ---------- Collapsible control panel (auto-collapses on scroll) ---------- */}
+      {/* Collapsed pill — animated height, tap to re-expand */}
       <div
-        id="control-panel"
-        className={`transition-all duration-300 ease-in-out ${
-          selectorsCollapsed
-            ? 'max-h-0 opacity-0 -translate-y-3 overflow-hidden pointer-events-none'
-            : 'max-h-[900px] opacity-100 translate-y-0'
+        className={`grid transition-all duration-300 ease-in-out ${
+          selectorsCollapsed ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
         }`}
       >
+        <div className="min-h-0 overflow-hidden">
+          <button
+            id="expand-selectors"
+            onClick={() => setSelectorsCollapsed(false)}
+            disabled={!selectorsCollapsed}
+            className="flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-primary-50 text-xs font-extrabold text-primary-600 active:scale-[0.98] transition"
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5" />
+            إظهار أدوات التحكم
+            <ChevronDown className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {/* ---------- Collapsible control panel — smooth grid-rows animation
+          (no max-height jump) ---------- */}
+      <div
+        id="control-panel"
+        className={`grid transition-all duration-300 ease-in-out ${
+          selectorsCollapsed ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100'
+        }`}
+      >
+      <div className={`min-h-0 overflow-hidden ${selectorsCollapsed ? 'pointer-events-none' : ''}`}>
       {/* ---------- Row 2: Scope selectors (church / service / class) ---------- */}
       {/* Each dropdown only contains what the current user can see (RLS-scoped). */}
       <div className="mb-3 grid grid-cols-3 gap-2">
@@ -867,7 +927,7 @@ export default function ChildrenPage() {
       )}
 
       {/* ---------- Filter accordion ---------- */}
-      <div id="filters-accordion" className="card !p-0 mb-4 overflow-hidden">
+      <div id="filters-accordion" className="card !p-0 mb-2 overflow-hidden">
         <button
           id="filters-toggle"
           onClick={() => setFiltersOpen((o) => !o)}
@@ -936,7 +996,87 @@ export default function ChildrenPage() {
           </div>
         )}
       </div>
-      {/* end collapsible control panel */}
+
+      {/* ---------- Sort accordion (like filters): sort by + direction ---------- */}
+      <div id="sort-accordion" className="card !p-0 mb-1 overflow-hidden">
+        <button
+          id="sort-toggle"
+          onClick={() => setSortOpen((o) => !o)}
+          className="flex w-full items-center justify-between px-4 py-3 text-sm font-extrabold text-slate-700"
+        >
+          <span className="flex items-center gap-2">
+            <ArrowUpDown className="h-4 w-4 text-primary-600" />
+            الترتيب
+            <span className="badge bg-primary-100 text-primary-700">
+              {SORT_KEYS.find((k) => k.value === sortKey)?.label}
+              {sortDir === 'asc' ? ' ↑' : ' ↓'}
+            </span>
+          </span>
+          <ChevronDown
+            className={`h-4 w-4 text-slate-400 transition-transform duration-200 ${sortOpen ? 'rotate-180' : ''}`}
+          />
+        </button>
+
+        {sortOpen && (
+          <div id="sort-body" className="space-y-3 border-t border-indigo-100 px-4 py-3">
+            <div>
+              <p className="mb-1.5 text-xs font-bold text-slate-500">ترتيب حسب</p>
+              <div className="grid grid-cols-4 gap-2">
+                {SORT_KEYS.map((k) => (
+                  <button
+                    key={k.value}
+                    id={`sort-key-${k.value}`}
+                    type="button"
+                    aria-pressed={sortKey === k.value}
+                    onClick={() => setSortKey(k.value)}
+                    className={`rounded-xl py-2 text-xs font-extrabold transition active:scale-95 ${
+                      sortKey === k.value
+                        ? 'bg-primary-600 text-white shadow'
+                        : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                    }`}
+                  >
+                    {k.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                id="sort-dir-asc"
+                type="button"
+                aria-pressed={sortDir === 'asc'}
+                onClick={() => setSortDir('asc')}
+                className={`flex items-center justify-center gap-1.5 rounded-xl py-2 text-xs font-extrabold transition active:scale-95 ${
+                  sortDir === 'asc'
+                    ? 'bg-primary-600 text-white shadow'
+                    : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                }`}
+              >
+                <ArrowUp className="h-4 w-4" />
+                تصاعدي
+              </button>
+              <button
+                id="sort-dir-desc"
+                type="button"
+                aria-pressed={sortDir === 'desc'}
+                onClick={() => setSortDir('desc')}
+                className={`flex items-center justify-center gap-1.5 rounded-xl py-2 text-xs font-extrabold transition active:scale-95 ${
+                  sortDir === 'desc'
+                    ? 'bg-primary-600 text-white shadow'
+                    : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                }`}
+              >
+                <ArrowDown className="h-4 w-4" />
+                تنازلي
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+      {/* end collapsible control panel (inner overflow + grid) */}
+      </div>
+      </div>
+      {/* end frozen control zone */}
       </div>
 
       {/* ---------- Grouped-by-class expandable view ---------- */}
@@ -955,11 +1095,15 @@ export default function ChildrenPage() {
           {groups.map(({ classId, className, kids }) => {
             const open = openGroups[classId] ?? false;
             return (
-              <div key={classId} className="card !p-0 overflow-hidden">
+              <div key={classId} className="card !p-0">
+                {/* Class-name header FREEZES below the control zone while its
+                    children scroll (sticky within the group card) */}
                 <button
                   id={`group-${classId}`}
                   onClick={() => toggleGroup(classId)}
-                  className="flex w-full items-center justify-between px-4 py-3"
+                  className={`sticky top-[177px] z-10 flex w-full items-center justify-between bg-white px-4 py-3 ${
+                    open ? 'rounded-t-2xl border-b border-indigo-100 shadow-sm' : 'rounded-2xl'
+                  }`}
                 >
                   <span className="flex items-center gap-2 text-sm font-extrabold text-slate-700">
                     <School className="h-4 w-4 text-primary-600" />
@@ -972,7 +1116,7 @@ export default function ChildrenPage() {
                 </button>
 
                 {open && (
-                  <ul className="divide-y divide-indigo-50 border-t border-indigo-100">
+                  <ul className="divide-y divide-indigo-50 rounded-b-2xl overflow-hidden">
                     {kids.map((child) => (
                       <li key={child.id} className={`px-4 py-3 transition-colors duration-300 ${cardTone(child)}`}>
                         <div className="flex items-center justify-between gap-3">
