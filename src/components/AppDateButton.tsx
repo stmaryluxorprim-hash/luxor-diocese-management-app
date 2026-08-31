@@ -70,9 +70,14 @@ export default function AppDateButton() {
     setOpen(false);
   };
 
-  // Pill label — ALWAYS visible (DD/MM, plus time when overridden)
+  // Square badge label — day on top, month below (calendar-page style),
+  // plus a tiny time line when the date is overridden.
   const pillDate = isOverridden && appDate ? appDate : new Date();
-  const [, pm, pd] = cairoToday(pillDate).split('-');
+  const [, , pd] = cairoToday(pillDate).split('-');
+  const pillMonth = new Intl.DateTimeFormat('ar-EG', {
+    month: 'short',
+    timeZone: 'Africa/Cairo',
+  }).format(pillDate);
 
   const STATUS_UI = {
     live: { chip: 'bg-emerald-100 text-emerald-700', icon: Radio, label: 'مطابق للساعة الحية — لن يتم تجميد التاريخ' },
@@ -86,29 +91,29 @@ export default function AppDateButton() {
         id="app-date-btn"
         aria-label="تغيير تاريخ العمل"
         onClick={openModal}
-        className={`flex shrink-0 items-center gap-1.5 rounded-full px-3 py-2 text-xs font-extrabold transition active:scale-95 ${
+        className={`flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-xl font-extrabold transition active:scale-95 ${
           isOverridden
             ? 'bg-gold-400 text-primary-900 shadow ring-2 ring-gold-200'
             : 'bg-white/15 text-white hover:bg-white/25'
         }`}
       >
-        <CalendarDays className={`h-4 w-4 ${isOverridden ? 'animate-pulse' : ''}`} />
-        <span className="tabular-nums leading-none">
-          {pd}/{pm}
-          {isOverridden && appDate && (
-            <span className="block text-[9px] font-bold opacity-80">{cairoTimeHM(appDate)}</span>
-          )}
-        </span>
+        <span className="text-sm tabular-nums leading-none">{pd}</span>
+        <span className="mt-0.5 text-[9px] font-bold leading-none opacity-90">{pillMonth}</span>
+        {isOverridden && appDate && (
+          <span className="mt-0.5 text-[8px] font-bold tabular-nums leading-none opacity-80">
+            {cairoTimeHM(appDate)}
+          </span>
+        )}
       </button>
 
       {open && (
         <div
-          className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-[2px] p-0 sm:p-6"
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 backdrop-blur-[2px] p-4 sm:p-6"
           onClick={() => setOpen(false)}
         >
           <div
             id="app-date-modal"
-            className="w-full max-w-sm overflow-hidden rounded-t-3xl sm:rounded-3xl bg-white text-slate-800 shadow-2xl animate-[slideUp_0.25s_ease-out]"
+            className="w-full max-w-sm max-h-[90dvh] overflow-y-auto rounded-3xl bg-white text-slate-800 shadow-2xl animate-[slideUp_0.25s_ease-out]"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Gradient header with LIVE formatted preview */}
