@@ -1090,19 +1090,22 @@ export default function ChildrenPage() {
             return (
               <div key={classId}>
                 {/* Class-name header FREEZES below the control zone while its
-                    children scroll. The sticky element is a SQUARE mask with
-                    the page background (like the control zone) and the rounded
-                    white tag sits ON TOP of it — so the rows scroll BEHIND the
-                    mask (invisible) and the corners stay round while frozen. */}
+                    children scroll. The sticky element is a FULL-BLEED mask
+                    (-mx-4, wider than the card so the list's box-shadow can't
+                    slide past its corners) painted with the page background,
+                    and the rounded white tag sits ON TOP of it. It tucks 2px
+                    UNDER the control zone (top - 2 + pt-2px) so subpixel
+                    rounding can never open a see-through seam between the
+                    sort accordion and the tag. */}
                 <div
-                  style={{ top: 71 + zoneHeight }}
-                  className="sticky z-10 bg-slate-50/95 backdrop-blur-md"
+                  style={{ top: 69 + zoneHeight }}
+                  className="sticky z-10 -mx-4 px-4 pt-[2px] bg-slate-50/95 backdrop-blur-md"
                 >
                   <button
                     id={`group-${classId}`}
                     onClick={() => toggleGroup(classId)}
-                    className={`flex w-full items-center justify-between border border-indigo-50 bg-white px-4 py-3 shadow-card ${
-                      open ? 'rounded-t-2xl border-b-indigo-100' : 'rounded-2xl'
+                    className={`flex w-full items-center justify-between border border-indigo-50 bg-white px-4 py-3 ${
+                      open ? 'rounded-t-2xl border-b-indigo-100' : 'rounded-2xl shadow-card'
                     }`}
                   >
                     <span className="flex items-center gap-2 text-sm font-extrabold text-slate-700">
@@ -1117,7 +1120,7 @@ export default function ChildrenPage() {
                 </div>
 
                 {open && (
-                  <ul className="divide-y divide-indigo-50 overflow-hidden rounded-b-2xl border border-t-0 border-indigo-50 bg-white shadow-card">
+                  <ul className="divide-y divide-indigo-50 overflow-hidden rounded-b-2xl border border-t-0 border-indigo-50 bg-white">
                     {kids.map((child) => (
                       <li key={child.id} className={`px-4 py-3 transition-colors duration-300 ${cardTone(child)}`}>
                         <div className="flex items-center justify-between gap-3">
