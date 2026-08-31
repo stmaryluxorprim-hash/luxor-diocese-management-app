@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Users, Search, Plus, Phone, MapPin, Star, CalendarCheck, X, Loader2,
@@ -118,41 +118,22 @@ export default function ChildrenPage() {
   const [causePtsOverride, setCausePtsOverride] = useState<number | null>(null);
   const [numpadFor, setNumpadFor] = useState<'event' | 'cause' | null>(null);
 
-  // Control panel auto-collapses on scroll — simple threshold + hysteresis
-  // (no direction detection, no cooldowns → no jitter):
-  //   • collapse once the page is scrolled past COLLAPSE_AT
-  //   • expand only when back near the top (below EXPAND_AT) or via the pill
-  //   • tapping the pill "pins" the panel open until the user returns to top
+  // Control panel collapse is MANUAL — toggled only by the button next to
+  // the search bar (no scroll listeners, fully predictable)
   const [selectorsCollapsed, setSelectorsCollapsed] = useState(false);
-  const pinnedOpenRef = useRef(false);
+
+  // Measure the sticky control-zone height so the sticky class headers
+  // always freeze exactly below it (works for both collapsed & expanded)
+  const [zoneHeight, setZoneHeight] = useState(137);
   useEffect(() => {
-    const COLLAPSE_AT = 140;
-    const EXPAND_AT = 24;
-    let raf = 0;
-    const update = () => {
-      raf = 0;
-      const y = window.scrollY;
-      if (y <= EXPAND_AT) {
-        pinnedOpenRef.current = false;
-        setSelectorsCollapsed(false);
-      } else if (y >= COLLAPSE_AT && !pinnedOpenRef.current) {
-        setSelectorsCollapsed(true);
-      }
-    };
-    const onScroll = () => {
-      if (!raf) raf = requestAnimationFrame(update);
-    };
-    window.addEventListener('scroll', onScroll, { passive: true });
-    update();
-    return () => {
-      window.removeEventListener('scroll', onScroll);
-      if (raf) cancelAnimationFrame(raf);
-    };
+    const el = document.getElementById('control-zone');
+    if (!el) return;
+    const measure = () => setZoneHeight(el.offsetHeight);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
   }, []);
-  const expandSelectors = () => {
-    pinnedOpenRef.current = true;
-    setSelectorsCollapsed(false);
-  };
 
   const load = useCallback(async () => {
     // Person-centric: an enrollment = a person bound to church/service/class
@@ -610,36 +591,35 @@ export default function ChildrenPage() {
         id="control-zone"
         className="sticky top-[71px] z-30 -mx-4 px-4 pb-2 bg-slate-50/95 backdrop-blur-md"
       >
-      {/* ---------- Row 1: Search ---------- */}
-      <div className="relative mb-2 pt-1">
-        <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-        <input
-          id="search-input"
-          className="input-field pr-9"
-          placeholder="ابحث بالاسم أو الهاتف أو الرقم القومي..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-      </div>
-
-      {/* Collapsed pill — animated height, tap to re-expand */}
-      <div
-        className={`grid transition-all duration-300 ease-in-out ${
-          selectorsCollapsed ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
-        }`}
-      >
-        <div className="min-h-0 overflow-hidden">
-          <button
-            id="expand-selectors"
-            onClick={expandSelectors}
-            disabled={!selectorsCollapsed}
-            className="flex h-9 w-full items-center justify-center gap-2 rounded-xl border border-primary-100 bg-white text-xs font-bold text-primary-600 shadow-sm active:scale-[0.98] transition"
-          >
-            <SlidersHorizontal className="h-3.5 w-3.5" />
-            أدوات التحكم
-            <ChevronDown className="h-3.5 w-3.5" />
-          </button>
+      {/* ---------- Row 1: Search + collapse toggle button ---------- */}
+      <div className="mb-2 flex items-center gap-2 pt-1">
+        <div className="relative flex-1 min-w-0">
+          <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+          <input
+            id="search-input"
+            className="input-field pr-9"
+            placeholder="ابحث بالاسم أو الهاتف أو الرقم القومي..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
         </div>
+        <button
+          id="toggle-selectors"
+          type="button"
+          aria-label={selectorsCollapsed ? 'إظهار أدوات التحكم' : 'إخفاء أدوات التحكم'}
+          aria-expanded={!selectorsCollapsed}
+          onClick={() => setSelectorsCollapsed((c) => !c)}
+          className={`flex h-11 w-11 shrink-0 items-center justify-center gap-0.5 rounded-xl border transition active:scale-95 ${
+            selectorsCollapsed
+              ? 'border-primary-200 bg-primary-600 text-white shadow'
+              : 'border-slate-200 bg-white text-primary-600 shadow-sm'
+          }`}
+        >
+          <SlidersHorizontal className="h-4 w-4" />
+          <ChevronDown
+            className={`h-3 w-3 transition-transform duration-300 ${selectorsCollapsed ? '' : 'rotate-180'}`}
+          />
+        </button>
       </div>
 
       {/* ---------- Collapsible control panel — smooth grid-rows animation
@@ -721,52 +701,28 @@ export default function ChildrenPage() {
         </select>
       </div>
 
-      {/* ---------- Row 4: Event / cause selector (full width) ---------- */}
-      {job === 'attendance' && (
-        <div className="mb-2">
-          <select
-            id="event-selector"
-            aria-label="اختيار المناسبة"
-            className="input-field appearance-none text-sm font-bold"
-            value={eventId}
-            onChange={(e) => setEventId(e.target.value)}
-          >
-            <option value="">
-              {attendanceMode === 'add' ? 'اختر المناسبة *' : 'كل المناسبات (آخر حضور)'}
-            </option>
-            {visibleEvents.map((ev) => (
-              <option key={ev.id} value={ev.id}>
-                {ev.name} — {describeEventSchedule(ev)}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
-
-      {job === 'points' && (
-        <div className="mb-2">
-          <select
-            id="cause-selector"
-            aria-label="اختيار سبب النقاط"
-            className="input-field appearance-none text-sm font-bold"
-            value={causeId}
-            onChange={(e) => setCauseId(e.target.value)}
-          >
-            <option value="">اختر سبب النقاط *</option>
-            {visibleCauses.map((ca) => (
-              <option key={ca.id} value={ca.id}>
-                {ca.name}{ca.points_mode !== 'open' ? ` — ${ca.points} نقطة` : ''}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
-
-      {/* ---------- Row 5: mode buttons + points — distributed across the row ---------- */}
+      {/* ---------- Row 4: Event/cause selector (50%) + mode buttons (50%) ---------- */}
+      {job !== 'call' && (
       <div className="mb-3 flex items-stretch gap-2">
-        {/* Attendance: register / remove mode buttons + event-bound points */}
+        {/* Attendance: event dropdown + register / remove / points buttons */}
         {job === 'attendance' && (
           <>
+            <select
+              id="event-selector"
+              aria-label="اختيار المناسبة"
+              className="input-field !w-1/2 min-w-0 shrink-0 appearance-none !px-2 text-xs font-bold"
+              value={eventId}
+              onChange={(e) => setEventId(e.target.value)}
+            >
+              <option value="">
+                {attendanceMode === 'add' ? 'اختر المناسبة *' : 'كل المناسبات (آخر حضور)'}
+              </option>
+              {visibleEvents.map((ev) => (
+                <option key={ev.id} value={ev.id}>
+                  {ev.name} — {describeEventSchedule(ev)}
+                </option>
+              ))}
+            </select>
             <button
               id="att-mode-add"
               aria-label="وضع تسجيل الحضور"
@@ -812,9 +768,23 @@ export default function ChildrenPage() {
           </>
         )}
 
-        {/* Points: add / subtract mode buttons + cause-bound points */}
+        {/* Points: cause dropdown + add / subtract / points buttons */}
         {job === 'points' && (
           <>
+            <select
+              id="cause-selector"
+              aria-label="اختيار سبب النقاط"
+              className="input-field !w-1/2 min-w-0 shrink-0 appearance-none !px-2 text-xs font-bold"
+              value={causeId}
+              onChange={(e) => setCauseId(e.target.value)}
+            >
+              <option value="">اختر سبب النقاط *</option>
+              {visibleCauses.map((ca) => (
+                <option key={ca.id} value={ca.id}>
+                  {ca.name}{ca.points_mode !== 'open' ? ` — ${ca.points} نقطة` : ''}
+                </option>
+              ))}
+            </select>
             <button
               id="pts-mode-add"
               aria-label="وضع إضافة النقاط"
@@ -917,6 +887,7 @@ export default function ChildrenPage() {
           </>
         )}
       </div>
+      )}
 
       {/* Availability warning (working date) */}
       {job === 'attendance' && attendanceMode === 'add' && eventAvail && !eventAvail.ok && (
@@ -1117,7 +1088,8 @@ export default function ChildrenPage() {
                 <button
                   id={`group-${classId}`}
                   onClick={() => toggleGroup(classId)}
-                  className={`sticky top-[173px] z-10 flex w-full items-center justify-between bg-white px-4 py-3 ${
+                  style={{ top: 71 + zoneHeight }}
+                  className={`sticky z-10 flex w-full items-center justify-between bg-white px-4 py-3 ${
                     open ? 'rounded-t-2xl border-b border-indigo-100 shadow-sm' : 'rounded-2xl'
                   }`}
                 >
