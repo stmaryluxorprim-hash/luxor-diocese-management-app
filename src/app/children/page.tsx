@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Users, Search, Plus, Phone, MapPin, Star, CalendarCheck, X, Loader2,
@@ -118,28 +118,41 @@ export default function ChildrenPage() {
   const [causePtsOverride, setCausePtsOverride] = useState<number | null>(null);
   const [numpadFor, setNumpadFor] = useState<'event' | 'cause' | null>(null);
 
-  // Control panel auto-collapses on scroll (with animation).
-  // A short cooldown after each toggle prevents the collapse itself (which
-  // changes the page height / scroll position) from re-triggering a toggle
-  // — this was the source of the animation jitter.
+  // Control panel auto-collapses on scroll — simple threshold + hysteresis
+  // (no direction detection, no cooldowns → no jitter):
+  //   • collapse once the page is scrolled past COLLAPSE_AT
+  //   • expand only when back near the top (below EXPAND_AT) or via the pill
+  //   • tapping the pill "pins" the panel open until the user returns to top
   const [selectorsCollapsed, setSelectorsCollapsed] = useState(false);
+  const pinnedOpenRef = useRef(false);
   useEffect(() => {
-    let lastY = window.scrollY;
-    let lockUntil = 0;
-    const onScroll = () => {
+    const COLLAPSE_AT = 140;
+    const EXPAND_AT = 24;
+    let raf = 0;
+    const update = () => {
+      raf = 0;
       const y = window.scrollY;
-      const t = Date.now();
-      if (t < lockUntil) { lastY = y; return; }
-      if (y > lastY + 6 && y > 160) {
-        setSelectorsCollapsed((c) => { if (!c) lockUntil = t + 450; return true; });
-      } else if (y < lastY - 6 || y < 24) {
-        setSelectorsCollapsed((c) => { if (c) lockUntil = t + 450; return false; });
+      if (y <= EXPAND_AT) {
+        pinnedOpenRef.current = false;
+        setSelectorsCollapsed(false);
+      } else if (y >= COLLAPSE_AT && !pinnedOpenRef.current) {
+        setSelectorsCollapsed(true);
       }
-      lastY = y;
+    };
+    const onScroll = () => {
+      if (!raf) raf = requestAnimationFrame(update);
     };
     window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
+    update();
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
   }, []);
+  const expandSelectors = () => {
+    pinnedOpenRef.current = true;
+    setSelectorsCollapsed(false);
+  };
 
   const load = useCallback(async () => {
     // Person-centric: an enrollment = a person bound to church/service/class
@@ -618,12 +631,12 @@ export default function ChildrenPage() {
         <div className="min-h-0 overflow-hidden">
           <button
             id="expand-selectors"
-            onClick={() => setSelectorsCollapsed(false)}
+            onClick={expandSelectors}
             disabled={!selectorsCollapsed}
-            className="flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-primary-50 text-xs font-extrabold text-primary-600 active:scale-[0.98] transition"
+            className="flex h-9 w-full items-center justify-center gap-2 rounded-xl border border-primary-100 bg-white text-xs font-bold text-primary-600 shadow-sm active:scale-[0.98] transition"
           >
             <SlidersHorizontal className="h-3.5 w-3.5" />
-            إظهار أدوات التحكم
+            أدوات التحكم
             <ChevronDown className="h-3.5 w-3.5" />
           </button>
         </div>
@@ -693,12 +706,12 @@ export default function ChildrenPage() {
         </div>
       </div>
 
-      {/* ---------- Row 3: Job selector + activated mode controls ---------- */}
-      <div className="mb-3 flex items-center gap-2">
+      {/* ---------- Row 3: Job selector (full width) ---------- */}
+      <div className="mb-2">
         <select
           id="job-selector"
           aria-label="اختيار الوظيفة"
-          className="input-field !w-32 shrink-0 appearance-none text-sm font-bold"
+          className="input-field appearance-none text-sm font-bold"
           value={job}
           onChange={(e) => setJob(e.target.value as Job)}
         >
@@ -706,13 +719,15 @@ export default function ChildrenPage() {
             <option key={j.value} value={j.value}>{j.label}</option>
           ))}
         </select>
+      </div>
 
-        {/* Event selector NEXT TO the attendance job */}
-        {job === 'attendance' && (
+      {/* ---------- Row 4: Event / cause selector (full width) ---------- */}
+      {job === 'attendance' && (
+        <div className="mb-2">
           <select
             id="event-selector"
             aria-label="اختيار المناسبة"
-            className="input-field flex-1 min-w-0 appearance-none text-xs font-bold"
+            className="input-field appearance-none text-sm font-bold"
             value={eventId}
             onChange={(e) => setEventId(e.target.value)}
           >
@@ -725,14 +740,15 @@ export default function ChildrenPage() {
               </option>
             ))}
           </select>
-        )}
+        </div>
+      )}
 
-        {/* Cause selector NEXT TO the points job */}
-        {job === 'points' && (
+      {job === 'points' && (
+        <div className="mb-2">
           <select
             id="cause-selector"
             aria-label="اختيار سبب النقاط"
-            className="input-field flex-1 min-w-0 appearance-none text-xs font-bold"
+            className="input-field appearance-none text-sm font-bold"
             value={causeId}
             onChange={(e) => setCauseId(e.target.value)}
           >
@@ -743,11 +759,11 @@ export default function ChildrenPage() {
               </option>
             ))}
           </select>
-        )}
-      </div>
+        </div>
+      )}
 
-      {/* ---------- Row below: mode buttons + points ---------- */}
-      <div className="mb-3 flex items-center gap-2">
+      {/* ---------- Row 5: mode buttons + points — distributed across the row ---------- */}
+      <div className="mb-3 flex items-stretch gap-2">
         {/* Attendance: register / remove mode buttons + event-bound points */}
         {job === 'attendance' && (
           <>
@@ -756,7 +772,7 @@ export default function ChildrenPage() {
               aria-label="وضع تسجيل الحضور"
               aria-pressed={attendanceMode === 'add'}
               onClick={() => setAttendanceMode('add')}
-              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition active:scale-95 ${
+              className={`flex h-10 flex-1 items-center justify-center rounded-xl transition active:scale-95 ${
                 attendanceMode === 'add'
                   ? 'bg-emerald-500 text-white shadow ring-2 ring-emerald-300'
                   : 'bg-emerald-50 text-emerald-500'
@@ -769,7 +785,7 @@ export default function ChildrenPage() {
               aria-label="وضع إزالة الحضور"
               aria-pressed={attendanceMode === 'remove'}
               onClick={() => setAttendanceMode('remove')}
-              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition active:scale-95 ${
+              className={`flex h-10 flex-1 items-center justify-center rounded-xl transition active:scale-95 ${
                 attendanceMode === 'remove'
                   ? 'bg-red-500 text-white shadow ring-2 ring-red-300'
                   : 'bg-red-50 text-red-500'
@@ -784,7 +800,7 @@ export default function ChildrenPage() {
               aria-label="نقاط المناسبة"
               disabled={!selectedEvent || selectedEvent.points_mode === 'fixed'}
               onClick={() => setNumpadFor('event')}
-              className={`flex h-10 min-w-16 shrink-0 items-center justify-center gap-1 rounded-xl px-2 text-sm font-extrabold transition ${
+              className={`flex h-10 flex-1 items-center justify-center gap-1 rounded-xl px-2 text-sm font-extrabold transition ${
                 selectedEvent && selectedEvent.points_mode !== 'fixed'
                   ? 'bg-gold-400 text-white shadow ring-2 ring-gold-200 active:scale-95'
                   : 'bg-gold-100 text-gold-600'
@@ -804,7 +820,7 @@ export default function ChildrenPage() {
               aria-label="وضع إضافة النقاط"
               aria-pressed={pointsMode === 'add'}
               onClick={() => setPointsMode('add')}
-              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition active:scale-95 ${
+              className={`flex h-10 flex-1 items-center justify-center rounded-xl transition active:scale-95 ${
                 pointsMode === 'add'
                   ? 'bg-emerald-500 text-white shadow ring-2 ring-emerald-300'
                   : 'bg-emerald-50 text-emerald-500'
@@ -817,7 +833,7 @@ export default function ChildrenPage() {
               aria-label="وضع خصم النقاط"
               aria-pressed={pointsMode === 'subtract'}
               onClick={() => setPointsMode('subtract')}
-              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition active:scale-95 ${
+              className={`flex h-10 flex-1 items-center justify-center rounded-xl transition active:scale-95 ${
                 pointsMode === 'subtract'
                   ? 'bg-red-500 text-white shadow ring-2 ring-red-300'
                   : 'bg-red-50 text-red-500'
@@ -832,7 +848,7 @@ export default function ChildrenPage() {
               aria-label="نقاط السبب"
               disabled={!selectedCause || selectedCause.points_mode === 'fixed'}
               onClick={() => setNumpadFor('cause')}
-              className={`flex h-10 min-w-16 shrink-0 items-center justify-center gap-1 rounded-xl px-2 text-sm font-extrabold transition ${
+              className={`flex h-10 flex-1 items-center justify-center gap-1 rounded-xl px-2 text-sm font-extrabold transition ${
                 selectedCause && selectedCause.points_mode !== 'fixed'
                   ? 'bg-gold-400 text-white shadow ring-2 ring-gold-200 active:scale-95'
                   : 'bg-gold-100 text-gold-600'
@@ -852,7 +868,7 @@ export default function ChildrenPage() {
               aria-label="واتساب"
               aria-pressed={messageChannel === 'whatsapp'}
               onClick={() => setMessageChannel('whatsapp')}
-              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition active:scale-95 ${
+              className={`flex h-10 flex-1 items-center justify-center rounded-xl transition active:scale-95 ${
                 messageChannel === 'whatsapp'
                   ? 'bg-emerald-500 text-white shadow ring-2 ring-emerald-300'
                   : 'bg-emerald-50 text-emerald-500'
@@ -865,7 +881,7 @@ export default function ChildrenPage() {
               aria-label="رسالة SMS"
               aria-pressed={messageChannel === 'sms'}
               onClick={() => setMessageChannel('sms')}
-              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition active:scale-95 ${
+              className={`flex h-10 flex-1 items-center justify-center rounded-xl transition active:scale-95 ${
                 messageChannel === 'sms'
                   ? 'bg-primary-600 text-white shadow ring-2 ring-primary-300'
                   : 'bg-primary-50 text-primary-500'
@@ -878,7 +894,7 @@ export default function ChildrenPage() {
               aria-label="رسالة داخلية — قريبًا"
               aria-pressed={messageChannel === 'internal'}
               onClick={() => setMessageChannel('internal')}
-              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition active:scale-95 ${
+              className={`flex h-10 flex-1 items-center justify-center rounded-xl transition active:scale-95 ${
                 messageChannel === 'internal'
                   ? 'bg-slate-500 text-white shadow ring-2 ring-slate-300'
                   : 'bg-slate-100 text-slate-400'
@@ -890,7 +906,7 @@ export default function ChildrenPage() {
               id="msg-compose"
               aria-label="كتابة الرسالة"
               onClick={() => setShowCompose(true)}
-              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition active:scale-95 ${
+              className={`flex h-10 flex-1 items-center justify-center rounded-xl transition active:scale-95 ${
                 messageTemplate.trim()
                   ? 'bg-gold-500 text-white shadow ring-2 ring-gold-300'
                   : 'bg-gold-100 text-gold-600'
@@ -1101,7 +1117,7 @@ export default function ChildrenPage() {
                 <button
                   id={`group-${classId}`}
                   onClick={() => toggleGroup(classId)}
-                  className={`sticky top-[177px] z-10 flex w-full items-center justify-between bg-white px-4 py-3 ${
+                  className={`sticky top-[173px] z-10 flex w-full items-center justify-between bg-white px-4 py-3 ${
                     open ? 'rounded-t-2xl border-b border-indigo-100 shadow-sm' : 'rounded-2xl'
                   }`}
                 >
