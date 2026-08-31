@@ -123,17 +123,22 @@ export default function ChildrenPage() {
   const [selectorsCollapsed, setSelectorsCollapsed] = useState(false);
 
   // Measure the sticky control-zone height so the sticky class headers
-  // always freeze exactly below it (works for both collapsed & expanded)
+  // always freeze exactly below it (works for both collapsed & expanded).
+  // BUG FIX: use a CALLBACK REF instead of getElementById-on-mount —
+  // AppShell doesn't render children while auth is loading, so the old
+  // one-shot effect could run before #control-zone existed; the
+  // ResizeObserver was never attached and zoneHeight stayed frozen at
+  // the default, so class headers stuck too high and hid behind the panel.
   const [zoneHeight, setZoneHeight] = useState(137);
+  const [zoneEl, setZoneEl] = useState<HTMLDivElement | null>(null);
   useEffect(() => {
-    const el = document.getElementById('control-zone');
-    if (!el) return;
-    const measure = () => setZoneHeight(el.offsetHeight);
+    if (!zoneEl) return;
+    const measure = () => setZoneHeight(zoneEl.offsetHeight);
     measure();
     const ro = new ResizeObserver(measure);
-    ro.observe(el);
+    ro.observe(zoneEl);
     return () => ro.disconnect();
-  }, []);
+  }, [zoneEl]);
 
   const load = useCallback(async () => {
     // Person-centric: an enrollment = a person bound to church/service/class
@@ -589,6 +594,7 @@ export default function ChildrenPage() {
           top while the children list scrolls underneath. */}
       <div
         id="control-zone"
+        ref={setZoneEl}
         className="sticky top-[71px] z-30 -mx-4 px-4 pb-2 bg-slate-50/95 backdrop-blur-md"
       >
       {/* ---------- Row 1: Search + collapse toggle button ---------- */}
@@ -1082,29 +1088,36 @@ export default function ChildrenPage() {
           {groups.map(({ classId, className, kids }) => {
             const open = openGroups[classId] ?? false;
             return (
-              <div key={classId} className="card !p-0">
+              <div key={classId}>
                 {/* Class-name header FREEZES below the control zone while its
-                    children scroll (sticky within the group card) */}
-                <button
-                  id={`group-${classId}`}
-                  onClick={() => toggleGroup(classId)}
+                    children scroll. The sticky element is a SQUARE mask with
+                    the page background (like the control zone) and the rounded
+                    white tag sits ON TOP of it — so the rows scroll BEHIND the
+                    mask (invisible) and the corners stay round while frozen. */}
+                <div
                   style={{ top: 71 + zoneHeight }}
-                  className={`sticky z-10 flex w-full items-center justify-between bg-white px-4 py-3 ${
-                    open ? 'rounded-t-2xl border-b border-indigo-100 shadow-sm' : 'rounded-2xl'
-                  }`}
+                  className="sticky z-10 bg-slate-50/95 backdrop-blur-md"
                 >
-                  <span className="flex items-center gap-2 text-sm font-extrabold text-slate-700">
-                    <School className="h-4 w-4 text-primary-600" />
-                    {className}
-                    <span className="badge bg-primary-100 text-primary-700">{kids.length}</span>
-                  </span>
-                  <ChevronDown
-                    className={`h-4 w-4 text-slate-400 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
-                  />
-                </button>
+                  <button
+                    id={`group-${classId}`}
+                    onClick={() => toggleGroup(classId)}
+                    className={`flex w-full items-center justify-between border border-indigo-50 bg-white px-4 py-3 shadow-card ${
+                      open ? 'rounded-t-2xl border-b-indigo-100' : 'rounded-2xl'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2 text-sm font-extrabold text-slate-700">
+                      <School className="h-4 w-4 text-primary-600" />
+                      {className}
+                      <span className="badge bg-primary-100 text-primary-700">{kids.length}</span>
+                    </span>
+                    <ChevronDown
+                      className={`h-4 w-4 text-slate-400 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+                    />
+                  </button>
+                </div>
 
                 {open && (
-                  <ul className="divide-y divide-indigo-50 rounded-b-2xl overflow-hidden">
+                  <ul className="divide-y divide-indigo-50 overflow-hidden rounded-b-2xl border border-t-0 border-indigo-50 bg-white shadow-card">
                     {kids.map((child) => (
                       <li key={child.id} className={`px-4 py-3 transition-colors duration-300 ${cardTone(child)}`}>
                         <div className="flex items-center justify-between gap-3">
