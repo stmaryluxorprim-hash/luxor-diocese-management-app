@@ -46,6 +46,9 @@ const normalizePhone = (raw: string): string | null | undefined => {
   let local = digits;
   if (local.startsWith('20') && local.length === 13) local = local.slice(2);
   else if (local.startsWith('2') && local.length === 12) local = local.slice(1);
+  // Excel often strips the leading 0 from Egyptian mobiles (01xxxxxxxxx →
+  // 1xxxxxxxxx). If we got 10 digits starting with 1, restore the 0.
+  if (local.length === PHONE_LOCAL_LENGTH - 1 && local.startsWith('1')) local = `0${local}`;
   if (local.length !== PHONE_LOCAL_LENGTH) return undefined;
   return `${PHONE_PREFIX}${local}`;
 };
