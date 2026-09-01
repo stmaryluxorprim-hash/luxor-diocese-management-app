@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
-  IdCard, Plus, ArrowRight, Loader2, X, Trash2, Copy, ChevronLeft, Link2,
+  IdCard, Plus, ArrowRight, Loader2, X, Trash2, Copy, ChevronLeft, Link2, Printer,
 } from 'lucide-react';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
@@ -12,8 +12,11 @@ import { createClient } from '@/lib/supabase/client';
 import type { Church, Service, ClassRoom } from '@/lib/types';
 import type { CardTemplate } from '@/lib/card-types';
 import { DEFAULT_DESIGN, DEFAULT_PRINT_SETTINGS } from '@/lib/card-types';
+import BoundPrintTab from '@/components/cards/BoundPrintTab';
 
 const ALL = '__all__';
+
+type Tab = 'templates' | 'print';
 
 export default function CardTemplatesPage() {
   const { profile } = useAuth();
@@ -26,6 +29,7 @@ export default function CardTemplatesPage() {
   const [rebinding, setRebinding] = useState<CardTemplate | null>(null);
   const [deleting, setDeleting] = useState<CardTemplate | null>(null);
   const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState<Tab>('templates');
 
   const load = useCallback(async () => {
     const [t, c, s, cl] = await Promise.all([
@@ -76,7 +80,7 @@ export default function CardTemplatesPage() {
 
   return (
     <AppShell>
-      <section className="mb-4 flex items-center justify-between">
+      <section className="mb-4 flex items-center justify-between print:hidden">
         <div className="flex items-center gap-2">
           <Link href="/settings" aria-label="رجوع" className="rounded-full p-1.5 hover:bg-slate-100">
             <ArrowRight className="h-5 w-5" />
@@ -87,12 +91,36 @@ export default function CardTemplatesPage() {
             <span className="badge bg-primary-100 text-primary-700">{templates.length}</span>
           </h2>
         </div>
-        <button onClick={() => setShowAdd(true)} className="btn-primary !py-2 !px-3 flex items-center gap-1 text-sm">
-          <Plus className="h-4 w-4" /> قالب جديد
-        </button>
+        {tab === 'templates' && (
+          <button onClick={() => setShowAdd(true)} className="btn-primary !py-2 !px-3 flex items-center gap-1 text-sm">
+            <Plus className="h-4 w-4" /> قالب جديد
+          </button>
+        )}
       </section>
 
-      {loading ? (
+      {/* tabs */}
+      <div className="mb-4 flex rounded-2xl bg-white p-1 shadow-card border border-indigo-50 print:hidden">
+        <button
+          onClick={() => setTab('templates')}
+          className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2.5 text-sm font-extrabold transition ${
+            tab === 'templates' ? 'bg-primary-600 text-white shadow' : 'text-slate-500 hover:bg-slate-50'
+          }`}
+        >
+          <IdCard className="h-4 w-4" /> القوالب
+        </button>
+        <button
+          onClick={() => setTab('print')}
+          className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2.5 text-sm font-extrabold transition ${
+            tab === 'print' ? 'bg-primary-600 text-white shadow' : 'text-slate-500 hover:bg-slate-50'
+          }`}
+        >
+          <Printer className="h-4 w-4" /> الطباعة
+        </button>
+      </div>
+
+      {tab === 'print' ? (
+        <BoundPrintTab />
+      ) : loading ? (
         <div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-primary-500" /></div>
       ) : (
         <ul className="space-y-3">
