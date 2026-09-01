@@ -6,6 +6,7 @@ import {
   Users, Search, Plus, Phone, MapPin, Star, CalendarCheck, X, Loader2,
   SlidersHorizontal, ChevronDown, School, Check, Minus,
   MessageSquare, Inbox, PenSquare, ArrowUpDown, ArrowUp, ArrowDown,
+  Eye, Pencil, Trash2, Database,
 } from 'lucide-react';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
@@ -18,12 +19,17 @@ import {
 import { eventAvailability, eventPhase, describeEventSchedule, cairoToday } from '@/lib/time';
 import { useAppDate } from '@/lib/app-date-context';
 import NumPadModal from '@/components/NumPadModal';
+import {
+  ViewPersonModal, EditPersonModal, DeletePersonModal,
+} from '@/components/PersonDataModals';
 
 const ALL = 'all';
 
 type AttendanceMode = 'add' | 'remove';
 type PointsMode = 'add' | 'subtract';
 type MessageChannel = 'whatsapp' | 'sms' | 'internal';
+// البيانات job — view / edit / delete a person's data
+type DataMode = 'view' | 'edit' | 'delete';
 
 // ---------- Sorting ----------
 type SortKey = 'name' | 'age' | 'points' | 'attendance';
@@ -91,6 +97,9 @@ export default function ChildrenPage() {
   const [messageChannel, setMessageChannel] = useState<MessageChannel>('whatsapp');
   const [messageTemplate, setMessageTemplate] = useState('');
   const [showCompose, setShowCompose] = useState(false);
+  // البيانات job: which action is armed + which person the modal is open for
+  const [dataMode, setDataMode] = useState<DataMode>('view');
+  const [dataTarget, setDataTarget] = useState<EnrollmentWithPerson | null>(null);
 
   // ---------- Filter accordion ----------
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -418,6 +427,9 @@ export default function ChildrenPage() {
           : `sms:${e.person.phone}`;
       }
       // internal: coming soon — button is disabled
+    } else if (job === 'data') {
+      // Opens the view / edit / delete modal per the armed data mode
+      setDataTarget(e);
     }
   };
 
@@ -548,6 +560,30 @@ export default function ChildrenPage() {
           className="flex h-10 w-10 items-center justify-center rounded-full bg-primary-600 text-white shadow transition hover:bg-primary-700 active:scale-95 disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
         >
           <Phone className="h-5 w-5" />
+        </button>
+      );
+    }
+    if (job === 'data') {
+      const tone =
+        dataMode === 'view'
+          ? 'bg-primary-600 hover:bg-primary-700'
+          : dataMode === 'edit'
+            ? 'bg-amber-500 hover:bg-amber-600'
+            : 'bg-red-500 hover:bg-red-600';
+      return (
+        <button
+          id={`job-btn-${child.id}`}
+          aria-label={dataMode === 'view' ? 'عرض البيانات' : dataMode === 'edit' ? 'تعديل البيانات' : 'حذف الطفل'}
+          onClick={() => doJob(child)}
+          className={`flex h-10 w-10 items-center justify-center rounded-full text-white shadow transition active:scale-95 ${tone}`}
+        >
+          {dataMode === 'view' ? (
+            <Eye className="h-5 w-5" />
+          ) : dataMode === 'edit' ? (
+            <Pencil className="h-5 w-5" />
+          ) : (
+            <Trash2 className="h-5 w-5" />
+          )}
         </button>
       );
     }
@@ -836,6 +872,54 @@ export default function ChildrenPage() {
           </>
         )}
 
+        {/* Data: view / edit / delete mode buttons (البيانات) */}
+        {job === 'data' && (
+          <>
+            <button
+              id="data-mode-view"
+              aria-label="عرض البيانات"
+              aria-pressed={dataMode === 'view'}
+              onClick={() => setDataMode('view')}
+              className={`flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl text-xs font-extrabold transition active:scale-95 ${
+                dataMode === 'view'
+                  ? 'bg-primary-600 text-white shadow ring-2 ring-primary-300'
+                  : 'bg-primary-50 text-primary-600'
+              }`}
+            >
+              <Eye className="h-4 w-4" />
+              عرض
+            </button>
+            <button
+              id="data-mode-edit"
+              aria-label="تعديل البيانات"
+              aria-pressed={dataMode === 'edit'}
+              onClick={() => setDataMode('edit')}
+              className={`flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl text-xs font-extrabold transition active:scale-95 ${
+                dataMode === 'edit'
+                  ? 'bg-amber-500 text-white shadow ring-2 ring-amber-300'
+                  : 'bg-amber-50 text-amber-600'
+              }`}
+            >
+              <Pencil className="h-4 w-4" />
+              تعديل
+            </button>
+            <button
+              id="data-mode-delete"
+              aria-label="حذف الطفل"
+              aria-pressed={dataMode === 'delete'}
+              onClick={() => setDataMode('delete')}
+              className={`flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl text-xs font-extrabold transition active:scale-95 ${
+                dataMode === 'delete'
+                  ? 'bg-red-500 text-white shadow ring-2 ring-red-300'
+                  : 'bg-red-50 text-red-500'
+              }`}
+            >
+              <Trash2 className="h-4 w-4" />
+              حذف
+            </button>
+          </>
+        )}
+
         {/* Message: whatsapp / sms / internal channel buttons */}
         {job === 'message' && (
           <>
@@ -909,6 +993,27 @@ export default function ChildrenPage() {
       {job === 'points' && visibleCauses.length === 0 && (
         <p className="mb-3 rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-600">
           لا توجد أسباب — أضف سبباً من الإعدادات ← إدارة أسباب النقاط
+        </p>
+      )}
+
+      {/* Data-mode hint */}
+      {job === 'data' && (
+        <p
+          id="data-mode-hint"
+          className={`mb-3 flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold ${
+            dataMode === 'delete'
+              ? 'bg-red-50 text-red-600'
+              : dataMode === 'edit'
+                ? 'bg-amber-50 text-amber-600'
+                : 'bg-primary-50 text-primary-600'
+          }`}
+        >
+          <Database className="h-3.5 w-3.5 shrink-0" />
+          {dataMode === 'view'
+            ? 'اضغط زر المخدوم لعرض بياناته الكاملة مع كود QR وكل تسجيلاته'
+            : dataMode === 'edit'
+              ? 'اضغط زر المخدوم لتعديل بياناته الشخصية'
+              : 'اضغط زر المخدوم لحذفه — من الفصل والخدمة والكنيسة أو حذفًا نهائيًا من قاعدة البيانات'}
         </p>
       )}
 
@@ -1165,6 +1270,34 @@ export default function ChildrenPage() {
           initial={effectiveCausePoints ?? selectedCause.points}
           onConfirm={(v) => { setCausePtsOverride(v); setNumpadFor(null); }}
           onClose={() => setNumpadFor(null)}
+        />
+      )}
+
+      {/* البيانات job modals */}
+      {dataTarget && dataMode === 'view' && (
+        <ViewPersonModal
+          enrollment={dataTarget}
+          churches={churches}
+          services={services}
+          classes={classes}
+          onClose={() => setDataTarget(null)}
+        />
+      )}
+      {dataTarget && dataMode === 'edit' && (
+        <EditPersonModal
+          enrollment={dataTarget}
+          onSaved={load}
+          onClose={() => setDataTarget(null)}
+        />
+      )}
+      {dataTarget && dataMode === 'delete' && (
+        <DeletePersonModal
+          enrollment={dataTarget}
+          churches={churches}
+          services={services}
+          classes={classes}
+          onDeleted={load}
+          onClose={() => setDataTarget(null)}
         />
       )}
 
