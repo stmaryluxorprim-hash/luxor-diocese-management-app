@@ -14,6 +14,7 @@ import {
   Layers,
   CalendarDays,
   Clock,
+  IdCard,
   type LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
@@ -33,7 +34,9 @@ const MAIN_PAGES: { href: string; label: string; icon: LucideIcon; id: string }[
 // ---------- Future modules ----------
 // Add new modules here as they are built, e.g.:
 // { href: '/library', label: 'المكتبة', icon: BookOpen, id: 'menu-library' },
-const MODULES: { href: string; label: string; icon: LucideIcon; id: string }[] = [];
+const MODULES: { href: string; label: string; icon: LucideIcon; id: string }[] = [
+  { href: '/settings/cards', label: 'تصميم الكروت', icon: IdCard, id: 'menu-cards' },
+];
 
 interface SideMenuProps {
   open: boolean;
