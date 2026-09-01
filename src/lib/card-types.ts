@@ -49,8 +49,18 @@ export interface CardElement {
   rotation: number; // degrees
   style: CardTextStyle; // text elements
   imageFit: ImageFit; // photo / logo / image
-  borderRadius: number; // mm — for photo / logo / image / qr
-  opacity: number; // 0..1
+  borderRadius: number; // mm — round corners of the element box (all types)
+  opacity: number; // 0..1 — whole element
+  // per-element box background
+  bgEnabled: boolean;
+  bgColor: string;
+  bgOpacity: number; // 0..1 — background only
+  // per-element stroke (border) around the box, follows borderRadius
+  strokeEnabled: boolean;
+  strokeColor: string;
+  strokeWidth: number; // mm
+  // keep width/height ratio while resizing
+  lockAspect: boolean;
 }
 
 // ----- background -----
@@ -99,6 +109,9 @@ export const V_ALIGN_LABELS: Record<VAlign, string> = {
 export interface CardPrintSettings {
   version: 1;
   paper: PaperSize;
+  // page center guide lines (previewed AND printed)
+  centerLineV: boolean; // vertical center line of the page
+  centerLineH: boolean; // horizontal center line of the page
   customWidth: number; // mm (paper = custom)
   customHeight: number; // mm
   orientation: PaperOrientation;
@@ -208,6 +221,13 @@ export const newElement = (type: CardElementType, partial?: Partial<CardElement>
   imageFit: 'cover',
   borderRadius: type === 'qr' ? 0 : 2,
   opacity: 1,
+  bgEnabled: false,
+  bgColor: '#ffffff',
+  bgOpacity: 1,
+  strokeEnabled: false,
+  strokeColor: '#1e3a8a',
+  strokeWidth: 0.3,
+  lockAspect: type === 'qr',
   ...partial,
 });
 
@@ -252,6 +272,8 @@ export const DEFAULT_DESIGN: CardDesign = {
 export const DEFAULT_PRINT_SETTINGS: CardPrintSettings = {
   version: 1,
   paper: 'A4',
+  centerLineV: false,
+  centerLineH: false,
   customWidth: 210,
   customHeight: 297,
   orientation: 'portrait',

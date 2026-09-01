@@ -113,10 +113,12 @@ npm run dev
 2. Add env vars: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 3. Deploy — done. PWA is installable from the browser.
 
-## Card Designer Module (تصميم الكروت) — migration 0017
+## Card Designer Module (تصميم الكروت) — migrations 0017 + 0018
 Design & print ID cards for the children. `/settings/cards` lists templates
 (scoped church → service → class like events/causes, table `card_templates`,
 JSONB `design` + `print_settings`, schema in `src/lib/card-types.ts`).
+Each template row has a gold 🔗 rebind button — re-bind the design to another
+church / service / class (with "كل الـ..." options) without redesigning.
 
 **Design tab** (`/settings/cards/[id]`):
 - Card width / height / corner roundness in mm (presets: CR80 ID, A6, A7, square)
@@ -125,11 +127,26 @@ JSONB `design` + `print_settings`, schema in `src/lib/card-types.ts`).
   - **Variables** per child: name, age (computed), birthdate, phone, national id, address, photo, QR (national id = scanner code)
   - **Constants**: church / service / class names, church logo, free text, uploaded image
 - Text style per element: 10 fonts (8 Arabic Google fonts + Arial/Times), size (pt), color, bold/italic, align
+- Per-element **box background** (color + opacity) and **stroke** (border that follows the element's rounded corners, color + width in mm)
+- **Lock aspect ratio** per element (resize handles + W/H inputs keep the ratio; QR defaults to locked)
 
 **Print tab**: paper size (A3/A4/A5/Letter/custom), orientation, 4 margins,
-horizontal & vertical gaps between cards, cut marks, live page preview with
-computed cols×rows layout, person picker (search + select all) — prints via a
-mm-exact hidden sheet (`@page` sized, browser print dialog).
+horizontal & vertical gaps between cards, cut marks, **page center lines**
+(vertical / horizontal / both — shown in preview AND printed), live page preview
+with computed cols×rows layout — prints via a mm-exact hidden sheet (`@page`
+sized, browser print dialog).
+
+**Who to print** (من تريد طباعته؟):
+- Church / service / class selectors, each with a "كل الـ..." (all) option —
+  the printed card constants (church/service/class names, logo) follow each
+  person's own enrollment, not the template scope
+- **اختيار يدوي** — manual picker (search + select all) over the scoped children
+- **المطلوب طباعتهم** — requested queue (table `card_print_requests`, migration
+  `0018`, realtime): the children page has a "طباعة كارت" job — tapping the violet
+  🖨 button on a child sends a print request; duplicates are rejected with a
+  clear message (unique enrollment constraint). In the queue you can print all
+  visible or only checked requests, delete one (✕), delete selected, delete all,
+  and optionally auto-delete printed requests after printing (with confirm).
 
 ## Features Not Yet Implemented
 - Child edit/delete UI, profile photo
@@ -139,11 +156,11 @@ mm-exact hidden sheet (`@page` sized, browser print dialog).
 - Points store / rewards module
 
 ## Recommended Next Steps
-1. Run migration `0017_card_templates.sql` in Supabase SQL editor
+1. Run migrations `0017_card_templates.sql` **and `0018_card_print_requests.sql`** in Supabase SQL editor
 2. Deploy to Vercel and test the full approval flow
 3. Attendance history + per-class reports
 
 ## Deployment
 - **Platform**: Vercel + Supabase
 - **Status**: ✅ Code complete for Phase 1 — awaiting Supabase project + Vercel connect
-- **Last Updated**: 2026-08-25
+- **Last Updated**: 2026-09-01

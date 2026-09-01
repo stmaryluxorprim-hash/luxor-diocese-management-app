@@ -213,7 +213,7 @@ export interface PointsLog {
 // ---------- Jobs (app-code constants, not stored in DB) ----------
 // Jobs are the actions a servant performs on persons from the persons page.
 
-export type Job = 'attendance' | 'call' | 'message' | 'points' | 'data';
+export type Job = 'attendance' | 'call' | 'message' | 'points' | 'data' | 'print_card';
 
 export const JOBS: { value: Job; label: string }[] = [
   { value: 'attendance', label: 'الحضور' },
@@ -221,7 +221,21 @@ export const JOBS: { value: Job; label: string }[] = [
   { value: 'message', label: 'الرسائل' },
   { value: 'points', label: 'النقاط' },
   { value: 'data', label: 'البيانات' },
+  { value: 'print_card', label: 'طباعة كارت' },
 ];
+
+// ---------- Card print requests (migration 0018) ----------
+// A servant requests a card print from the children page; the print page
+// prints from this list and can delete one / group / all.
+export interface CardPrintRequest {
+  id: string;
+  enrollment_id: string;
+  church_id: string;
+  service_id: string;
+  class_id: string;
+  requested_by: string | null;
+  created_at: string;
+}
 
 export const ROLE_LABELS: Record<AppRole, string> = {
   owner: 'مالك التطبيق',
