@@ -4,6 +4,7 @@ import { useMemo, useRef, useState } from 'react';
 import {
   Plus, Trash2, Upload, X, ChevronUp, ChevronDown, Loader2,
   Type, User, QrCode, Landmark, ImagePlus, TextCursorInput, Image as ImageIcon,
+  ZoomIn, ZoomOut, Maximize,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { uploadPhoto } from '@/lib/upload';
@@ -103,8 +104,17 @@ export default function DesignTab({
 
   const selected = design.elements.find((e) => e.id === selectedId) ?? null;
 
+  // preview zoom for precise placement (1x .. 6x)
+  const [previewZoom, setPreviewZoom] = useState(1);
+  const zoomIn = () => setPreviewZoom((z) => Math.min(6, Math.round((z + 0.5) * 2) / 2));
+  const zoomOut = () => setPreviewZoom((z) => Math.max(1, Math.round((z - 0.5) * 2) / 2));
+
   // preview scale: fit card into ~340px width, capped height so the sticky bar stays compact
-  const scale = useMemo(() => Math.min(340 / design.width, 190 / design.height), [design.width, design.height]);
+  const baseScale = useMemo(
+    () => Math.min(340 / design.width, 190 / design.height),
+    [design.width, design.height]
+  );
+  const scale = baseScale * previewZoom;
 
   // distance from element center to card center (mm, + = right / down)
   const centerDx = (el: CardElement) => Math.round((el.x + el.w / 2 - design.width / 2) * 10) / 10;
@@ -173,17 +183,59 @@ export default function DesignTab({
       <section className="card !p-3 sticky top-[76px] z-30 !shadow-lg">
         <div className="mb-1.5 flex items-center justify-between gap-2">
           <p className="text-[11px] font-extrabold text-slate-400 truncate">
-            معاينة حية — اسحب العناصر لتحريكها
+            معاينة حية — سحب للتحريك · مقابض لتغيير الحجم
           </p>
-          <button
-            onClick={() => setShowCenterLines((v) => !v)}
-            className={`badge shrink-0 transition ${showCenterLines ? 'bg-pink-100 text-pink-600' : 'bg-slate-100 text-slate-400'}`}
-          >
-            ✧ خطوط المنتصف
-          </button>
+          <div className="flex shrink-0 items-center gap-1">
+            {/* preview zoom controls */}
+            <button
+              onClick={zoomOut}
+              disabled={previewZoom <= 1}
+              aria-label="تصغير المعاينة"
+              className="rounded-lg bg-slate-100 p-1.5 text-slate-500 hover:bg-slate-200 disabled:opacity-40 transition"
+            >
+              <ZoomOut className="h-3.5 w-3.5" />
+            </button>
+            <span className="w-10 text-center text-[10px] font-extrabold text-slate-500 tabular-nums" dir="ltr">
+              {Math.round(previewZoom * 100)}%
+            </span>
+            <button
+              onClick={zoomIn}
+              disabled={previewZoom >= 6}
+              aria-label="تكبير المعاينة"
+              className="rounded-lg bg-slate-100 p-1.5 text-slate-500 hover:bg-slate-200 disabled:opacity-40 transition"
+            >
+              <ZoomIn className="h-3.5 w-3.5" />
+            </button>
+            {previewZoom !== 1 && (
+              <button
+                onClick={() => setPreviewZoom(1)}
+                aria-label="إعادة ضبط الزووم"
+                className="rounded-lg bg-slate-100 p-1.5 text-slate-500 hover:bg-slate-200 transition"
+              >
+                <Maximize className="h-3.5 w-3.5" />
+              </button>
+            )}
+            <button
+              onClick={() => setShowCenterLines((v) => !v)}
+              className={`badge shrink-0 transition ${showCenterLines ? 'bg-pink-100 text-pink-600' : 'bg-slate-100 text-slate-400'}`}
+            >
+              ✧ المنتصف
+            </button>
+          </div>
         </div>
-        <div className="flex justify-center overflow-x-auto py-1" dir="ltr">
-          <div className="shadow-lg" style={{ borderRadius: design.cornerRadius * scale }}>
+        <div
+          className={`overflow-auto py-1 ${previewZoom === 1 ? 'flex justify-center' : ''}`}
+          style={{ maxHeight: previewZoom === 1 ? undefined : 260 }}
+          dir="ltr"
+        >
+          <div
+            className="shadow-lg"
+            style={{
+              borderRadius: design.cornerRadius * scale,
+              width: 'fit-content',
+              margin: previewZoom === 1 ? undefined : '0 auto',
+            }}
+          >
             <CardCanvas
               design={design}
               scale={scale}
@@ -191,6 +243,7 @@ export default function DesignTab({
               selectedId={selectedId}
               onSelect={setSelectedId}
               onMove={(id, x, y) => updateEl(id, { x, y })}
+              onResize={(id, patch) => updateEl(id, patch)}
               showCenterLines={showCenterLines}
             />
           </div>
@@ -302,7 +355,7 @@ export default function DesignTab({
                     <span dir="ltr">{Math.round((design.background.zoom ?? 1) * 100)}%</span>
                   </span>
                   <input
-                    type="range" min={0.2} max={5} step={0.05}
+                    type="range" min={0.2} max={5} step={0.01}
                     value={design.background.zoom ?? 1}
                     onChange={(e) => setBg({ zoom: Number(e.target.value) })}
                     className="w-full accent-primary-600"

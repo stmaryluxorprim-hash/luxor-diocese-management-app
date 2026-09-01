@@ -180,8 +180,22 @@ interface CardCanvasProps {
   selectedId?: string | null;
   onSelect?: (id: string | null) => void;
   onMove?: (id: string, x: number, y: number) => void;
+  onResize?: (id: string, patch: { x: number; y: number; w: number; h: number }) => void;
   showCenterLines?: boolean; // imaginary vertical + horizontal center lines
 }
+
+// 8 free-transform handles: 4 corners + 4 edge midpoints
+type HandleId = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
+const HANDLES: { id: HandleId; cursor: string }[] = [
+  { id: 'nw', cursor: 'nwse-resize' },
+  { id: 'n', cursor: 'ns-resize' },
+  { id: 'ne', cursor: 'nesw-resize' },
+  { id: 'e', cursor: 'ew-resize' },
+  { id: 'se', cursor: 'nwse-resize' },
+  { id: 's', cursor: 'ns-resize' },
+  { id: 'sw', cursor: 'nesw-resize' },
+  { id: 'w', cursor: 'ew-resize' },
+];
 
 export default function CardCanvas({
   design,
@@ -192,10 +206,17 @@ export default function CardCanvas({
   selectedId,
   onSelect,
   onMove,
+  onResize,
   showCenterLines = false,
 }: CardCanvasProps) {
   const interactive = !!onSelect;
   const bg = design.background;
+
+  // finer snap when zoomed in for precise placement
+  const snap = (v: number) => {
+    const grid = scale >= 8 ? 10 : 2; // 0.1mm zoomed / 0.5mm normal
+    return Math.round(v * grid) / grid;
+  };
 
   // drag state (designer mode)
   const startDrag = (e: React.PointerEvent, el: CardElement) => {
@@ -210,11 +231,7 @@ export default function CardCanvas({
     const move = (ev: PointerEvent) => {
       const dx = (ev.clientX - startX) / scale;
       const dy = (ev.clientY - startY) / scale;
-      onMove(
-        el.id,
-        Math.round((origX + dx) * 2) / 2, // snap 0.5mm
-        Math.round((origY + dy) * 2) / 2
-      );
+      onMove(el.id, snap(origX + dx), snap(origY + dy));
     };
     const up = () => {
       window.removeEventListener('pointermove', move);
@@ -223,6 +240,55 @@ export default function CardCanvas({
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
   };
+
+  // free-transform resize from any of the 8 handles
+  const startResize = (e: React.PointerEvent, el: CardElement, handle: HandleId) => {
+    if (!interactive || !onResize) return;
+    e.stopPropagation();
+    e.preventDefault();
+    onSelect?.(el.id);
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const orig = { x: el.x, y: el.y, w: el.w, h: el.h };
+    const move = (ev: PointerEvent) => {
+      const dx = (ev.clientX - startX) / scale;
+      const dy = (ev.clientY - startY) / scale;
+      let { x, y, w, h } = orig;
+      if (handle.includes('e')) w = orig.w + dx;
+      if (handle.includes('s')) h = orig.h + dy;
+      if (handle.includes('w')) { x = orig.x + dx; w = orig.w - dx; }
+      if (handle.includes('n')) { y = orig.y + dy; h = orig.h - dy; }
+      // enforce minimum 1mm, anchoring the opposite side
+      if (w < 1) {
+        if (handle.includes('w')) x = orig.x + orig.w - 1;
+        w = 1;
+      }
+      if (h < 1) {
+        if (handle.includes('n')) y = orig.y + orig.h - 1;
+        h = 1;
+      }
+      onResize(el.id, { x: snap(x), y: snap(y), w: snap(w), h: snap(h) });
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+
+  // handle position (as CSS) around the selected element's box
+  const handlePos = (el: CardElement, h: HandleId): CSSProperties => {
+    const L = el.x * scale;
+    const T = el.y * scale;
+    const W = el.w * scale;
+    const H = el.h * scale;
+    const cx = h.includes('w') ? L : h.includes('e') ? L + W : L + W / 2;
+    const cy = h.includes('n') ? T : h.includes('s') ? T + H : T + H / 2;
+    return { left: cx - 5, top: cy - 5 };
+  };
+
+  const selEl = interactive ? design.elements.find((e) => e.id === selectedId) ?? null : null;
 
   return (
     <div
@@ -276,6 +342,31 @@ export default function CardCanvas({
           )}
         </div>
       ))}
+
+      {/* free-transform resize handles on the selected element (screen only) */}
+      {selEl && onResize && (
+        <>
+          {HANDLES.map((h) => (
+            <div
+              key={h.id}
+              onPointerDown={(e) => startResize(e, selEl, h.id)}
+              style={{
+                position: 'absolute',
+                width: 10,
+                height: 10,
+                borderRadius: 3,
+                background: '#fff',
+                border: '2px solid #6366f1',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                cursor: h.cursor,
+                touchAction: 'none',
+                zIndex: 60,
+                ...handlePos(selEl, h.id),
+              }}
+            />
+          ))}
+        </>
+      )}
 
       {/* imaginary center lines (screen only — never printed) */}
       {showCenterLines && (
