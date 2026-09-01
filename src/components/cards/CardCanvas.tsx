@@ -162,6 +162,13 @@ function ElementView({
   );
 }
 
+// custom background transform → CSS (zoom relative to cover, pan in % of card)
+const customBgCss = (bg: CardDesign['background']): CSSProperties => ({
+  backgroundRepeat: 'no-repeat',
+  backgroundSize: `${(bg.zoom ?? 1) * 100}% auto`,
+  backgroundPosition: `calc(50% + ${bg.offsetX ?? 0}%) calc(50% + ${bg.offsetY ?? 0}%)`,
+});
+
 // ---------- the card ----------
 interface CardCanvasProps {
   design: CardDesign;
@@ -173,6 +180,7 @@ interface CardCanvasProps {
   selectedId?: string | null;
   onSelect?: (id: string | null) => void;
   onMove?: (id: string, x: number, y: number) => void;
+  showCenterLines?: boolean; // imaginary vertical + horizontal center lines
 }
 
 export default function CardCanvas({
@@ -184,6 +192,7 @@ export default function CardCanvas({
   selectedId,
   onSelect,
   onMove,
+  showCenterLines = false,
 }: CardCanvasProps) {
   const interactive = !!onSelect;
   const bg = design.background;
@@ -240,7 +249,7 @@ export default function CardCanvas({
             inset: 0,
             backgroundImage: `url(${bg.imageUrl})`,
             opacity: bg.imageOpacity,
-            ...fitToCss(bg.imageFit),
+            ...(bg.imageFit === 'custom' ? customBgCss(bg) : fitToCss(bg.imageFit)),
           }}
         />
       )}
@@ -267,6 +276,36 @@ export default function CardCanvas({
           )}
         </div>
       ))}
+
+      {/* imaginary center lines (screen only — never printed) */}
+      {showCenterLines && (
+        <>
+          <div
+            style={{
+              position: 'absolute',
+              left: (design.width / 2) * scale,
+              top: 0,
+              bottom: 0,
+              width: 0,
+              borderLeft: '1px dashed rgba(236, 72, 153, 0.65)',
+              pointerEvents: 'none',
+              zIndex: 50,
+            }}
+          />
+          <div
+            style={{
+              position: 'absolute',
+              top: (design.height / 2) * scale,
+              left: 0,
+              right: 0,
+              height: 0,
+              borderTop: '1px dashed rgba(236, 72, 153, 0.65)',
+              pointerEvents: 'none',
+              zIndex: 50,
+            }}
+          />
+        </>
+      )}
     </div>
   );
 }

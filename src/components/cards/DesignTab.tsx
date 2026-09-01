@@ -95,6 +95,7 @@ export default function DesignTab({
   const supabase = createClient();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showAddMenu, setShowAddMenu] = useState(false);
+  const [showCenterLines, setShowCenterLines] = useState(true);
   const [uploadingBg, setUploadingBg] = useState(false);
   const [uploadingImg, setUploadingImg] = useState(false);
   const bgFileRef = useRef<HTMLInputElement>(null);
@@ -102,8 +103,12 @@ export default function DesignTab({
 
   const selected = design.elements.find((e) => e.id === selectedId) ?? null;
 
-  // preview scale: fit card into ~340px width (or less on small screens)
-  const scale = useMemo(() => Math.min(340 / design.width, 220 / design.height), [design.width, design.height]);
+  // preview scale: fit card into ~340px width, capped height so the sticky bar stays compact
+  const scale = useMemo(() => Math.min(340 / design.width, 190 / design.height), [design.width, design.height]);
+
+  // distance from element center to card center (mm, + = right / down)
+  const centerDx = (el: CardElement) => Math.round((el.x + el.w / 2 - design.width / 2) * 10) / 10;
+  const centerDy = (el: CardElement) => Math.round((el.y + el.h / 2 - design.height / 2) * 10) / 10;
 
   // ---------- mutators ----------
   const set = (patch: Partial<CardDesign>) => onChange({ ...design, ...patch });
@@ -164,12 +169,20 @@ export default function DesignTab({
 
   return (
     <div className="space-y-4">
-      {/* ---------- live preview ---------- */}
-      <section className="card !p-3">
-        <p className="mb-2 text-xs font-extrabold text-slate-400">
-          معاينة حية — اسحب العناصر لتحريكها · بيانات تجريبية: {SAMPLE_PERSON.name}
-        </p>
-        <div className="flex justify-center overflow-x-auto py-2" dir="ltr">
+      {/* ---------- live preview (frozen at top while scrolling) ---------- */}
+      <section className="card !p-3 sticky top-[76px] z-30 !shadow-lg">
+        <div className="mb-1.5 flex items-center justify-between gap-2">
+          <p className="text-[11px] font-extrabold text-slate-400 truncate">
+            معاينة حية — اسحب العناصر لتحريكها
+          </p>
+          <button
+            onClick={() => setShowCenterLines((v) => !v)}
+            className={`badge shrink-0 transition ${showCenterLines ? 'bg-pink-100 text-pink-600' : 'bg-slate-100 text-slate-400'}`}
+          >
+            ✧ خطوط المنتصف
+          </button>
+        </div>
+        <div className="flex justify-center overflow-x-auto py-1" dir="ltr">
           <div className="shadow-lg" style={{ borderRadius: design.cornerRadius * scale }}>
             <CardCanvas
               design={design}
@@ -178,9 +191,18 @@ export default function DesignTab({
               selectedId={selectedId}
               onSelect={setSelectedId}
               onMove={(id, x, y) => updateEl(id, { x, y })}
+              showCenterLines={showCenterLines}
             />
           </div>
         </div>
+        {/* live distance from card center for the selected element */}
+        {selected && (
+          <p className="mt-1.5 text-center text-[11px] font-extrabold text-pink-600" dir="rtl">
+            بُعد مركز «{elementTitle(selected)}» عن مركز الكارت:
+            أفقي <span dir="ltr">{centerDx(selected) > 0 ? '+' : ''}{centerDx(selected)}</span> مم
+            · رأسي <span dir="ltr">{centerDy(selected) > 0 ? '+' : ''}{centerDy(selected)}</span> مم
+          </p>
+        )}
       </section>
 
       {/* ---------- card size ---------- */}
@@ -242,29 +264,87 @@ export default function DesignTab({
           </div>
         </div>
         {design.background.imageUrl && (
-          <div className="mt-2 grid grid-cols-2 gap-2">
-            <label className="block">
-              <span className="mb-0.5 block text-[11px] font-bold text-slate-500">طريقة العرض</span>
-              <select
-                className="input-field !py-2 !px-2.5 !text-sm"
-                value={design.background.imageFit}
-                onChange={(e) => setBg({ imageFit: e.target.value as ImageFit })}
-              >
-                {Object.entries(IMAGE_FIT_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-              </select>
-            </label>
-            <label className="block">
-              <span className="mb-0.5 block text-[11px] font-bold text-slate-500">
-                شفافية الصورة ({Math.round(design.background.imageOpacity * 100)}%)
-              </span>
-              <input
-                type="range" min={0.05} max={1} step={0.05}
-                value={design.background.imageOpacity}
-                onChange={(e) => setBg({ imageOpacity: Number(e.target.value) })}
-                className="mt-3 w-full accent-primary-600"
-              />
-            </label>
-          </div>
+          <>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <label className="block">
+                <span className="mb-0.5 block text-[11px] font-bold text-slate-500">طريقة العرض</span>
+                <select
+                  className="input-field !py-2 !px-2.5 !text-sm"
+                  value={design.background.imageFit}
+                  onChange={(e) => setBg({ imageFit: e.target.value as ImageFit | 'custom' })}
+                >
+                  {Object.entries(IMAGE_FIT_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                  <option value="custom">تحكم حر (زووم + تحريك)</option>
+                </select>
+              </label>
+              <label className="block">
+                <span className="mb-0.5 block text-[11px] font-bold text-slate-500">
+                  شفافية الصورة ({Math.round(design.background.imageOpacity * 100)}%)
+                </span>
+                <input
+                  type="range" min={0.05} max={1} step={0.05}
+                  value={design.background.imageOpacity}
+                  onChange={(e) => setBg({ imageOpacity: Number(e.target.value) })}
+                  className="mt-3 w-full accent-primary-600"
+                />
+              </label>
+            </div>
+
+            {/* free transform: zoom in/out + move/crop until the final look */}
+            {design.background.imageFit === 'custom' && (
+              <div className="mt-2 rounded-xl bg-indigo-50/60 p-3">
+                <p className="mb-2 text-[11px] font-extrabold text-slate-500">
+                  تحكم حر في الخلفية — كبّر وصغّر وحرّك حتى تصل للشكل النهائي (ما يخرج عن حدود الكارت يُقص)
+                </p>
+                <label className="block">
+                  <span className="mb-0.5 flex items-center justify-between text-[11px] font-bold text-slate-500">
+                    <span>الزووم</span>
+                    <span dir="ltr">{Math.round((design.background.zoom ?? 1) * 100)}%</span>
+                  </span>
+                  <input
+                    type="range" min={0.2} max={5} step={0.05}
+                    value={design.background.zoom ?? 1}
+                    onChange={(e) => setBg({ zoom: Number(e.target.value) })}
+                    className="w-full accent-primary-600"
+                  />
+                </label>
+                <div className="mt-2 grid grid-cols-2 gap-3">
+                  <label className="block">
+                    <span className="mb-0.5 flex items-center justify-between text-[11px] font-bold text-slate-500">
+                      <span>تحريك أفقي</span>
+                      <span dir="ltr">{design.background.offsetX ?? 0}%</span>
+                    </span>
+                    <input
+                      type="range" min={-200} max={200} step={1}
+                      value={design.background.offsetX ?? 0}
+                      onChange={(e) => setBg({ offsetX: Number(e.target.value) })}
+                      className="w-full accent-primary-600"
+                      dir="ltr"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-0.5 flex items-center justify-between text-[11px] font-bold text-slate-500">
+                      <span>تحريك رأسي</span>
+                      <span dir="ltr">{design.background.offsetY ?? 0}%</span>
+                    </span>
+                    <input
+                      type="range" min={-200} max={200} step={1}
+                      value={design.background.offsetY ?? 0}
+                      onChange={(e) => setBg({ offsetY: Number(e.target.value) })}
+                      className="w-full accent-primary-600"
+                      dir="ltr"
+                    />
+                  </label>
+                </div>
+                <button
+                  onClick={() => setBg({ zoom: 1, offsetX: 0, offsetY: 0 })}
+                  className="mt-2 w-full rounded-lg bg-white py-1.5 text-[11px] font-extrabold text-slate-500 hover:bg-slate-50 border border-slate-200"
+                >
+                  إعادة ضبط (100% · منتصف)
+                </button>
+              </div>
+            )}
+          </>
         )}
         {/* border */}
         <div className="mt-3 border-t border-indigo-50 pt-3">
@@ -344,8 +424,8 @@ export default function DesignTab({
               >
                 <span className="text-primary-500">{TYPE_ICONS[el.type]}</span>
                 <span className="min-w-0 flex-1 truncate text-right">{elementTitle(el)}</span>
-                <span className="text-[10px] font-normal text-slate-300" dir="ltr">
-                  {el.x}, {el.y} مم
+                <span className="text-[10px] font-normal text-pink-400" dir="ltr" title="بُعد المركز عن مركز الكارت (أفقي، رأسي)">
+                  ⊕ {centerDx(el) > 0 ? '+' : ''}{centerDx(el)}, {centerDy(el) > 0 ? '+' : ''}{centerDy(el)} مم
                 </span>
               </button>
             </li>
@@ -382,6 +462,39 @@ export default function DesignTab({
             <Num label="ص (من الأعلى)" value={selected.y} min={-50} max={300} onChange={(v) => updateEl(selected.id, { y: v })} />
             <Num label="العرض" value={selected.w} min={1} max={300} onChange={(v) => updateEl(selected.id, { w: v })} />
             <Num label="الارتفاع" value={selected.h} min={1} max={300} onChange={(v) => updateEl(selected.id, { h: v })} />
+          </div>
+
+          {/* distance from card center — editable (moves the element) */}
+          <div className="mt-2 rounded-xl bg-pink-50/60 p-2.5">
+            <p className="mb-1.5 text-[11px] font-extrabold text-pink-600">
+              ⊕ بُعد مركز العنصر عن مركز الكارت (+ يمين / أسفل · − يسار / أعلى)
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <Num
+                label="أفقي من المركز" suffix="مم"
+                value={centerDx(selected)} min={-300} max={300} step={0.5}
+                onChange={(v) => updateEl(selected.id, { x: Math.round((design.width / 2 + v - selected.w / 2) * 10) / 10 })}
+              />
+              <Num
+                label="رأسي من المركز" suffix="مم"
+                value={centerDy(selected)} min={-300} max={300} step={0.5}
+                onChange={(v) => updateEl(selected.id, { y: Math.round((design.height / 2 + v - selected.h / 2) * 10) / 10 })}
+              />
+            </div>
+            <div className="mt-1.5 flex gap-1.5">
+              <button
+                onClick={() => updateEl(selected.id, { x: Math.round((design.width / 2 - selected.w / 2) * 10) / 10 })}
+                className="flex-1 rounded-lg bg-white py-1.5 text-[11px] font-extrabold text-pink-600 border border-pink-200 hover:bg-pink-50"
+              >
+                توسيط أفقي
+              </button>
+              <button
+                onClick={() => updateEl(selected.id, { y: Math.round((design.height / 2 - selected.h / 2) * 10) / 10 })}
+                className="flex-1 rounded-lg bg-white py-1.5 text-[11px] font-extrabold text-pink-600 border border-pink-200 hover:bg-pink-50"
+              >
+                توسيط رأسي
+              </button>
+            </div>
           </div>
           <div className="mt-2 grid grid-cols-3 gap-2">
             <Num label="الدوران" suffix="°" value={selected.rotation} min={-180} max={180} step={1} onChange={(v) => updateEl(selected.id, { rotation: v })} />

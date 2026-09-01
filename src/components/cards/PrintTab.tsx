@@ -6,7 +6,8 @@ import { Loader2, Printer, Search, CheckSquare, Square, Users } from 'lucide-rea
 import { createClient } from '@/lib/supabase/client';
 import type { Person, EnrollmentWithPerson } from '@/lib/types';
 import type { CardDesign, CardPrintSettings, CardTemplate, PaperSize, PaperOrientation } from '@/lib/card-types';
-import { PAPER_SIZES, paperDims } from '@/lib/card-types';
+import { PAPER_SIZES, paperDims, H_ALIGN_LABELS, V_ALIGN_LABELS } from '@/lib/card-types';
+import type { HAlign, VAlign } from '@/lib/card-types';
 import CardCanvas, { type CardConstantsData, type CardPersonData } from './CardCanvas';
 
 // CSS defines 1in = 96px and 1in = 25.4mm → exact physical scale for print
@@ -116,6 +117,17 @@ export default function PrintTab({
   const perPage = cols * rows;
   const pages = perPage > 0 ? Math.ceil(Math.max(selectedPersons.length, 1) / perPage) : 0;
 
+  // grid alignment inside the printable area (mm offsets added to margins)
+  const gridW = cols > 0 ? cols * design.width + (cols - 1) * settings.gapX : 0;
+  const gridH = rows > 0 ? rows * design.height + (rows - 1) * settings.gapY : 0;
+  const alignH = settings.alignH ?? 'center';
+  const alignV = settings.alignV ?? 'top';
+  const offsetX = alignH === 'left' ? 0 : alignH === 'center' ? (usableW - gridW) / 2 : usableW - gridW;
+  const offsetY = alignV === 'top' ? 0 : alignV === 'center' ? (usableH - gridH) / 2 : usableH - gridH;
+  // physical left/top of cell (col, row) in mm
+  const cellLeft = (col: number) => settings.marginLeft + offsetX + col * (design.width + settings.gapX);
+  const cellTop = (row: number) => settings.marginTop + offsetY + row * (design.height + settings.gapY);
+
   // preview scale (fit paper into ~330px width)
   const previewScale = Math.min(330 / paper.w, 420 / paper.h);
 
@@ -139,7 +151,7 @@ export default function PrintTab({
   }, [selectedPersons, perPage]);
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-4">
       {/* ---------- paper settings ---------- */}
       <section className="card">
         <h3 className="mb-2 text-sm font-extrabold text-slate-600">الورقة</h3>
@@ -195,6 +207,49 @@ export default function PrintTab({
           <Num label="مسافة أفقية بين الكروت" value={settings.gapX} max={100} onChange={(v) => set({ gapX: v })} />
           <Num label="مسافة رأسية بين الكروت" value={settings.gapY} max={100} onChange={(v) => set({ gapY: v })} />
         </div>
+        {/* grid alignment inside printable area */}
+        <div className="mt-3 border-t border-indigo-50 pt-3">
+          <p className="mb-1.5 text-[11px] font-extrabold text-slate-500">محاذاة الكروت داخل الصفحة</p>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <span className="mb-0.5 block text-[11px] font-bold text-slate-500">أفقياً</span>
+              <div className="flex gap-1">
+                {(['right', 'center', 'left'] as HAlign[]).map((a) => (
+                  <button
+                    key={a}
+                    onClick={() => set({ alignH: a })}
+                    className={`flex-1 rounded-xl border py-2 text-[11px] font-extrabold transition ${
+                      alignH === a
+                        ? 'border-primary-300 bg-primary-50 text-primary-700'
+                        : 'border-slate-200 text-slate-400 hover:bg-slate-50'
+                    }`}
+                  >
+                    {H_ALIGN_LABELS[a]}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <span className="mb-0.5 block text-[11px] font-bold text-slate-500">رأسياً</span>
+              <div className="flex gap-1">
+                {(['top', 'center', 'bottom'] as VAlign[]).map((a) => (
+                  <button
+                    key={a}
+                    onClick={() => set({ alignV: a })}
+                    className={`flex-1 rounded-xl border py-2 text-[11px] font-extrabold transition ${
+                      alignV === a
+                        ? 'border-primary-300 bg-primary-50 text-primary-700'
+                        : 'border-slate-200 text-slate-400 hover:bg-slate-50'
+                    }`}
+                  >
+                    {V_ALIGN_LABELS[a]}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
         <label className="mt-3 flex items-center gap-2 text-xs font-extrabold text-slate-600">
           <input
             type="checkbox"
@@ -213,9 +268,11 @@ export default function PrintTab({
         </div>
       </section>
 
-      {/* ---------- page preview ---------- */}
-      <section className="card !p-3">
-        <p className="mb-2 text-xs font-extrabold text-slate-400">معاينة الصفحة الأولى</p>
+      {/* ---------- page preview (frozen at top while scrolling) ---------- */}
+      <section className="card !p-3 sticky top-[76px] z-30 !shadow-lg order-first">
+        <p className="mb-2 text-xs font-extrabold text-slate-400">
+          معاينة الصفحة الأولى — {cols}×{rows} · {H_ALIGN_LABELS[alignH]} / {V_ALIGN_LABELS[alignV]}
+        </p>
         <div className="flex justify-center overflow-x-auto py-1" dir="ltr">
           <div
             className="relative bg-white shadow-lg ring-1 ring-slate-200"
@@ -240,8 +297,8 @@ export default function PrintTab({
                   key={i}
                   className="absolute"
                   style={{
-                    left: (settings.marginLeft + col * (design.width + settings.gapX)) * previewScale,
-                    top: (settings.marginTop + row * (design.height + settings.gapY)) * previewScale,
+                    left: cellLeft(col) * previewScale,
+                    top: cellTop(row) * previewScale,
                   }}
                 >
                   {person ? (
@@ -359,8 +416,8 @@ export default function PrintTab({
                     key={person.id}
                     className="card-print-cell"
                     style={{
-                      left: `${settings.marginLeft + col * (design.width + settings.gapX)}mm`,
-                      top: `${settings.marginTop + row * (design.height + settings.gapY)}mm`,
+                      left: `${cellLeft(col)}mm`,
+                      top: `${cellTop(row)}mm`,
                       outline: settings.cutMarks ? '0.2mm solid #cbd5e1' : undefined,
                       width: `${design.width}mm`,
                       height: `${design.height}mm`,
