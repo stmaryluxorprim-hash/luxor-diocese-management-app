@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { ArrowRight, Loader2, Save, Palette, Printer, IdCard, Layers } from 'lucide-react';
+import { ArrowRight, Loader2, Save, Palette, Printer, IdCard } from 'lucide-react';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
 import { createClient } from '@/lib/supabase/client';
@@ -12,9 +12,8 @@ import { normalizeDesign, normalizePrint, GOOGLE_FONTS } from '@/lib/card-types'
 import type { CardConstantsData } from '@/components/cards/CardCanvas';
 import DesignTab from '@/components/cards/DesignTab';
 import PrintTab from '@/components/cards/PrintTab';
-import RequestsPrintTab from '@/components/cards/RequestsPrintTab';
 
-type Tab = 'design' | 'print' | 'requests';
+type Tab = 'design' | 'print';
 
 // Load all designer Google fonts once so previews render correctly
 function FontsLoader() {
@@ -162,32 +161,17 @@ export default function CardDesignerPage() {
         >
           <Printer className="h-4 w-4" /> الطباعة
         </button>
-        <button
-          onClick={() => setTab('requests')}
-          className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2.5 text-sm font-extrabold transition ${
-            tab === 'requests' ? 'bg-violet-600 text-white shadow' : 'text-slate-500 hover:bg-slate-50'
-          }`}
-        >
-          <Layers className="h-4 w-4" /> طباعة الطلبات
-        </button>
       </div>
 
       {tab === 'design' ? (
         <DesignTab design={design} onChange={updateDesign} constants={constants} />
-      ) : tab === 'print' ? (
+      ) : (
         <PrintTab
           design={design}
           settings={print}
           onChange={updatePrint}
           constants={constants}
           template={template}
-        />
-      ) : (
-        <RequestsPrintTab
-          template={template}
-          design={design}
-          settings={print}
-          constants={constants}
         />
       )}
     </AppShell>
