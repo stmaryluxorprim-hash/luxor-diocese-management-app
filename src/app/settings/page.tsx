@@ -5,7 +5,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import {
   Settings, UserCheck, Church, Layers, School, LogOut, ChevronLeft, User, Phone, ShieldCheck,
-  QrCode, Pencil, Users, CalendarDays, Award,
+  QrCode, Pencil, Users, CalendarDays, Award, IdCard,
 } from 'lucide-react';
 import AppShell from '@/components/AppShell';
 import EditProfileModal from '@/components/EditProfileModal';
@@ -125,6 +125,12 @@ export default function SettingsPage() {
               icon={<Award className="h-5 w-5 text-amber-600" />}
               label="إدارة أسباب النقاط"
               desc="أسباب إضافة أو خصم النقاط (حفظ، سلوك...)"
+            />
+            <SettingsLink
+              href="/settings/cards"
+              icon={<IdCard className="h-5 w-5 text-rose-600" />}
+              label="تصميم الكروت"
+              desc="تصميم وطباعة كروت المخدومين"
             />
           </div>
         </section>

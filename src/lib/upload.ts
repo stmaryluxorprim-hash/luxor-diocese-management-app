@@ -7,7 +7,7 @@ import { PHOTOS_BUCKET } from '@/lib/types';
  */
 export async function uploadPhoto(
   supabase: SupabaseClient,
-  folder: 'servants' | 'services' | 'classes' | 'persons',
+  folder: 'servants' | 'services' | 'classes' | 'persons' | 'cards',
   file: File | Blob,
   name?: string
 ): Promise<string> {

@@ -9,7 +9,7 @@
 
 ## URLs
 - **GitHub**: https://github.com/stmaryluxorprim-hash/luxor-diocese-management-app
-- **Sandbox preview (temporary)**: https://3000-i6jkl0qv5exjmcyr35gf7-82b888ba.sandbox.novita.ai
+- **Sandbox preview (temporary)**: https://3000-iasoiimzq7wdii4b7vorc-583b4d74.sandbox.novita.ai
 - **Production**: (deploy to Vercel — see below)
 
 ## Architecture — PERSON-CENTRIC (migration 0011)
@@ -113,8 +113,25 @@ npm run dev
 2. Add env vars: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 3. Deploy — done. PWA is installable from the browser.
 
+## Card Designer Module (تصميم الكروت) — migration 0017
+Design & print ID cards for the children. `/settings/cards` lists templates
+(scoped church → service → class like events/causes, table `card_templates`,
+JSONB `design` + `print_settings`, schema in `src/lib/card-types.ts`).
+
+**Design tab** (`/settings/cards/[id]`):
+- Card width / height / corner roundness in mm (presets: CR80 ID, A6, A7, square)
+- Background: color, uploaded image with fit mode (cover/contain/stretch/tile) + opacity, border color/width
+- Elements (drag to move, layer up/down, rotate, opacity, corner radius):
+  - **Variables** per child: name, age (computed), birthdate, phone, national id, address, photo, QR (national id = scanner code)
+  - **Constants**: church / service / class names, church logo, free text, uploaded image
+- Text style per element: 10 fonts (8 Arabic Google fonts + Arial/Times), size (pt), color, bold/italic, align
+
+**Print tab**: paper size (A3/A4/A5/Letter/custom), orientation, 4 margins,
+horizontal & vertical gaps between cards, cut marks, live page preview with
+computed cols×rows layout, person picker (search + select all) — prints via a
+mm-exact hidden sheet (`@page` sized, browser print dialog).
+
 ## Features Not Yet Implemented
-- Child QR card generation/printing (QR codes exist in DB per child)
 - Child edit/delete UI, profile photo
 - Push notifications
 - Attendance history per child / per date view
@@ -122,10 +139,9 @@ npm run dev
 - Points store / rewards module
 
 ## Recommended Next Steps
-1. Create the Supabase project, run migrations, bootstrap owner
+1. Run migration `0017_card_templates.sql` in Supabase SQL editor
 2. Deploy to Vercel and test the full approval flow
-3. Add QR card printing for children (feeds the scanner)
-4. Attendance history + per-class reports
+3. Attendance history + per-class reports
 
 ## Deployment
 - **Platform**: Vercel + Supabase
