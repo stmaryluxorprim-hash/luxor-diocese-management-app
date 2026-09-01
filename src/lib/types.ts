@@ -213,13 +213,14 @@ export interface PointsLog {
 // ---------- Jobs (app-code constants, not stored in DB) ----------
 // Jobs are the actions a servant performs on persons from the persons page.
 
-export type Job = 'attendance' | 'call' | 'message' | 'points';
+export type Job = 'attendance' | 'call' | 'message' | 'points' | 'data';
 
 export const JOBS: { value: Job; label: string }[] = [
   { value: 'attendance', label: 'الحضور' },
   { value: 'call', label: 'الاتصال' },
   { value: 'message', label: 'الرسائل' },
   { value: 'points', label: 'النقاط' },
+  { value: 'data', label: 'البيانات' },
 ];
 
 export const ROLE_LABELS: Record<AppRole, string> = {
