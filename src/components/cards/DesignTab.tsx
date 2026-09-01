@@ -4,7 +4,7 @@ import { useMemo, useRef, useState } from 'react';
 import {
   Plus, Trash2, Upload, X, ChevronUp, ChevronDown, Loader2,
   Type, User, QrCode, Landmark, ImagePlus, TextCursorInput, Image as ImageIcon,
-  ZoomIn, ZoomOut, Maximize,
+  ZoomIn, ZoomOut, Maximize, Lock, LockOpen,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { uploadPhoto } from '@/lib/upload';
@@ -513,9 +513,38 @@ export default function DesignTab({
           <div className="grid grid-cols-4 gap-2">
             <Num label="س (من اليسار)" value={selected.x} min={-50} max={300} onChange={(v) => updateEl(selected.id, { x: v })} />
             <Num label="ص (من الأعلى)" value={selected.y} min={-50} max={300} onChange={(v) => updateEl(selected.id, { y: v })} />
-            <Num label="العرض" value={selected.w} min={1} max={300} onChange={(v) => updateEl(selected.id, { w: v })} />
-            <Num label="الارتفاع" value={selected.h} min={1} max={300} onChange={(v) => updateEl(selected.id, { h: v })} />
+            <Num
+              label="العرض" value={selected.w} min={1} max={300}
+              onChange={(v) => {
+                if (selected.lockAspect && selected.w > 0) {
+                  const r = selected.h / selected.w;
+                  updateEl(selected.id, { w: v, h: Math.round(v * r * 10) / 10 });
+                } else updateEl(selected.id, { w: v });
+              }}
+            />
+            <Num
+              label="الارتفاع" value={selected.h} min={1} max={300}
+              onChange={(v) => {
+                if (selected.lockAspect && selected.h > 0) {
+                  const r = selected.w / selected.h;
+                  updateEl(selected.id, { h: v, w: Math.round(v * r * 10) / 10 });
+                } else updateEl(selected.id, { h: v });
+              }}
+            />
           </div>
+
+          {/* lock aspect ratio */}
+          <button
+            onClick={() => updateEl(selected.id, { lockAspect: !selected.lockAspect })}
+            className={`mt-2 flex w-full items-center justify-center gap-1.5 rounded-xl border py-2 text-xs font-extrabold transition ${
+              selected.lockAspect
+                ? 'border-primary-300 bg-primary-50 text-primary-700'
+                : 'border-slate-200 text-slate-400 hover:bg-slate-50'
+            }`}
+          >
+            {selected.lockAspect ? <Lock className="h-3.5 w-3.5" /> : <LockOpen className="h-3.5 w-3.5" />}
+            {selected.lockAspect ? 'نسبة الأبعاد مقفولة — العرض/الارتفاع يتغيران معاً' : 'قفل نسبة الأبعاد (العرض/الارتفاع)'}
+          </button>
 
           {/* distance from card center — editable (moves the element) */}
           <div className="mt-2 rounded-xl bg-pink-50/60 p-2.5">
@@ -563,6 +592,51 @@ export default function DesignTab({
                 className="mt-3 w-full accent-primary-600"
               />
             </label>
+          </div>
+
+          {/* ---------- box background & stroke (every element) ---------- */}
+          <div className="mt-3 border-t border-indigo-50 pt-3">
+            <label className="mb-2 flex items-center gap-2 text-xs font-extrabold text-slate-600">
+              <input
+                type="checkbox"
+                checked={selected.bgEnabled}
+                onChange={(e) => updateEl(selected.id, { bgEnabled: e.target.checked })}
+                className="h-4 w-4 accent-primary-600"
+              />
+              خلفية للعنصر (لون صندوق العنصر)
+            </label>
+            {selected.bgEnabled && (
+              <div className="grid grid-cols-2 gap-2">
+                <ColorInput label="لون الخلفية" value={selected.bgColor} onChange={(v) => updateEl(selected.id, { bgColor: v })} />
+                <label className="block">
+                  <span className="mb-0.5 block text-[11px] font-bold text-slate-500">
+                    شفافية الخلفية ({Math.round(selected.bgOpacity * 100)}%)
+                  </span>
+                  <input
+                    type="range" min={0.05} max={1} step={0.05}
+                    value={selected.bgOpacity}
+                    onChange={(e) => updateEl(selected.id, { bgOpacity: Number(e.target.value) })}
+                    className="mt-3 w-full accent-primary-600"
+                  />
+                </label>
+              </div>
+            )}
+
+            <label className="mb-2 mt-3 flex items-center gap-2 text-xs font-extrabold text-slate-600">
+              <input
+                type="checkbox"
+                checked={selected.strokeEnabled}
+                onChange={(e) => updateEl(selected.id, { strokeEnabled: e.target.checked })}
+                className="h-4 w-4 accent-primary-600"
+              />
+              إطار حول العنصر (يتبع استدارة الأركان)
+            </label>
+            {selected.strokeEnabled && (
+              <div className="grid grid-cols-2 gap-2">
+                <ColorInput label="لون الإطار" value={selected.strokeColor} onChange={(v) => updateEl(selected.id, { strokeColor: v })} />
+                <Num label="سُمك الإطار" suffix="مم" value={selected.strokeWidth} min={0.1} max={5} step={0.1} onChange={(v) => updateEl(selected.id, { strokeWidth: v })} />
+              </div>
+            )}
           </div>
 
           {/* free text content */}

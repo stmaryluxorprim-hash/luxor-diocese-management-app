@@ -107,7 +107,25 @@ function ElementView({
     opacity: el.opacity,
     borderRadius: el.borderRadius * scale,
     overflow: 'hidden',
+    boxSizing: 'border-box',
+    // per-element stroke around the box (follows the rounded corners)
+    border: el.strokeEnabled
+      ? `${Math.max((el.strokeWidth ?? 0.3) * scale, 0.5)}px solid ${el.strokeColor ?? '#1e3a8a'}`
+      : undefined,
   };
+
+  // per-element background layer (own opacity, independent of content)
+  const bgLayer = el.bgEnabled ? (
+    <div
+      style={{
+        position: 'absolute',
+        inset: 0,
+        backgroundColor: el.bgColor ?? '#ffffff',
+        opacity: el.bgOpacity ?? 1,
+        pointerEvents: 'none',
+      }}
+    />
+  ) : null;
 
   if (el.type === 'photo' || el.type === 'logo' || el.type === 'image') {
     const url =
@@ -116,10 +134,11 @@ function ElementView({
       : el.imageUrl ?? null;
     return (
       <div style={base}>
+        {bgLayer}
         {url ? (
-          <div style={{ width: '100%', height: '100%', backgroundImage: `url(${url})`, ...fitToCss(el.imageFit) }} />
+          <div style={{ position: 'relative', width: '100%', height: '100%', backgroundImage: `url(${url})`, ...fitToCss(el.imageFit) }} />
         ) : (
-          <div className="flex h-full w-full items-center justify-center bg-slate-100 text-slate-300">
+          <div className={`relative flex h-full w-full items-center justify-center text-slate-300 ${el.bgEnabled ? '' : 'bg-slate-100'}`}>
             <User style={{ width: '60%', height: '60%' }} />
           </div>
         )}
@@ -129,8 +148,11 @@ function ElementView({
 
   if (el.type === 'qr') {
     return (
-      <div style={{ ...base, background: '#fff' }}>
-        <QrImage value={person.national_id} />
+      <div style={{ ...base, background: el.bgEnabled ? undefined : '#fff' }}>
+        {bgLayer}
+        <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+          <QrImage value={person.national_id} />
+        </div>
       </div>
     );
   }
@@ -157,7 +179,8 @@ function ElementView({
         direction: 'rtl',
       }}
     >
-      {resolveText(el, person, constants)}
+      {bgLayer}
+      <span style={{ position: 'relative' }}>{resolveText(el, person, constants)}</span>
     </div>
   );
 }
@@ -250,6 +273,8 @@ export default function CardCanvas({
     const startX = e.clientX;
     const startY = e.clientY;
     const orig = { x: el.x, y: el.y, w: el.w, h: el.h };
+    const ratio = orig.h > 0 ? orig.w / orig.h : 1;
+    const locked = !!el.lockAspect;
     const move = (ev: PointerEvent) => {
       const dx = (ev.clientX - startX) / scale;
       const dy = (ev.clientY - startY) / scale;
@@ -258,12 +283,32 @@ export default function CardCanvas({
       if (handle.includes('s')) h = orig.h + dy;
       if (handle.includes('w')) { x = orig.x + dx; w = orig.w - dx; }
       if (handle.includes('n')) { y = orig.y + dy; h = orig.h - dy; }
+      // lock aspect ratio: derive the other dimension from the dominant drag
+      if (locked) {
+        const isCorner = handle.length === 2;
+        const horizOnly = handle === 'e' || handle === 'w';
+        const vertOnly = handle === 'n' || handle === 's';
+        if (horizOnly) {
+          h = w / ratio;
+        } else if (vertOnly) {
+          w = h * ratio;
+        } else if (isCorner) {
+          // follow the larger relative change
+          if (Math.abs(w / orig.w - 1) >= Math.abs(h / orig.h - 1)) h = w / ratio;
+          else w = h * ratio;
+        }
+        // re-anchor the opposite side for n/w handles after the ratio adjust
+        if (handle.includes('w')) x = orig.x + orig.w - w;
+        if (handle.includes('n')) y = orig.y + orig.h - h;
+      }
       // enforce minimum 1mm, anchoring the opposite side
       if (w < 1) {
+        if (locked) { h = Math.max(1 / ratio, 1); }
         if (handle.includes('w')) x = orig.x + orig.w - 1;
         w = 1;
       }
       if (h < 1) {
+        if (locked) { w = Math.max(ratio, 1); }
         if (handle.includes('n')) y = orig.y + orig.h - 1;
         h = 1;
       }

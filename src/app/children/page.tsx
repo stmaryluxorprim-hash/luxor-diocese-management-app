@@ -6,7 +6,7 @@ import {
   Users, Search, Plus, Phone, MapPin, Star, CalendarCheck, X, Loader2,
   SlidersHorizontal, ChevronDown, School, Check, Minus,
   MessageSquare, Inbox, PenSquare, ArrowUpDown, ArrowUp, ArrowDown,
-  Eye, Pencil, Trash2, Database,
+  Eye, Pencil, Trash2, Database, Printer, IdCard,
 } from 'lucide-react';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
@@ -430,6 +430,28 @@ export default function ChildrenPage() {
     } else if (job === 'data') {
       // Opens the view / edit / delete modal per the armed data mode
       setDataTarget(e);
+    } else if (job === 'print_card') {
+      // Send a card print request → appears in the requested list on the
+      // print page. Duplicate (already pending) → unique violation 23505.
+      setBusyChild(e.id);
+      const { error } = await supabase.from('card_print_requests').insert({
+        enrollment_id: e.id,
+        // scope is re-filled by a DB trigger from the enrollment
+        church_id: e.church_id,
+        service_id: e.service_id,
+        class_id: e.class_id,
+        requested_by: profile?.id,
+      });
+      setBusyChild(null);
+      if (error?.code === '23505') {
+        alert(`${e.person.name} — طلب طباعة الكارت موجود بالفعل في قائمة الطلبات ⭕`);
+        return;
+      }
+      if (error) {
+        alert('تعذر إرسال الطلب — تأكد من تشغيل تحديث قاعدة البيانات (0018)');
+        return;
+      }
+      alert(`${e.person.name} — تم إرسال طلب طباعة الكارت ✅`);
     }
   };
 
@@ -584,6 +606,18 @@ export default function ChildrenPage() {
           ) : (
             <Trash2 className="h-5 w-5" />
           )}
+        </button>
+      );
+    }
+    if (job === 'print_card') {
+      return (
+        <button
+          id={`job-btn-${child.id}`}
+          aria-label="طلب طباعة كارت"
+          onClick={() => doJob(child)}
+          className="flex h-10 w-10 items-center justify-center rounded-full bg-violet-500 text-white shadow transition hover:bg-violet-600 active:scale-95"
+        >
+          <Printer className="h-5 w-5" />
         </button>
       );
     }
@@ -744,7 +778,7 @@ export default function ChildrenPage() {
       </div>
 
       {/* ---------- Row 4: Event/cause selector (50%) + mode buttons (50%) ---------- */}
-      {job !== 'call' && (
+      {job !== 'call' && job !== 'print_card' && (
       <div className="mb-3 flex items-stretch gap-2">
         {/* Attendance: event dropdown + register / remove / points buttons */}
         {job === 'attendance' && (
@@ -1014,6 +1048,17 @@ export default function ChildrenPage() {
             : dataMode === 'edit'
               ? 'اضغط زر المخدوم لتعديل بياناته الشخصية'
               : 'اضغط زر المخدوم لحذفه — من الفصل والخدمة والكنيسة أو حذفًا نهائيًا من قاعدة البيانات'}
+        </p>
+      )}
+
+      {/* Print-card job hint */}
+      {job === 'print_card' && (
+        <p
+          id="print-card-hint"
+          className="mb-3 flex items-center gap-1.5 rounded-xl bg-violet-50 px-3 py-2 text-xs font-bold text-violet-600"
+        >
+          <IdCard className="h-3.5 w-3.5 shrink-0" />
+          اضغط زر الطباعة بجانب المخدوم لإرسال طلب طباعة كارته — يظهر الطلب في قائمة «المطلوب طباعتهم» في صفحة طباعة الكروت
         </p>
       )}
 

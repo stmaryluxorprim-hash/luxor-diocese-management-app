@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
-  IdCard, Plus, ArrowRight, Loader2, X, Trash2, Copy, ChevronLeft,
+  IdCard, Plus, ArrowRight, Loader2, X, Trash2, Copy, ChevronLeft, Link2,
 } from 'lucide-react';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
@@ -23,6 +23,7 @@ export default function CardTemplatesPage() {
   const [services, setServices] = useState<Service[]>([]);
   const [classes, setClasses] = useState<ClassRoom[]>([]);
   const [showAdd, setShowAdd] = useState(false);
+  const [rebinding, setRebinding] = useState<CardTemplate | null>(null);
   const [deleting, setDeleting] = useState<CardTemplate | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -105,6 +106,14 @@ export default function CardTemplatesPage() {
                 <p className="text-xs text-slate-400 truncate">{scopeLabel(t)}</p>
               </Link>
               <button
+                onClick={() => setRebinding(t)}
+                aria-label={`تغيير ربط ${t.name}`}
+                title="تغيير الربط (كنيسة / خدمة / فصل)"
+                className="shrink-0 rounded-xl bg-gold-50 p-2 text-gold-600 hover:bg-gold-100 transition"
+              >
+                <Link2 className="h-4 w-4" />
+              </button>
+              <button
                 onClick={() => duplicate(t)}
                 aria-label={`نسخ ${t.name}`}
                 className="shrink-0 rounded-xl bg-slate-50 p-2 text-slate-500 hover:bg-slate-100 transition"
@@ -140,6 +149,17 @@ export default function CardTemplatesPage() {
         />
       )}
 
+      {rebinding && (
+        <RebindTemplateModal
+          template={rebinding}
+          churches={churches}
+          services={services}
+          classes={classes}
+          onSaved={() => { setRebinding(null); load(); }}
+          onClose={() => setRebinding(null)}
+        />
+      )}
+
       {deleting && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6">
           <div className="w-full max-w-sm rounded-3xl bg-white p-5">
@@ -153,6 +173,114 @@ export default function CardTemplatesPage() {
         </div>
       )}
     </AppShell>
+  );
+}
+
+// ---------- Rebind modal: change church / service / class of a template ----------
+function RebindTemplateModal({
+  template, churches, services, classes, onSaved, onClose,
+}: {
+  template: CardTemplate;
+  churches: Church[];
+  services: Service[];
+  classes: ClassRoom[];
+  onSaved: () => void;
+  onClose: () => void;
+}) {
+  const supabase = createClient();
+  const [churchId, setChurchId] = useState(template.church_id);
+  const [serviceId, setServiceId] = useState(template.service_id ?? ALL);
+  const [classId, setClassId] = useState(template.class_id ?? ALL);
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const filteredServices = churchId ? services.filter((s) => s.church_id === churchId) : [];
+  const filteredClasses = serviceId && serviceId !== ALL
+    ? classes.filter((c) => c.church_id === churchId && c.service_id === serviceId)
+    : [];
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    if (!churchId) return setError('اختر الكنيسة');
+    if (!serviceId) return setError('اختر الخدمة أو «كل الخدمات»');
+    if (serviceId !== ALL && !classId) return setError('اختر الفصل أو «كل الفصول»');
+    setSaving(true);
+    const { error: err } = await supabase
+      .from('card_templates')
+      .update({
+        church_id: churchId,
+        service_id: serviceId === ALL ? null : serviceId,
+        class_id: serviceId === ALL || classId === ALL ? null : classId,
+      })
+      .eq('id', template.id);
+    setSaving(false);
+    if (err) { setError('تعذر الحفظ، تأكد من الصلاحيات'); return; }
+    onSaved();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-6">
+      <div className="w-full max-w-md rounded-t-3xl sm:rounded-3xl bg-white p-5 max-h-[90vh] overflow-y-auto">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-lg font-extrabold">ربط القالب «{template.name}»</h3>
+          <button onClick={onClose} aria-label="إغلاق" className="rounded-full p-1.5 hover:bg-slate-100">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <form onSubmit={submit} className="space-y-3">
+          <div>
+            <label className="mb-1 block text-xs font-bold text-slate-500">الكنيسة *</label>
+            <select
+              className="input-field"
+              value={churchId}
+              onChange={(e) => { setChurchId(e.target.value); setServiceId(''); setClassId(''); }}
+              required
+            >
+              <option value="">اختر الكنيسة</option>
+              {churches.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-bold text-slate-500">الخدمة *</label>
+            <select
+              className="input-field"
+              value={serviceId}
+              onChange={(e) => { setServiceId(e.target.value); setClassId(''); }}
+              disabled={!churchId}
+              required
+            >
+              <option value="">اختر الخدمة</option>
+              <option value={ALL}>كل الخدمات</option>
+              {filteredServices.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </div>
+          {serviceId && serviceId !== ALL && (
+            <div>
+              <label className="mb-1 block text-xs font-bold text-slate-500">الفصل *</label>
+              <select
+                className="input-field"
+                value={classId}
+                onChange={(e) => setClassId(e.target.value)}
+                required
+              >
+                <option value="">اختر الفصل</option>
+                <option value={ALL}>كل الفصول</option>
+                {filteredClasses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+          )}
+          {error && <p className="text-sm font-bold text-red-500">{error}</p>}
+          <div className="flex gap-2 pt-1">
+            <button type="submit" disabled={saving} className="btn-primary flex-1 flex items-center justify-center gap-2">
+              {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+              حفظ الربط
+            </button>
+            <button type="button" onClick={onClose} className="btn-secondary">إلغاء</button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }
 
