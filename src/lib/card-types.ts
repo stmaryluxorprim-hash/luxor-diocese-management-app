@@ -54,11 +54,16 @@ export interface CardElement {
 }
 
 // ----- background -----
+// Free transform: 'custom' fit uses zoom + offset (pan/crop) chosen visually.
 export interface CardBackground {
   color: string;
   imageUrl: string | null;
-  imageFit: ImageFit;
+  imageFit: ImageFit | 'custom';
   imageOpacity: number; // 0..1
+  // custom transform (used when imageFit = 'custom'):
+  zoom: number; // 1 = image covers the card exactly; 2 = 200% ...
+  offsetX: number; // % of card width: 0 = centered, +right / -left
+  offsetY: number; // % of card height: 0 = centered, +down / -up
 }
 
 // ----- whole design -----
@@ -76,6 +81,21 @@ export interface CardDesign {
 export type PaperSize = 'A4' | 'A3' | 'A5' | 'Letter' | 'custom';
 export type PaperOrientation = 'portrait' | 'landscape';
 
+// How the grid of cards sits inside the printable area (inside margins)
+export type HAlign = 'right' | 'center' | 'left';
+export type VAlign = 'top' | 'center' | 'bottom';
+
+export const H_ALIGN_LABELS: Record<HAlign, string> = {
+  right: 'يمين',
+  center: 'وسط',
+  left: 'يسار',
+};
+export const V_ALIGN_LABELS: Record<VAlign, string> = {
+  top: 'أعلى',
+  center: 'وسط',
+  bottom: 'أسفل',
+};
+
 export interface CardPrintSettings {
   version: 1;
   paper: PaperSize;
@@ -89,6 +109,8 @@ export interface CardPrintSettings {
   gapX: number; // horizontal space between cards (mm)
   gapY: number; // vertical space between cards (mm)
   cutMarks: boolean;
+  alignH: HAlign; // grid horizontal alignment inside printable area
+  alignV: VAlign; // grid vertical alignment inside printable area
 }
 
 // ----- DB row -----
@@ -195,7 +217,10 @@ export const DEFAULT_DESIGN: CardDesign = {
   width: 85.6,
   height: 54,
   cornerRadius: 3,
-  background: { color: '#ffffff', imageUrl: null, imageFit: 'cover', imageOpacity: 1 },
+  background: {
+    color: '#ffffff', imageUrl: null, imageFit: 'cover', imageOpacity: 1,
+    zoom: 1, offsetX: 0, offsetY: 0,
+  },
   border: { enabled: true, color: '#1e3a8a', width: 0.5 },
   elements: [
     newElement('logo', { x: 3, y: 3, w: 12, h: 12, borderRadius: 6 }),
@@ -237,6 +262,8 @@ export const DEFAULT_PRINT_SETTINGS: CardPrintSettings = {
   gapX: 4,
   gapY: 4,
   cutMarks: false,
+  alignH: 'center',
+  alignV: 'top',
 };
 
 // merge stored JSON (may be partial / old) over defaults
