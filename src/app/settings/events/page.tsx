@@ -41,6 +41,12 @@ export default function EventsPage() {
     setLoading(false);
   }, [supabase]);
 
+  // Initial fetch — the realtime hook below only reloads on DB change events,
+  // so without this the page would sit on the spinner until something changed.
+  useEffect(() => {
+    if (profile?.status === 'approved') load();
+  }, [profile?.status, load]);
+
   useDebouncedRealtime(supabase, 'events-page', [{ table: 'events' }], load, { enabled: !!profile });
 
   const churchName = (id: string) => churches.find((c) => c.id === id)?.name ?? '';
