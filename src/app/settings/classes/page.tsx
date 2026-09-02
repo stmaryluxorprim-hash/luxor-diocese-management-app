@@ -46,6 +46,12 @@ export default function ClassesPage() {
     setLoading(false);
   }, [supabase]);
 
+  // Initial fetch — the realtime hook below only reloads on DB change events,
+  // so without this the page would sit on the spinner until something changed.
+  useEffect(() => {
+    if (profile?.status === 'approved') load();
+  }, [profile?.status, load]);
+
   useDebouncedRealtime(supabase, 'classes-page', [{ table: 'classes' }], load, { enabled: !!profile });
 
   const serviceName = (id: string) => services.find((s) => s.id === id)?.name ?? '';
