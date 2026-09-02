@@ -185,12 +185,33 @@ export default function BoundPrintTab() {
     };
   }, [churches, services, classes]);
 
+  // ---------- sort: church → service → class → name (Arabic alphabetical) ----------
+  const churchName = useCallback((id: string | null) => churches.find((c) => c.id === id)?.name ?? '', [churches]);
+  const serviceName = useCallback((id: string | null) => services.find((s) => s.id === id)?.name ?? '', [services]);
+  const className = useCallback((id: string | null) => classes.find((c) => c.id === id)?.name ?? '', [classes]);
+
+  const compareScope = useCallback((
+    a: { church_id: string; service_id: string | null; class_id: string | null; personName: string },
+    b: { church_id: string; service_id: string | null; class_id: string | null; personName: string },
+  ) =>
+    churchName(a.church_id).localeCompare(churchName(b.church_id), 'ar') ||
+    serviceName(a.service_id).localeCompare(serviceName(b.service_id), 'ar') ||
+    className(a.class_id).localeCompare(className(b.class_id), 'ar') ||
+    a.personName.localeCompare(b.personName, 'ar'),
+  [churchName, serviceName, className]);
+
+  const compareEnrollments = useCallback((a: EnrollmentWithPerson, b: EnrollmentWithPerson) =>
+    compareScope(
+      { church_id: a.church_id, service_id: a.service_id, class_id: a.class_id, personName: a.person.name },
+      { church_id: b.church_id, service_id: b.service_id, class_id: b.class_id, personName: b.person.name },
+    ), [compareScope]);
+
   // enrollments in scope, deduped per person
   const scopedEnrollments = useMemo(() => {
     const map = new Map<string, EnrollmentWithPerson>();
     enrollments.filter(inScope).forEach((e) => { if (!map.has(e.person.id)) map.set(e.person.id, e); });
-    return Array.from(map.values()).sort((a, b) => a.person.name.localeCompare(b.person.name, 'ar'));
-  }, [enrollments, inScope]);
+    return Array.from(map.values()).sort(compareEnrollments);
+  }, [enrollments, inScope, compareEnrollments]);
 
   const filtered = useMemo(() => {
     const s = search.trim();
@@ -217,12 +238,18 @@ export default function BoundPrintTab() {
   };
 
   // ---------- requested list ----------
-  const scopedRequests = useMemo(() => requests.filter(inScope), [requests, inScope]);
   const enrollmentById = useMemo(() => {
     const m = new Map<string, EnrollmentWithPerson>();
     enrollments.forEach((e) => m.set(e.id, e));
     return m;
   }, [enrollments]);
+  // sorted church → service → class → name, same as the manual list
+  const scopedRequests = useMemo(() =>
+    requests.filter(inScope).sort((a, b) => compareScope(
+      { church_id: a.church_id, service_id: a.service_id, class_id: a.class_id, personName: enrollmentById.get(a.enrollment_id)?.person.name ?? '' },
+      { church_id: b.church_id, service_id: b.service_id, class_id: b.class_id, personName: enrollmentById.get(b.enrollment_id)?.person.name ?? '' },
+    )),
+  [requests, inScope, compareScope, enrollmentById]);
 
   const toggleReq = (id: string) => {
     setSelectedReq((prev) => {
