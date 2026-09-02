@@ -337,11 +337,13 @@ export default function ChildrenPage() {
           setNumpadFor('event');
           return;
         }
-        // Day / time check (Africa/Cairo, working date) — warn but allow override
+        // Day / time check (Africa/Cairo, working date) — attendance is
+        // FORBIDDEN outside the event's scheduled day/time (or its live
+        // window, when no working-date override is active). No override.
         const avail = eventAvailability(ev, now());
         if (!avail.ok) {
-          const go = confirm(`${avail.reason}\n\nهل تريد تسجيل الحضور رغم ذلك؟`);
-          if (!go) return;
+          alert(`⛔ ممنوع تسجيل الحضور\n\n${avail.reason}`);
+          return;
         }
         setBusyChild(e.id);
         const { error } = await supabase.from('attendance_log').insert({
@@ -358,13 +360,18 @@ export default function ChildrenPage() {
         }
         load();
       } else {
-        // Removal DELETES the attendance entry; a DB trigger reverts the
-        // counters (attendance -1, points -points_delta of that entry)
+        // Removal DELETES the attendance entry for the WORKING DATE only
+        // (the date/time currently selected via the header date button, or
+        // today if following the live clock) — NEVER any other day's
+        // attendance for this event. A DB trigger reverts the counters
+        // (attendance -1, points -points_delta of that entry).
+        const workingDay = cairoToday(now());
         setBusyChild(e.id);
         let query = supabase
           .from('attendance_log')
           .select('id')
           .eq('enrollment_id', e.id)
+          .eq('attended_on', workingDay)
           .order('created_at', { ascending: false })
           .limit(1);
         if (eventId) query = query.eq('event_id', eventId);
@@ -373,8 +380,8 @@ export default function ChildrenPage() {
           setBusyChild(null);
           alert(
             eventId
-              ? `${e.person.name} — لا يوجد حضور مسجل في هذه المناسبة`
-              : `${e.person.name} — لا يوجد حضور مسجل`
+              ? `${e.person.name} — لا يوجد حضور مسجل في هذه المناسبة في هذا اليوم`
+              : `${e.person.name} — لا يوجد حضور مسجل في هذا اليوم`
           );
           return;
         }
@@ -529,7 +536,8 @@ export default function ChildrenPage() {
 
   // ---------- Card tone (attendance job) ----------
   // pale green = present on the working day; white = event running & not yet
-  // present (or not event day); pale red = event over & absent
+  // present (or not event day); pale red = event over & absent — anyone not
+  // present by the end of the event's window is considered absent
   const cardTone = (child: EnrollmentWithPerson): string => {
     if (job !== 'attendance' || !selectedEvent || !scopeApplies(selectedEvent, child)) return 'bg-white';
     if (attendedSet.has(child.id)) return 'bg-emerald-50';
@@ -544,16 +552,54 @@ export default function ChildrenPage() {
     }
     if (job === 'attendance') {
       const add = attendanceMode === 'add';
+      // Per-child presence on the working day, for the selected event.
+      // With no event selected presence can't be determined per child —
+      // fall back to the neutral look so the button still shows/works.
+      const present =
+        !!selectedEvent && scopeApplies(selectedEvent, child) && attendedSet.has(child.id);
+
+      if (add) {
+        // ADD button: PALE while not present yet, APPARENT (vivid) green
+        // once he becomes present. Registering NEW attendance is FORBIDDEN
+        // outside the event's scheduled day/time — the button is disabled
+        // and shown neutral/pale in that case.
+        const forbidden = !!selectedEvent && !!eventAvail && !eventAvail.ok;
+        return (
+          <button
+            id={`job-btn-${child.id}`}
+            aria-label={present ? 'حاضر بالفعل' : 'تسجيل حضور'}
+            aria-pressed={present}
+            onClick={() => doJob(child)}
+            disabled={forbidden}
+            title={forbidden ? eventAvail?.reason ?? undefined : undefined}
+            className={`flex h-10 w-10 items-center justify-center rounded-full shadow transition active:scale-95 ${
+              forbidden
+                ? 'cursor-not-allowed bg-slate-100 text-slate-300 shadow-none'
+                : present
+                  ? 'bg-emerald-500 text-white hover:bg-emerald-600'
+                  : 'bg-emerald-50 text-emerald-400 hover:bg-emerald-100'
+            }`}
+          >
+            <Check className="h-5 w-5" />
+          </button>
+        );
+      }
+      // REMOVE button: PALE while the child is still present (removable) —
+      // APPARENT (vivid) red once he's absent, whether because we just
+      // removed his attendance or he was already absent for the day.
       return (
         <button
           id={`job-btn-${child.id}`}
-          aria-label={add ? 'تسجيل حضور' : 'إزالة حضور'}
+          aria-label={present ? 'إزالة حضور' : 'غير حاضر بالفعل'}
+          aria-pressed={!present}
           onClick={() => doJob(child)}
-          className={`flex h-10 w-10 items-center justify-center rounded-full text-white shadow transition active:scale-95 ${
-            add ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-red-500 hover:bg-red-600'
+          className={`flex h-10 w-10 items-center justify-center rounded-full shadow transition active:scale-95 ${
+            present
+              ? 'bg-red-50 text-red-300 hover:bg-red-100'
+              : 'bg-red-500 text-white hover:bg-red-600'
           }`}
         >
-          {add ? <Check className="h-5 w-5" /> : <X className="h-5 w-5" />}
+          <X className="h-5 w-5" />
         </button>
       );
     }
@@ -1013,10 +1059,10 @@ export default function ChildrenPage() {
       </div>
       )}
 
-      {/* Availability warning (working date) */}
+      {/* Availability warning (working date) — attendance registration is forbidden */}
       {job === 'attendance' && attendanceMode === 'add' && eventAvail && !eventAvail.ok && (
         <p id="event-time-warning" className="mb-3 rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-600">
-          ⚠ {eventAvail.reason}
+          ⛔ ممنوع تسجيل الحضور — {eventAvail.reason}
         </p>
       )}
       {job === 'attendance' && visibleEvents.length === 0 && (

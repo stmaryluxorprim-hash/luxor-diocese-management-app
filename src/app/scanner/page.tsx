@@ -37,6 +37,11 @@ export default function ScannerPage() {
   useEffect(() => setPtsOverride(null), [eventId]);
 
   const selectedEvent = events.find((x) => x.id === eventId) ?? null;
+  // Day / time availability of the selected event (working date, or live
+  // clock when no override) — attendance registration is forbidden outside
+  // this window; no confirm-override.
+  const scannerAvail = selectedEvent ? eventAvailability(selectedEvent, now()) : null;
+  const attendanceForbidden = !!selectedEvent && !!scannerAvail && !scannerAvail.ok;
   const effectivePoints: number | null = selectedEvent
     ? selectedEvent.points_mode === 'fixed'
       ? selectedEvent.points
@@ -91,11 +96,13 @@ export default function ScannerPage() {
         setNumpadOpen(true);
         return;
       }
-      // Day / time check (Africa/Cairo, working date) — warn but allow override
+      // Day / time check (Africa/Cairo, working date) — attendance is
+      // FORBIDDEN outside the event's scheduled day/time (or its live
+      // window, when no working-date override is active). No override.
       const avail = eventAvailability(ev, now());
       if (!avail.ok) {
-        const go = confirm(`${avail.reason}\n\nهل تريد تسجيل الحضور رغم ذلك؟`);
-        if (!go) return;
+        setResult({ type: 'err', message: `⛔ ممنوع تسجيل الحضور — ${avail.reason}` });
+        return;
       }
       setBusy(true);
       setPicker(null);
@@ -265,17 +272,11 @@ export default function ScannerPage() {
           </button>
         )}
       </section>
-      {(() => {
-        const ev = selectedEvent;
-        if (!ev) return null;
-        const avail = eventAvailability(ev, now());
-        if (avail.ok) return null;
-        return (
-          <p id="scanner-event-time-warning" className="mb-4 rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-600">
-            ⚠ {avail.reason}
-          </p>
-        );
-      })()}
+      {attendanceForbidden && scannerAvail && (
+        <p id="scanner-event-time-warning" className="mb-4 rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-600">
+          ⛔ ممنوع تسجيل الحضور — {scannerAvail.reason}
+        </p>
+      )}
       {events.length === 0 && (
         <p className="mb-4 rounded-xl bg-violet-50 px-3 py-2 text-xs font-bold text-violet-600">
           لا توجد مناسبات — أضف مناسبة من الإعدادات ← إدارة المناسبات
@@ -347,8 +348,11 @@ export default function ScannerPage() {
               <li key={e.id}>
                 <button
                   onClick={() => recordAttendance(e)}
-                  disabled={busy}
-                  className="btn-secondary w-full flex items-center justify-between !py-2.5"
+                  disabled={busy || attendanceForbidden}
+                  title={attendanceForbidden ? scannerAvail?.reason ?? undefined : undefined}
+                  className={`w-full flex items-center justify-between !py-2.5 ${
+                    attendanceForbidden ? 'btn-secondary opacity-50 !text-slate-400' : 'btn-secondary'
+                  }`}
                 >
                   <span className="flex items-center gap-2 text-sm font-bold">
                     <School className="h-4 w-4 text-primary-600" />
@@ -401,8 +405,11 @@ export default function ScannerPage() {
               </div>
               <button
                 onClick={() => recordAttendance(e)}
-                disabled={busy}
-                className="btn-primary !py-2 !px-3 text-sm shrink-0 flex items-center gap-1"
+                disabled={busy || attendanceForbidden}
+                title={attendanceForbidden ? scannerAvail?.reason ?? undefined : undefined}
+                className={`!py-2 !px-3 text-sm shrink-0 flex items-center gap-1 ${
+                  attendanceForbidden ? 'btn-secondary opacity-50 !text-slate-400' : 'btn-primary'
+                }`}
               >
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
                 حضور
