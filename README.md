@@ -94,8 +94,9 @@ enrollment (`attendance`, `attendance_log`, `points_log` all use
 
 ### 1. Supabase
 1. Create a project at supabase.com
-2. SQL Editor → run migrations in order: `0001_schema.sql`, `0002_bootstrap_owner.sql` (after step 5), `0003_signup_scope.sql`, `0004_class_servant_edit.sql`, `0005_photos_and_servants.sql`, `0006_null_scope_means_all.sql`
+2. SQL Editor → run **all** migrations in `supabase/migrations/` in numeric order (`0001` → `0019`); `0002_bootstrap_owner.sql` runs after step 5
    ⚠️ In `0005` the `alter type ... add value 'suspended'` must run in its own query before the rest of the file
+   ⚠️ `0019_performance_rls_indexes_rpc.sql` is **required** by the current frontend (stats / home / scanner call its RPCs). It is safe to re-run (idempotent).
 3. **Authentication → Providers → Email**: disable "Confirm email"
 4. Authentication → Users → Add user: `owner@diocese.app` + password
 5. Copy that user's UUID into `supabase/migrations/0002_bootstrap_owner.sql` and run it
@@ -168,6 +169,51 @@ attendance first, then points:
 The per-event counts come from the same `attendance_log` fetch used for card
 coloring (one query per selected event), so no extra migration is needed.
 
+## Performance & Scale Architecture — migration 0019
+The app is designed so that cost grows with **what is on screen**, not with the
+size of the database. Everything below was validated on a local Postgres 17
+with 3,500 enrollments / 10,866 attendance rows and all 19 migrations applied
+(per-role visible counts exact, zero cross-scope leaks, cross-scope writes
+rejected by RLS).
+
+### Database (`0019_performance_rls_indexes_rpc.sql`)
+- **One scope lookup per statement** — `my_scope()` reads the caller's profile
+  once; every policy uses `(select …)` wrappers so Postgres evaluates them as
+  InitPlans instead of once per row (the old policies re-ran 3–4 functions per
+  row per table).
+- `enrollment_visible(...)` — a single IMMUTABLE expression that encodes the
+  role / null-scope-means-all rules for enrollments, attendance, points and
+  print requests.
+- **17 indexes** on every RLS/filter/join path (`enrollments(class_id, person_id)`,
+  `attendance_log(event_id, attended_on)`, `persons(phone)`, `events(church_id)`, …).
+- **Aggregation RPCs** (security *invoker* → RLS still applies):
+  `stats_summary`, `stats_week`, `stats_leaderboard`, `dashboard_counts`,
+  `lookup_enrollments_by_national_id`.
+
+### Frontend (`src/lib/queries.ts`, `src/lib/realtime.ts`)
+- **Server-side scoped + paginated lists** — the children page loads 200 rows
+  per page for the selected church/service/class only, search runs in SQL
+  (`persons!inner` + `ilike` on name/phone/national_id), "load more" appends.
+- **Debounced, scoped realtime** — `useDebouncedRealtime` coalesces bursts of
+  events into one reload (1.2–2 s), never overlaps reloads, filters
+  subscriptions to the user's scope (`class_id=eq.…`), and pauses while the tab
+  is hidden (one refresh on return).
+- **Optimistic patches** — attendance/points mutations update the row locally
+  instead of refetching the list.
+- **Cached lookups** — churches/services/classes/events cached 60 s across pages.
+- **No full-table downloads anywhere** — stats/home use RPC aggregates, the
+  scanner resolves a QR via RPC, card printing fetches only the selected scope.
+
+### Expected capacity (Vercel + Supabase)
+| Plan | Persons (المخدومين) | Servants | Notes |
+|---|---|---|---|
+| Free + Free ($0) | ~5,000 | ~40 concurrent | DB pauses after 7 idle days, no backups — OK for pilot only |
+| Supabase Pro ($25) + Vercel Hobby* | ~20,000 | ~150 concurrent | recommended production floor; daily backups |
+| Pro + Pro ($45) | 20,000–50,000 | 300+ concurrent | Vercel Hobby is non-commercial; Pro adds team seats & analytics |
+
+\*Vercel Hobby is for non-commercial use; a church ministry generally
+qualifies but check Vercel's fair-use policy.
+
 ## Features Not Yet Implemented
 - Child edit/delete UI, profile photo
 - Push notifications
@@ -176,11 +222,11 @@ coloring (one query per selected event), so no extra migration is needed.
 - Points store / rewards module
 
 ## Recommended Next Steps
-1. Run migrations `0017_card_templates.sql` **and `0018_card_print_requests.sql`** in Supabase SQL editor
+1. Run migrations `0017_card_templates.sql`, `0018_card_print_requests.sql` **and `0019_performance_rls_indexes_rpc.sql`** in Supabase SQL editor
 2. Deploy to Vercel and test the full approval flow
 3. Attendance history + per-class reports
 
 ## Deployment
 - **Platform**: Vercel + Supabase
-- **Status**: ✅ Code complete for Phase 1 — awaiting Supabase project + Vercel connect
+- **Status**: ✅ Code complete for Phase 1 + performance/scale hardening (0019) — awaiting Supabase project + Vercel connect
 - **Last Updated**: 2026-09-02

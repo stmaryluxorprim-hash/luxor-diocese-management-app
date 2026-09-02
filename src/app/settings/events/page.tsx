@@ -8,6 +8,7 @@ import {
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
 import { createClient } from '@/lib/supabase/client';
+import { useDebouncedRealtime } from '@/lib/realtime';
 import type { AppEvent, ClassRoom, Service, Church, EventRecurrence, PointsMode } from '@/lib/types';
 import { POINTS_MODE_LABELS } from '@/lib/types';
 import { WEEKDAY_LABELS, describeEventSchedule } from '@/lib/time';
@@ -40,18 +41,7 @@ export default function EventsPage() {
     setLoading(false);
   }, [supabase]);
 
-  useEffect(() => {
-    if (profile?.status === 'approved') load();
-  }, [profile, load]);
-
-  useEffect(() => {
-    if (!profile) return;
-    const ch = supabase
-      .channel('events-page')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'events' }, load)
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
-  }, [profile, supabase, load]);
+  useDebouncedRealtime(supabase, 'events-page', [{ table: 'events' }], load, { enabled: !!profile });
 
   const churchName = (id: string) => churches.find((c) => c.id === id)?.name ?? '';
 

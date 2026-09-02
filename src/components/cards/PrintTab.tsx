@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Loader2, Printer, Search, CheckSquare, Square, Users, Inbox, Trash2, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import { fetchAllEnrollments, cachedLookup } from '@/lib/queries';
+import { useDebouncedRealtime } from '@/lib/realtime';
 import type { Church, Service, ClassRoom, EnrollmentWithPerson, CardPrintRequest } from '@/lib/types';
 import type { CardDesign, CardPrintSettings, CardTemplate, PaperSize, PaperOrientation } from '@/lib/card-types';
 import { PAPER_SIZES, paperDims, H_ALIGN_LABELS, V_ALIGN_LABELS } from '@/lib/card-types';
@@ -86,30 +88,25 @@ export default function PrintTab({
   // ---------- load everything ----------
   const load = useCallback(async () => {
     const [enr, ch, sv, cl, rq] = await Promise.all([
-      supabase.from('enrollments').select('*, person:persons(*)'),
-      supabase.from('churches').select('*').order('name'),
-      supabase.from('services').select('*').order('name'),
-      supabase.from('classes').select('*').order('name'),
+      // Only the SELECTED scope, paged server-side, capped at 5000 rows
+      fetchAllEnrollments(supabase, { church: churchFilter, service: serviceFilter, class: classFilter }),
+      cachedLookup<Church>(supabase, 'churches'),
+      cachedLookup<Service>(supabase, 'services'),
+      cachedLookup<ClassRoom>(supabase, 'classes'),
       supabase.from('card_print_requests').select('*').order('created_at', { ascending: false }),
     ]);
-    setEnrollments(((enr.data ?? []) as EnrollmentWithPerson[]).filter((e) => e.person));
-    setChurches((ch.data ?? []) as Church[]);
-    setServices((sv.data ?? []) as Service[]);
-    setClasses((cl.data ?? []) as ClassRoom[]);
+    setEnrollments(enr);
+    setChurches(ch);
+    setServices(sv);
+    setClasses(cl);
     setRequests((rq.data ?? []) as CardPrintRequest[]);
     setLoading(false);
-  }, [supabase]);
+  }, [supabase, churchFilter, serviceFilter, classFilter]);
 
   useEffect(() => { load(); }, [load]);
 
-  // realtime: refresh when print requests change
-  useEffect(() => {
-    const channel = supabase
-      .channel('card-print-requests')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'card_print_requests' }, load)
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [supabase, load]);
+  // realtime: refresh when print requests change (debounced, no overlap)
+  useDebouncedRealtime(supabase, 'card-print-requests', [{ table: 'card_print_requests' }], load);
 
   // ---------- scope filters (church / service / class with "all") ----------
   const inScope = useCallback((x: { church_id: string; service_id: string | null; class_id: string | null }) => {

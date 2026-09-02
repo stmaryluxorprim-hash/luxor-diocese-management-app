@@ -8,6 +8,7 @@ import Link from 'next/link';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
 import { createClient } from '@/lib/supabase/client';
+import { useDebouncedRealtime } from '@/lib/realtime';
 import type { Profile, Church, Service, ClassRoom, AppRole } from '@/lib/types';
 import { ROLE_LABELS } from '@/lib/types';
 
@@ -34,21 +35,7 @@ export default function ApprovalsPage() {
     setLoading(false);
   }, [supabase]);
 
-  useEffect(() => {
-    if (profile?.status === 'approved') load();
-  }, [profile, load]);
-
-  // Realtime: new signups appear instantly
-  useEffect(() => {
-    if (!profile) return;
-    const channel = supabase
-      .channel('approvals-page')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, load)
-      .subscribe();
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [profile, supabase, load]);
+  useDebouncedRealtime(supabase, 'approvals-page', [{ table: 'profiles' }], load, { enabled: !!profile });
 
   const isManager =
     profile && ['owner', 'church_manager', 'service_manager'].includes(profile.role);

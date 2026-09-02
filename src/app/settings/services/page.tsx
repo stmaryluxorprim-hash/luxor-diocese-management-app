@@ -7,6 +7,7 @@ import { Layers, Plus, ArrowRight, Loader2, X, Pencil, Save, Upload } from 'luci
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
 import { createClient } from '@/lib/supabase/client';
+import { useDebouncedRealtime } from '@/lib/realtime';
 import { uploadPhoto } from '@/lib/upload';
 import type { Service, Church } from '@/lib/types';
 
@@ -41,18 +42,7 @@ export default function ServicesPage() {
     setLoading(false);
   }, [supabase]);
 
-  useEffect(() => {
-    if (profile?.status === 'approved') load();
-  }, [profile, load]);
-
-  useEffect(() => {
-    if (!profile) return;
-    const ch = supabase
-      .channel('services-page')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'services' }, load)
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
-  }, [profile, supabase, load]);
+  useDebouncedRealtime(supabase, 'services-page', [{ table: 'services' }], load, { enabled: !!profile });
 
   const churchName = (id: string) => churches.find((c) => c.id === id)?.name ?? '';
 
