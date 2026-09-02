@@ -132,12 +132,31 @@ export default function PrintTab({
     };
   }, [churches, services, classes, constants]);
 
+  // ---------- sort: church → service → class → name (Arabic alphabetical) ----------
+  const compareScope = useCallback((
+    a: { church_id: string; service_id: string | null; class_id: string | null; personName: string },
+    b: { church_id: string; service_id: string | null; class_id: string | null; personName: string },
+  ) => {
+    const cn = (id: string | null) => churches.find((c) => c.id === id)?.name ?? '';
+    const sn = (id: string | null) => services.find((s) => s.id === id)?.name ?? '';
+    const kn = (id: string | null) => classes.find((c) => c.id === id)?.name ?? '';
+    return (
+      cn(a.church_id).localeCompare(cn(b.church_id), 'ar') ||
+      sn(a.service_id).localeCompare(sn(b.service_id), 'ar') ||
+      kn(a.class_id).localeCompare(kn(b.class_id), 'ar') ||
+      a.personName.localeCompare(b.personName, 'ar')
+    );
+  }, [churches, services, classes]);
+
   // enrollments in scope, deduped per person
   const scopedEnrollments = useMemo(() => {
     const map = new Map<string, EnrollmentWithPerson>();
     enrollments.filter(inScope).forEach((e) => { if (!map.has(e.person.id)) map.set(e.person.id, e); });
-    return Array.from(map.values()).sort((a, b) => a.person.name.localeCompare(b.person.name, 'ar'));
-  }, [enrollments, inScope]);
+    return Array.from(map.values()).sort((a, b) => compareScope(
+      { church_id: a.church_id, service_id: a.service_id, class_id: a.class_id, personName: a.person.name },
+      { church_id: b.church_id, service_id: b.service_id, class_id: b.class_id, personName: b.person.name },
+    ));
+  }, [enrollments, inScope, compareScope]);
 
   const filtered = useMemo(() => {
     const s = search.trim();
@@ -164,12 +183,18 @@ export default function PrintTab({
   };
 
   // ---------- requested list ----------
-  const scopedRequests = useMemo(() => requests.filter(inScope), [requests, inScope]);
   const enrollmentById = useMemo(() => {
     const m = new Map<string, EnrollmentWithPerson>();
     enrollments.forEach((e) => m.set(e.id, e));
     return m;
   }, [enrollments]);
+  // sorted church → service → class → name, same as the manual list
+  const scopedRequests = useMemo(() =>
+    requests.filter(inScope).sort((a, b) => compareScope(
+      { church_id: a.church_id, service_id: a.service_id, class_id: a.class_id, personName: enrollmentById.get(a.enrollment_id)?.person.name ?? '' },
+      { church_id: b.church_id, service_id: b.service_id, class_id: b.class_id, personName: enrollmentById.get(b.enrollment_id)?.person.name ?? '' },
+    )),
+  [requests, inScope, compareScope, enrollmentById]);
 
   const toggleReq = (id: string) => {
     setSelectedReq((prev) => {
