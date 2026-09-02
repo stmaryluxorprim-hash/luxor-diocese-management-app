@@ -47,4 +47,8 @@ body {
   .badge {
     @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold;
   }
+  /* Tappable badge — round-square (squircle-like) button that opens a log */
+  .badge-btn {
+    @apply inline-flex min-w-[3.25rem] items-center justify-center gap-1 rounded-lg px-2.5 py-1 text-xs font-extrabold shadow-sm ring-1 ring-black/5 transition active:scale-95;
+  }
 }

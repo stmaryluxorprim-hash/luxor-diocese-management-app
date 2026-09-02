@@ -148,10 +148,30 @@ sized, browser print dialog).
   visible or only checked requests, delete one (✕), delete selected, delete all,
   and optionally auto-delete printed requests after printing (with confirm).
 
+## Attendance & points badges on the children page (سجل الحضور / سجل النقاط)
+Each person card shows two **round-square badge buttons** under the name —
+attendance first, then points:
+- **Attendance badge** (green, `CalendarCheck`): when an event is selected in
+  the attendance job, it shows how many times this person attended **that
+  event**; with no event selected it shows the **total attendance across all
+  events** (`enrollments.attendance_count`). Tapping it opens **سجل الحضور**
+  (`AttendanceLogModal` in `src/components/LogModals.tsx`): every
+  `attendance_log` row of the enrollment — event name, Cairo day, points
+  granted, recorded-at + recording servant — with a toggle between the
+  selected event and all events, and a count / points summary strip.
+- **Points badge** (gold, `Star`): the current balance. Tapping it opens
+  **سجل النقاط** (`PointsLogModal`): `points_log` (cause points, ± delta)
+  merged with the points that came with attendance (`attendance_log.points_delta`),
+  newest first, with a filter (all / أسباب النقاط / نقاط الحضور) and added /
+  removed / net totals.
+
+The per-event counts come from the same `attendance_log` fetch used for card
+coloring (one query per selected event), so no extra migration is needed.
+
 ## Features Not Yet Implemented
 - Child edit/delete UI, profile photo
 - Push notifications
-- Attendance history per child / per date view
+- Attendance history per date (all persons) view
 - Export reports (Excel/PDF)
 - Points store / rewards module
 
@@ -163,4 +183,4 @@ sized, browser print dialog).
 ## Deployment
 - **Platform**: Vercel + Supabase
 - **Status**: ✅ Code complete for Phase 1 — awaiting Supabase project + Vercel connect
-- **Last Updated**: 2026-09-01
+- **Last Updated**: 2026-09-02
