@@ -22,6 +22,7 @@ import NumPadModal from '@/components/NumPadModal';
 import {
   ViewPersonModal, EditPersonModal, DeletePersonModal,
 } from '@/components/PersonDataModals';
+import { AttendanceLogModal, PointsLogModal } from '@/components/LogModals';
 
 const ALL = 'all';
 
@@ -265,21 +266,41 @@ export default function ChildrenPage() {
     [selectedEvent, nowDate]
   );
 
-  // Who attended the selected event on the working day? (for card coloring)
+  // Attendance of the SELECTED EVENT — one fetch gives us both:
+  //   attendedSet  → who attended it on the working day (card coloring)
+  //   eventCounts  → how many times each enrollment attended it (badge)
+  // With no event selected the badge falls back to the enrollment's total
+  // attendance_count across all events.
   const [attendedSet, setAttendedSet] = useState<Set<string>>(new Set());
+  const [eventCounts, setEventCounts] = useState<Record<string, number>>({});
   useEffect(() => {
-    if (!selectedEvent) { setAttendedSet(new Set()); return; }
+    if (!selectedEvent) { setAttendedSet(new Set()); setEventCounts({}); return; }
     let cancelled = false;
     (async () => {
       const { data } = await supabase
         .from('attendance_log')
-        .select('enrollment_id')
-        .eq('event_id', selectedEvent.id)
-        .eq('attended_on', cairoToday(nowDate));
-      if (!cancelled) setAttendedSet(new Set((data ?? []).map((r) => r.enrollment_id)));
+        .select('enrollment_id, attended_on')
+        .eq('event_id', selectedEvent.id);
+      if (cancelled) return;
+      const today = cairoToday(nowDate);
+      const present = new Set<string>();
+      const counts: Record<string, number> = {};
+      (data ?? []).forEach((r: { enrollment_id: string; attended_on: string }) => {
+        counts[r.enrollment_id] = (counts[r.enrollment_id] ?? 0) + 1;
+        if (r.attended_on === today) present.add(r.enrollment_id);
+      });
+      setAttendedSet(present);
+      setEventCounts(counts);
     })();
     return () => { cancelled = true; };
   }, [selectedEvent, supabase, nowDate, enrollments]);
+
+  // Attendance number shown on a person's badge
+  const attendanceShown = (e: EnrollmentWithPerson): number =>
+    selectedEvent ? (eventCounts[e.id] ?? 0) : e.attendance_count;
+
+  // Log modals opened from the badges (سجل الحضور / سجل النقاط)
+  const [logTarget, setLogTarget] = useState<{ kind: 'attendance' | 'points'; e: EnrollmentWithPerson } | null>(null);
 
   // reset numpad overrides when the selection changes
   useEffect(() => { setEventPtsOverride(null); }, [eventId]);
@@ -1320,16 +1341,33 @@ export default function ChildrenPage() {
                     {kids.map((child) => (
                       <li key={child.id} className={`px-4 py-3 transition-colors duration-300 ${cardTone(child)}`}>
                         <div className="flex items-center justify-between gap-3">
-                          {/* Name + points/attendance below it */}
+                          {/* Name + attendance/points badge BUTTONS below it.
+                              Attendance first (per selected event, or total
+                              when no event is chosen), then points. Tapping
+                              a badge opens its log. */}
                           <div className="min-w-0 flex-1">
                             <p className="font-extrabold truncate">{child.person.name}</p>
                             <div className="mt-1.5 flex gap-2">
-                              <span className="badge bg-gold-100 text-gold-600">
-                                <Star className="h-3 w-3" /> {child.points}
-                              </span>
-                              <span className="badge bg-emerald-100 text-emerald-700">
-                                <CalendarCheck className="h-3 w-3" /> {child.attendance_count}
-                              </span>
+                              <button
+                                id={`att-badge-${child.id}`}
+                                type="button"
+                                aria-label={selectedEvent ? `سجل الحضور — ${selectedEvent.name}` : 'سجل الحضور — كل المناسبات'}
+                                title={selectedEvent ? `مرات الحضور في «${selectedEvent.name}»` : 'إجمالي الحضور في كل المناسبات'}
+                                onClick={() => setLogTarget({ kind: 'attendance', e: child })}
+                                className="badge-btn bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
+                              >
+                                <CalendarCheck className="h-3.5 w-3.5" /> {attendanceShown(child)}
+                              </button>
+                              <button
+                                id={`pts-badge-${child.id}`}
+                                type="button"
+                                aria-label="سجل النقاط"
+                                title="سجل النقاط"
+                                onClick={() => setLogTarget({ kind: 'points', e: child })}
+                                className="badge-btn bg-gold-100 text-gold-600 hover:bg-gold-200"
+                              >
+                                <Star className="h-3.5 w-3.5" /> {child.points}
+                              </button>
                             </div>
                           </div>
 
@@ -1361,6 +1399,24 @@ export default function ChildrenPage() {
           initial={effectiveCausePoints ?? selectedCause.points}
           onConfirm={(v) => { setCausePtsOverride(v); setNumpadFor(null); }}
           onClose={() => setNumpadFor(null)}
+        />
+      )}
+
+      {/* Log modals (from the attendance / points badges) */}
+      {logTarget?.kind === 'attendance' && (
+        <AttendanceLogModal
+          enrollment={logTarget.e}
+          events={events}
+          selectedEvent={selectedEvent}
+          onClose={() => setLogTarget(null)}
+        />
+      )}
+      {logTarget?.kind === 'points' && (
+        <PointsLogModal
+          enrollment={logTarget.e}
+          causes={causes}
+          events={events}
+          onClose={() => setLogTarget(null)}
         />
       )}
 

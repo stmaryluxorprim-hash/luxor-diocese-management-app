@@ -43,7 +43,7 @@ const normalizePhone = (raw: string): string | null | undefined => {
   return `${PHONE_PREFIX}${local}`;
 };
 
-function ModalFrame({
+export function ModalFrame({
   title, icon, onClose, children,
 }: {
   title: string; icon: React.ReactNode; onClose: () => void; children: React.ReactNode;
@@ -127,11 +127,11 @@ export function ViewPersonModal({
         <div className="min-w-0 flex-1">
           <p className="text-base font-extrabold">{person.name}</p>
           <div className="mt-1.5 flex gap-2">
-            <span className="badge bg-gold-100 text-gold-600">
-              <Star className="h-3 w-3" /> {enrollment.points}
-            </span>
             <span className="badge bg-emerald-100 text-emerald-700">
               <CalendarCheck className="h-3 w-3" /> {enrollment.attendance_count}
+            </span>
+            <span className="badge bg-gold-100 text-gold-600">
+              <Star className="h-3 w-3" /> {enrollment.points}
             </span>
           </div>
         </div>
