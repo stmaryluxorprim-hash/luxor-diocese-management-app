@@ -8,6 +8,7 @@ import {
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
 import { createClient } from '@/lib/supabase/client';
+import { useDebouncedRealtime } from '@/lib/realtime';
 import type { Cause, ClassRoom, Service, Church, PointsMode } from '@/lib/types';
 import { POINTS_MODE_LABELS } from '@/lib/types';
 
@@ -39,18 +40,7 @@ export default function CausesPage() {
     setLoading(false);
   }, [supabase]);
 
-  useEffect(() => {
-    if (profile?.status === 'approved') load();
-  }, [profile, load]);
-
-  useEffect(() => {
-    if (!profile) return;
-    const ch = supabase
-      .channel('causes-page')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'causes' }, load)
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
-  }, [profile, supabase, load]);
+  useDebouncedRealtime(supabase, 'causes-page', [{ table: 'causes' }], load, { enabled: !!profile });
 
   const churchName = (id: string) => churches.find((c) => c.id === id)?.name ?? '';
 

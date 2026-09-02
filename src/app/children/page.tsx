@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Users, Search, Plus, Phone, MapPin, Star, CalendarCheck, X, Loader2,
@@ -23,8 +23,8 @@ import {
   ViewPersonModal, EditPersonModal, DeletePersonModal,
 } from '@/components/PersonDataModals';
 import { AttendanceLogModal, PointsLogModal } from '@/components/LogModals';
-
-const ALL = 'all';
+import { useDebouncedRealtime, scopeFilter } from '@/lib/realtime';
+import { fetchEnrollmentsPage, cachedLookup, ALL, PAGE_SIZE } from '@/lib/queries';
 
 type AttendanceMode = 'add' | 'remove';
 type PointsMode = 'add' | 'subtract';
@@ -150,46 +150,111 @@ export default function ChildrenPage() {
     return () => ro.disconnect();
   }, [zoneEl]);
 
-  const load = useCallback(async () => {
-    // Person-centric: an enrollment = a person bound to church/service/class
-    const [{ data: enr }, { data: chs }, { data: svs }, { data: cls }, { data: evs }, { data: cas }] = await Promise.all([
-      supabase.from('enrollments').select('*, person:persons(*)'),
-      supabase.from('churches').select('*').order('name'),
-      supabase.from('services').select('*').order('name'),
-      supabase.from('classes').select('*').order('name'),
-      supabase.from('events').select('*').order('event_date', { ascending: false, nullsFirst: false }),
-      supabase.from('causes').select('*').order('name'),
+  // ---------- Paging ----------
+  // The list is fetched FROM THE SERVER already narrowed to the selected
+  // church / service / class and the search text, PAGE_SIZE rows at a time.
+  // A class servant transfers ~30 rows instead of the whole diocese.
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const pagesRef = useRef(1); // how many pages are currently shown
+  const loadSeq = useRef(0);   // drop stale responses (fast typing / scope change)
+  // Debounce the search box so we don't hit the DB on every keystroke
+  const [searchQ, setSearchQ] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setSearchQ(search.trim()), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  // Lookup tables (small, cached 60s across tabs)
+  const loadLookups = useCallback(async (force = false) => {
+    const [chs, svs, cls, evs, cas] = await Promise.all([
+      cachedLookup<Church>(supabase, 'churches', { column: 'name' }, force),
+      cachedLookup<Service>(supabase, 'services', { column: 'name' }, force),
+      cachedLookup<ClassRoom>(supabase, 'classes', { column: 'name' }, force),
+      cachedLookup<AppEvent>(supabase, 'events', { column: 'event_date', ascending: false, nullsFirst: false }, force),
+      cachedLookup<Cause>(supabase, 'causes', { column: 'name' }, force),
     ]);
-    const list = ((enr ?? []) as EnrollmentWithPerson[])
-      .filter((e) => e.person)
-      .sort((a, b) => a.person.name.localeCompare(b.person.name, 'ar'));
-    setEnrollments(list);
-    setChurches(chs ?? []);
-    setServices(svs ?? []);
-    setClasses(cls ?? []);
-    setEvents(evs ?? []);
-    setCauses(cas ?? []);
-    setLoading(false);
+    setChurches(chs);
+    setServices(svs);
+    setClasses(cls);
+    setEvents(evs);
+    setCauses(cas);
   }, [supabase]);
 
-  useEffect(() => {
-    if (profile?.status === 'approved') load();
-  }, [profile, load]);
+  // (Re)load the currently visible pages of the scoped list
+  const loadList = useCallback(async () => {
+    const seq = ++loadSeq.current;
+    const scope = { church: churchFilter, service: serviceFilter, class: classFilter };
+    const pages = pagesRef.current;
+    try {
+      const results = await Promise.all(
+        Array.from({ length: pages }, (_, i) =>
+          fetchEnrollmentsPage(supabase, scope, { page: i, search: searchQ })
+        )
+      );
+      if (seq !== loadSeq.current) return; // a newer load superseded this one
+      setEnrollments(results.flatMap((r) => r.rows));
+      setHasMore(results[results.length - 1]?.hasMore ?? false);
+    } catch (err) {
+      console.error('load enrollments failed', err);
+    } finally {
+      if (seq === loadSeq.current) setLoading(false);
+    }
+  }, [supabase, churchFilter, serviceFilter, classFilter, searchQ]);
 
-  // Realtime sync
+  // Full refresh used by realtime + after mutations
+  const load = useCallback(async () => {
+    await Promise.all([loadLookups(true), loadList()]);
+  }, [loadLookups, loadList]);
+
+  // Scope / search changed → back to page 1
   useEffect(() => {
-    if (!profile) return;
-    const channel = supabase
-      .channel('persons-list')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'enrollments' }, load)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'persons' }, load)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'events' }, load)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'causes' }, load)
-      .subscribe();
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [profile, supabase, load]);
+    if (profile?.status !== 'approved') return;
+    pagesRef.current = 1;
+    setLoading(true);
+    loadList();
+  }, [profile?.status, loadList]);
+
+  useEffect(() => {
+    if (profile?.status === 'approved') loadLookups();
+  }, [profile?.status, loadLookups]);
+
+  const loadMore = async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    const nextPage = pagesRef.current;
+    try {
+      const { rows, hasMore: more } = await fetchEnrollmentsPage(
+        supabase,
+        { church: churchFilter, service: serviceFilter, class: classFilter },
+        { page: nextPage, search: searchQ }
+      );
+      pagesRef.current = nextPage + 1;
+      setEnrollments((prev) => {
+        const seen = new Set(prev.map((e) => e.id));
+        return [...prev, ...rows.filter((r) => !seen.has(r.id))];
+      });
+      setHasMore(more);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  // Realtime sync — debounced (bursts of scans → ONE reload), filtered to
+  // the caller's own scope, paused while the tab is hidden.
+  const rtFilter = scopeFilter(profile);
+  useDebouncedRealtime(
+    supabase,
+    'persons-list',
+    [
+      { table: 'enrollments', filter: rtFilter },
+      { table: 'persons' },
+      { table: 'events', filter: profile?.church_id && profile.role !== 'owner' ? `church_id=eq.${profile.church_id}` : undefined },
+      { table: 'causes', filter: profile?.church_id && profile.role !== 'owner' ? `church_id=eq.${profile.church_id}` : undefined },
+    ],
+    load,
+    { enabled: profile?.status === 'approved' }
+  );
 
   // ---------- Cascading selector options ----------
   const visibleServices = useMemo(
@@ -277,15 +342,23 @@ export default function ChildrenPage() {
     if (!selectedEvent) { setAttendedSet(new Set()); setEventCounts({}); return; }
     let cancelled = false;
     (async () => {
-      const { data } = await supabase
-        .from('attendance_log')
-        .select('enrollment_id, attended_on')
-        .eq('event_id', selectedEvent.id);
-      if (cancelled) return;
+      // Only the enrollments ON SCREEN — not the event's whole history for
+      // the entire diocese. Chunked so the request URL stays small.
+      const ids = enrollments.map((e) => e.id);
+      const rows: { enrollment_id: string; attended_on: string }[] = [];
+      for (let i = 0; i < ids.length; i += 100) {
+        const { data } = await supabase
+          .from('attendance_log')
+          .select('enrollment_id, attended_on')
+          .eq('event_id', selectedEvent.id)
+          .in('enrollment_id', ids.slice(i, i + 100));
+        if (cancelled) return;
+        rows.push(...((data ?? []) as { enrollment_id: string; attended_on: string }[]));
+      }
       const today = cairoToday(nowDate);
       const present = new Set<string>();
       const counts: Record<string, number> = {};
-      (data ?? []).forEach((r: { enrollment_id: string; attended_on: string }) => {
+      rows.forEach((r) => {
         counts[r.enrollment_id] = (counts[r.enrollment_id] ?? 0) + 1;
         if (r.attended_on === today) present.add(r.enrollment_id);
       });
@@ -339,6 +412,10 @@ export default function ChildrenPage() {
     if (causeId && !visibleCauses.some((ca) => ca.id === causeId)) setCauseId('');
   }, [visibleCauses, causeId]);
 
+  // Patch one enrollment in place (optimistic update after a mutation)
+  const patchEnrollment = (id: string, patch: Partial<EnrollmentWithPerson>) =>
+    setEnrollments((prev) => prev.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+
   // ---------- Per-person job action (single button) ----------
   const doJob = async (e: EnrollmentWithPerson) => {
     if (job === 'attendance') {
@@ -379,7 +456,11 @@ export default function ChildrenPage() {
           alert(`${e.person.name} — حضوره مسجل بالفعل في هذه المناسبة اليوم`);
           return;
         }
-        load();
+        if (error) { alert('تعذر تسجيل الحضور، حاول مجدداً'); return; }
+        // Optimistic local patch — no refetch; realtime reconciles later.
+        patchEnrollment(e.id, { attendance_count: e.attendance_count + 1, points: e.points + effectiveEventPoints });
+        setAttendedSet((s) => new Set(s).add(e.id));
+        setEventCounts((c) => ({ ...c, [e.id]: (c[e.id] ?? 0) + 1 }));
       } else {
         // Removal DELETES the attendance entry for the WORKING DATE only
         // (the date/time currently selected via the header date button, or
@@ -406,9 +487,20 @@ export default function ChildrenPage() {
           );
           return;
         }
-        await supabase.from('attendance_log').delete().eq('id', rows[0].id);
+        const { data: removed } = await supabase
+          .from('attendance_log')
+          .delete()
+          .eq('id', rows[0].id)
+          .select('points_delta')
+          .maybeSingle();
         setBusyChild(null);
-        load();
+        const delta = (removed as { points_delta?: number } | null)?.points_delta ?? 0;
+        patchEnrollment(e.id, {
+          attendance_count: Math.max(0, e.attendance_count - 1),
+          points: e.points - delta,
+        });
+        setAttendedSet((s) => { const n = new Set(s); n.delete(e.id); return n; });
+        setEventCounts((c) => ({ ...c, [e.id]: Math.max(0, (c[e.id] ?? 1) - 1) }));
       }
     } else if (job === 'points') {
       // Points are registered with a CAUSE whose scope covers this enrollment;
@@ -429,14 +521,16 @@ export default function ChildrenPage() {
       }
       if (effectiveCausePoints === 0) return;
       setBusyChild(e.id);
-      await supabase.from('points_log').insert({
+      const delta = (pointsMode === 'add' ? 1 : -1) * effectiveCausePoints;
+      const { error } = await supabase.from('points_log').insert({
         enrollment_id: e.id,
         cause_id: ca.id,
-        delta: (pointsMode === 'add' ? 1 : -1) * effectiveCausePoints,
+        delta,
         recorded_by: profile?.id,
       });
       setBusyChild(null);
-      load();
+      if (error) { alert('تعذر تسجيل النقاط، حاول مجدداً'); return; }
+      patchEnrollment(e.id, { points: e.points + delta });
     } else if (job === 'call') {
       if (e.person.phone) window.location.href = `tel:${e.person.phone}`;
     } else if (job === 'message') {
@@ -484,27 +578,18 @@ export default function ChildrenPage() {
   };
 
   // ---------- Filters ----------
+  // Scope + search are applied ON THE SERVER (see loadList). Only the
+  // secondary filters (address / min points / min attendance) run here,
+  // over the already-small page.
   const filtered = useMemo(
     () =>
       enrollments.filter((e) => {
-        if (churchFilter !== ALL && e.church_id !== churchFilter) return false;
-        if (serviceFilter !== ALL && e.service_id !== serviceFilter) return false;
-        if (classFilter !== ALL && e.class_id !== classFilter) return false;
-        if (
-          search &&
-          !(
-            e.person.name.includes(search) ||
-            (e.person.phone ?? '').includes(search) ||
-            e.person.national_id.includes(search)
-          )
-        )
-          return false;
         if (addressFilter && !(e.person.address ?? '').includes(addressFilter)) return false;
         if (minPoints && e.points < Number(minPoints)) return false;
         if (minAttendance && e.attendance_count < Number(minAttendance)) return false;
         return true;
       }),
-    [enrollments, churchFilter, serviceFilter, classFilter, search, addressFilter, minPoints, minAttendance]
+    [enrollments, addressFilter, minPoints, minAttendance]
   );
 
   // ---------- Sorting (name / age / points / attendance) ----------
@@ -1381,6 +1466,20 @@ export default function ChildrenPage() {
               </div>
             );
           })}
+
+          {/* Server-side paging: pull the next PAGE_SIZE rows on demand */}
+          {hasMore && (
+            <button
+              id="load-more-btn"
+              type="button"
+              onClick={loadMore}
+              disabled={loadingMore}
+              className="btn-secondary w-full flex items-center justify-center gap-2"
+            >
+              {loadingMore ? <Loader2 className="h-4 w-4 animate-spin" /> : <ChevronDown className="h-4 w-4" />}
+              عرض {PAGE_SIZE} مخدوم إضافيين
+            </button>
+          )}
         </div>
       )}
 

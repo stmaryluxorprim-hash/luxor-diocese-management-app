@@ -11,6 +11,7 @@ import { scopeApplies, type EnrollmentWithPerson, type Person, type ClassRoom, t
 import { eventAvailability, describeEventSchedule, cairoToday } from '@/lib/time';
 import { useAppDate } from '@/lib/app-date-context';
 import NumPadModal from '@/components/NumPadModal';
+import { fetchEnrollmentsPage, cachedLookup, ALL } from '@/lib/queries';
 
 type ScanResult = { type: 'ok' | 'dup' | 'err'; message: string };
 
@@ -24,7 +25,10 @@ export default function ScannerPage() {
   const [cameraError, setCameraError] = useState('');
   const [result, setResult] = useState<ScanResult | null>(null);
   const [search, setSearch] = useState('');
-  const [enrollments, setEnrollments] = useState<EnrollmentWithPerson[]>([]);
+  // Manual-search results only (server-side search, max 8 rows) — the
+  // scanner never holds the whole enrollments table in memory any more.
+  const [filtered, setFiltered] = useState<EnrollmentWithPerson[]>([]);
+  const [searching, setSearching] = useState(false);
   const [classes, setClasses] = useState<ClassRoom[]>([]);
   const [events, setEvents] = useState<AppEvent[]>([]);
   const [eventId, setEventId] = useState<string>('');
@@ -53,26 +57,42 @@ export default function ScannerPage() {
   // When a scanned person has multiple enrollments, let the servant pick
   const [picker, setPicker] = useState<{ person: Person; options: EnrollmentWithPerson[] } | null>(null);
 
-  // Load enrollments (person-centric) for manual mode + scan resolution
+  // Lookup tables only (cached) — persons are resolved per scan by RPC
   useEffect(() => {
     if (profile?.status !== 'approved') return;
     (async () => {
-      const [{ data: enr }, { data: cls }, { data: evs }] = await Promise.all([
-        supabase.from('enrollments').select('*, person:persons(*)'),
-        supabase.from('classes').select('*'),
-        supabase.from('events').select('*').order('created_at', { ascending: false }),
+      const [cls, evs] = await Promise.all([
+        cachedLookup<ClassRoom>(supabase, 'classes', { column: 'name' }),
+        cachedLookup<AppEvent>(supabase, 'events', { column: 'created_at', ascending: false }),
       ]);
-      const list = ((enr ?? []) as EnrollmentWithPerson[])
-        .filter((e) => e.person)
-        .sort((a, b) => a.person.name.localeCompare(b.person.name, 'ar'));
-      setEnrollments(list);
-      setClasses(cls ?? []);
-      setEvents(evs ?? []);
+      setClasses(cls);
+      setEvents(evs);
       // Preselect the default event if none chosen yet
-      const def = ((evs ?? []) as AppEvent[]).find((ev) => ev.is_default);
+      const def = evs.find((ev) => ev.is_default);
       if (def) setEventId((cur) => cur || def.id);
     })();
   }, [profile, supabase]);
+
+  // Debounced server-side manual search (name / phone / national id)
+  useEffect(() => {
+    const q = search.trim();
+    if (!q) { setFiltered([]); return; }
+    let cancelled = false;
+    setSearching(true);
+    const t = setTimeout(async () => {
+      try {
+        const { rows } = await fetchEnrollmentsPage(
+          supabase,
+          { church: ALL, service: ALL, class: ALL },
+          { page: 0, pageSize: 8, search: q }
+        );
+        if (!cancelled) setFiltered(rows);
+      } finally {
+        if (!cancelled) setSearching(false);
+      }
+    }, 300);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [search, supabase]);
 
   const className = useCallback(
     (id: string) => classes.find((c) => c.id === id)?.name ?? 'فصل',
@@ -125,8 +145,8 @@ export default function ScannerPage() {
         return;
       }
       setResult({ type: 'ok', message: `تم تسجيل حضور ${e.person.name} ✔ (${className(e.class_id)}) +${effectivePoints} نقطة` });
-      // refresh local counters
-      setEnrollments((prev) =>
+      // refresh local counters in the visible search results
+      setFiltered((prev) =>
         prev.map((x) =>
           x.id === e.id
             ? { ...x, attendance_count: x.attendance_count + 1, points: x.points + effectivePoints }
@@ -137,11 +157,19 @@ export default function ScannerPage() {
     [supabase, profile, className, events, eventId, effectivePoints, now]
   );
 
-  // Scan flow: national id (QR) -> person -> his enrollments in my scope
+  // Scan flow: national id (QR) -> RPC -> that person's enrollments in my
+  // scope (RLS applies inside the RPC). One indexed lookup per scan.
   const handleQr = useCallback(
     async (qrValue: string) => {
       const nationalId = qrValue.trim();
-      const mine = enrollments.filter((e) => e.person.national_id === nationalId);
+      const { data, error } = await supabase.rpc('lookup_enrollments_by_national_id', {
+        p_national_id: nationalId,
+      });
+      if (error) {
+        setResult({ type: 'err', message: 'تعذر البحث عن الرقم القومي — تأكد من تشغيل تحديث قاعدة البيانات (0019)' });
+        return;
+      }
+      const mine = ((data ?? []) as EnrollmentWithPerson[]).filter((e) => e.person);
       if (mine.length === 0) {
         setResult({ type: 'err', message: 'رقم قومي غير معروف أو الشخص غير مسجل في نطاق صلاحيتك' });
         return;
@@ -154,7 +182,7 @@ export default function ScannerPage() {
       setResult(null);
       setPicker({ person: mine[0].person, options: mine });
     },
-    [enrollments, recordAttendance]
+    [supabase, recordAttendance]
   );
 
   // BarcodeDetector-based scanning loop (native, no deps)
@@ -214,15 +242,6 @@ export default function ScannerPage() {
   }, []);
 
   useEffect(() => stopCamera, [stopCamera]);
-
-  const filtered = search
-    ? enrollments.filter(
-        (e) =>
-          e.person.name.includes(search) ||
-          (e.person.phone ?? '').includes(search) ||
-          e.person.national_id.includes(search)
-      )
-    : [];
 
   return (
     <AppShell>
@@ -385,7 +404,11 @@ export default function ScannerPage() {
       <section id="manual-section">
         <h3 className="mb-2 text-sm font-extrabold text-slate-500">تسجيل يدوي</h3>
         <div className="relative mb-3">
-          <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+          {searching ? (
+            <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-primary-500" />
+          ) : (
+            <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+          )}
           <input
             id="manual-search"
             className="input-field pr-9"
@@ -395,7 +418,7 @@ export default function ScannerPage() {
           />
         </div>
         <ul className="space-y-2">
-          {filtered.slice(0, 8).map((e) => (
+          {filtered.map((e) => (
             <li key={e.id} className="card flex items-center justify-between gap-2 !py-3">
               <div className="min-w-0">
                 <p className="font-bold truncate">{e.person.name}</p>

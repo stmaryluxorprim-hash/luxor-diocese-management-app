@@ -10,6 +10,7 @@ import {
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
 import { createClient } from '@/lib/supabase/client';
+import { useDebouncedRealtime } from '@/lib/realtime';
 import { uploadPhoto } from '@/lib/upload';
 import type { Profile, Church, Service, ClassRoom, AppRole } from '@/lib/types';
 import { ROLE_LABELS, STATUS_LABELS } from '@/lib/types';
@@ -50,18 +51,7 @@ export default function ServantsPage() {
     setLoading(false);
   }, [supabase]);
 
-  useEffect(() => {
-    if (profile?.status === 'approved') load();
-  }, [profile, load]);
-
-  useEffect(() => {
-    if (!profile) return;
-    const ch = supabase
-      .channel('servants-page')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, load)
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
-  }, [profile, supabase, load]);
+  useDebouncedRealtime(supabase, 'servants-page', [{ table: 'profiles' }], load, { enabled: !!profile });
 
   const churchName = (id: string | null) => churches.find((c) => c.id === id)?.name;
   const serviceName = (id: string | null) => services.find((s) => s.id === id)?.name;

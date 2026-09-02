@@ -11,6 +11,7 @@ import { createClient } from '@/lib/supabase/client';
 import { ROLE_LABELS } from '@/lib/types';
 import { cairoDayStartISO } from '@/lib/time';
 import { useAppDate } from '@/lib/app-date-context';
+import { useDebouncedRealtime, scopeFilter } from '@/lib/realtime';
 
 interface Counts {
   persons: number;
@@ -38,28 +39,18 @@ export default function HomePage() {
     // "today" starts at midnight Africa/Cairo of the app working date
     const todayStartISO = cairoDayStartISO(now());
 
-    const [persons, enrollments, attendance, pending, churches, services, classes] = await Promise.all([
-      supabase.from('persons').select('id', { count: 'exact', head: true }),
-      supabase.from('enrollments').select('id', { count: 'exact', head: true }),
-      // every attendance_log row is an attendance (removal deletes the row)
-      supabase
-        .from('attendance_log')
-        .select('id', { count: 'exact', head: true })
-        .gte('created_at', todayStartISO),
-      supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
-      supabase.from('churches').select('id', { count: 'exact', head: true }),
-      supabase.from('services').select('id', { count: 'exact', head: true }),
-      supabase.from('classes').select('id', { count: 'exact', head: true }),
-    ]);
-
+    // ONE round-trip for all seven counters (RPC dashboard_counts)
+    const { data } = await supabase.rpc('dashboard_counts', { p_today_start: todayStartISO });
+    const r = (data as Record<string, number>[] | null)?.[0];
+    if (!r) return;
     setCounts({
-      persons: persons.count ?? 0,
-      enrollments: enrollments.count ?? 0,
-      todayAttendance: attendance.count ?? 0,
-      pendingServants: pending.count ?? 0,
-      churches: churches.count ?? 0,
-      services: services.count ?? 0,
-      classes: classes.count ?? 0,
+      persons: Number(r.persons ?? 0),
+      enrollments: Number(r.enrollments ?? 0),
+      todayAttendance: Number(r.today_attendance ?? 0),
+      pendingServants: Number(r.pending_servants ?? 0),
+      churches: Number(r.churches ?? 0),
+      services: Number(r.services ?? 0),
+      classes: Number(r.classes ?? 0),
     });
   }, [profile, supabase, now]);
 
@@ -67,20 +58,18 @@ export default function HomePage() {
     loadCounts();
   }, [loadCounts]);
 
-  // Realtime refresh on any relevant change
-  useEffect(() => {
-    if (!profile) return;
-    const channel = supabase
-      .channel('home-dashboard')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'persons' }, loadCounts)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'enrollments' }, loadCounts)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance_log' }, loadCounts)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, loadCounts)
-      .subscribe();
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [profile, supabase, loadCounts]);
+  // Realtime refresh — debounced, scoped, paused when the tab is hidden
+  useDebouncedRealtime(
+    supabase,
+    'home-dashboard',
+    [
+      { table: 'enrollments', filter: scopeFilter(profile) },
+      { table: 'attendance_log' },
+      { table: 'profiles' },
+    ],
+    loadCounts,
+    { enabled: profile?.status === 'approved', delayMs: 2000 }
+  );
 
   return (
     <AppShell>

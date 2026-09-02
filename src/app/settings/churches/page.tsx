@@ -7,6 +7,7 @@ import { Church as ChurchIcon, Plus, ArrowRight, Loader2, Upload, X, Pencil, Sav
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
 import { createClient } from '@/lib/supabase/client';
+import { useDebouncedRealtime } from '@/lib/realtime';
 import type { Church } from '@/lib/types';
 
 export default function ChurchesPage() {
@@ -30,18 +31,7 @@ export default function ChurchesPage() {
     setLoading(false);
   }, [supabase]);
 
-  useEffect(() => {
-    if (profile?.status === 'approved') load();
-  }, [profile, load]);
-
-  useEffect(() => {
-    if (!profile) return;
-    const ch = supabase
-      .channel('churches-page')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'churches' }, load)
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
-  }, [profile, supabase, load]);
+  useDebouncedRealtime(supabase, 'churches-page', [{ table: 'churches' }], load, { enabled: !!profile });
 
   return (
     <AppShell>

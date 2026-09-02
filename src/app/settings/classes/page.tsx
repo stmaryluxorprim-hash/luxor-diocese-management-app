@@ -7,6 +7,7 @@ import { School, Plus, ArrowRight, Loader2, X, Pencil, Save, Upload } from 'luci
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
 import { createClient } from '@/lib/supabase/client';
+import { useDebouncedRealtime } from '@/lib/realtime';
 import { uploadPhoto } from '@/lib/upload';
 import type { ClassRoom, Service, Church } from '@/lib/types';
 
@@ -45,18 +46,7 @@ export default function ClassesPage() {
     setLoading(false);
   }, [supabase]);
 
-  useEffect(() => {
-    if (profile?.status === 'approved') load();
-  }, [profile, load]);
-
-  useEffect(() => {
-    if (!profile) return;
-    const ch = supabase
-      .channel('classes-page')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'classes' }, load)
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
-  }, [profile, supabase, load]);
+  useDebouncedRealtime(supabase, 'classes-page', [{ table: 'classes' }], load, { enabled: !!profile });
 
   const serviceName = (id: string) => services.find((s) => s.id === id)?.name ?? '';
   const churchName = (id: string) => churches.find((c) => c.id === id)?.name ?? '';
