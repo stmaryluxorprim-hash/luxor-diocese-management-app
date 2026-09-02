@@ -61,7 +61,7 @@ enrollment (`attendance`, `attendance_log`, `points_log` all use
 - ✅ **Person-centric core (0011)**: `persons` (national_id = QR) + `enrollments`; one person in many churches/services/classes; existing children data migrated automatically
 - ✅ المخدومين: realtime list on enrollments+persons, search by name/phone/national id, add person (single & bulk) via `add_person_and_enroll` RPC with duplicate-person detection by national id
 - ✅ الماسح: QR camera scan (native BarcodeDetector) of national id + manual attendance; multi-enrollment picker; +1 point per attendance; duplicate-day protection
-- ✅ الإحصائيات: totals, last-7-days chart, points leaderboard
+- ✅ **الإحصائيات (rebuilt, 0020)**: church → service → class cascading selectors (each with "كل الـ…"), working-day picker, totals (المخدومين / النقاط / الحضور / الفصول), gender split, day summary, attendance of the day **by event**, points of the day **by cause**, per-class breakdown, attendance-over-time chart **stacked by event** (7d–365d presets or custom range; day/week/month buckets), points-over-time by cause, weekday profile, points/attendance leaderboard, one-click **Excel export** (8 sheets) — all realtime
 - ✅ الإعدادات: profile (self-edit + photo), approvals, churches (with logo upload), services & classes (photos, church→service cascade), servants management
 - ✅ دعوة خادم جديد: scoped invite link + QR per manager level (`/settings/invite`)
 - ✅ إدارة الخدام: edit / suspend / delete scoped per level (`/settings/servants`), servant photos
@@ -74,7 +74,7 @@ enrollment (`attendance`, `attendance_log`, `points_log` all use
 | `/` | الرئيسية — dashboard |
 | `/children` | المخدومين — list/search/add |
 | `/scanner` | الماسح — QR + manual attendance |
-| `/stats` | الإحصائيات |
+| `/stats` | الإحصائيات — scoped KPIs, by-event / by-cause breakdowns, timelines, leaderboard, Excel export |
 | `/settings` | الإعدادات hub |
 | `/settings/approvals` | approve/reject servant requests (scope defaults from request) |
 | `/settings/invite` | invite link + QR scoped to manager level |
@@ -94,9 +94,10 @@ enrollment (`attendance`, `attendance_log`, `points_log` all use
 
 ### 1. Supabase
 1. Create a project at supabase.com
-2. SQL Editor → run **all** migrations in `supabase/migrations/` in numeric order (`0001` → `0019`); `0002_bootstrap_owner.sql` runs after step 5
+2. SQL Editor → run **all** migrations in `supabase/migrations/` in numeric order (`0001` → `0020`); `0002_bootstrap_owner.sql` runs after step 5
    ⚠️ In `0005` the `alter type ... add value 'suspended'` must run in its own query before the rest of the file
-   ⚠️ `0019_performance_rls_indexes_rpc.sql` is **required** by the current frontend (stats / home / scanner call its RPCs). It is safe to re-run (idempotent).
+   ⚠️ `0019_performance_rls_indexes_rpc.sql` is **required** by the current frontend (home / scanner call its RPCs). It is safe to re-run (idempotent).
+   ⚠️ `0020_statistics_rpcs.sql` is **required** by the الإحصائيات tab (all `stats_*` RPCs). Idempotent; depends on 0019 (`my_scope()`, `enrollment_visible()`).
 3. **Authentication → Providers → Email**: disable "Confirm email"
 4. Authentication → Users → Add user: `owner@diocese.app` + password
 5. Copy that user's UUID into `supabase/migrations/0002_bootstrap_owner.sql` and run it
@@ -204,6 +205,31 @@ rejected by RLS).
 - **No full-table downloads anywhere** — stats/home use RPC aggregates, the
   scanner resolves a QR via RPC, card printing fetches only the selected scope.
 
+## Statistics Architecture — migration 0020
+The الإحصائيات tab (`src/app/stats/page.tsx`) never downloads raw rows; every
+number comes from a SECURITY INVOKER RPC in `0020_statistics_rpcs.sql`, so RLS
+still applies and a class servant only ever sees his own class even when he
+passes another church's id.
+
+| RPC | Returns |
+|---|---|
+| `stats_scope_summary(p_church, p_service, p_class)` | enrollments, persons, males/females, total attendance & points, events/causes/classes count, first/last attendance |
+| `stats_day_summary(p_day, …)` | attendance, unique attendees, events attended, attendance points, cause points ±, scope persons |
+| `stats_attendance_by_event(p_day, …)` | per event: attendance, attendees, points, eligible, first/last time — sorted by event |
+| `stats_points_by_cause(p_day, …)` | per cause: entries, recipients, added, removed, net — sorted by cause |
+| `stats_attendance_timeline(p_from, p_to, p_bucket, …)` | attendance per bucket (day/week/month) **per event** — feeds the stacked chart |
+| `stats_points_timeline(p_from, p_to, p_bucket, …)` | points per bucket per cause |
+| `stats_attendance_by_class(p_day, …)` | per class: enrolled, attendees, attendance, points |
+| `stats_leaderboard_scoped(p_by, p_limit, …)` | top persons by points or attendance |
+| `stats_weekday_profile(p_from, p_to, …)` | attendance per weekday (Cairo) |
+
+`null` for any scope parameter means "all" (the UI sends `ALL` → `null`). All
+dates are Africa/Cairo (`attended_on`, `(created_at at time zone 'Africa/Cairo')::date`).
+Two extra indexes (`points_log` Cairo-day expression, `points_log(cause_id)`) keep
+the by-cause queries indexed. Frontend helpers live in `src/lib/stats.ts`
+(typed fetchers, period/bucket/series builders) and pure-SVG chart primitives in
+`src/components/stats/Charts.tsx` (no chart library).
+
 ### Expected capacity (Vercel + Supabase)
 | Plan | Persons (المخدومين) | Servants | Notes |
 |---|---|---|---|
@@ -217,16 +243,16 @@ qualifies but check Vercel's fair-use policy.
 ## Features Not Yet Implemented
 - Child edit/delete UI, profile photo
 - Push notifications
-- Attendance history per date (all persons) view
-- Export reports (Excel/PDF)
+- Attendance history per date (per-person list view)
+- PDF report export (Excel is done in الإحصائيات)
 - Points store / rewards module
 
 ## Recommended Next Steps
-1. Run migrations `0017_card_templates.sql`, `0018_card_print_requests.sql` **and `0019_performance_rls_indexes_rpc.sql`** in Supabase SQL editor
+1. Run migrations `0017` → `0020` (`0020_statistics_rpcs.sql` powers the new الإحصائيات tab) in Supabase SQL editor
 2. Deploy to Vercel and test the full approval flow
-3. Attendance history + per-class reports
+3. Per-person attendance history view
 
 ## Deployment
 - **Platform**: Vercel + Supabase
-- **Status**: ✅ Code complete for Phase 1 + performance/scale hardening (0019) — awaiting Supabase project + Vercel connect
+- **Status**: ✅ Code complete for Phase 1 + performance/scale hardening (0019) + comprehensive statistics tab (0020) — awaiting Supabase project + Vercel connect
 - **Last Updated**: 2026-09-02
