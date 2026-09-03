@@ -7,7 +7,9 @@ import { PHOTOS_BUCKET } from '@/lib/types';
  */
 export async function uploadPhoto(
   supabase: SupabaseClient,
-  folder: 'servants' | 'services' | 'classes' | 'persons' | 'cards',
+  // 'child-requests' is the only folder the anon role may write to
+  // (child portal photo proposals — storage policy in migration 0021)
+  folder: 'servants' | 'services' | 'classes' | 'persons' | 'cards' | 'child-requests',
   file: File | Blob,
   name?: string
 ): Promise<string> {

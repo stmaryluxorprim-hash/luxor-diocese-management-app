@@ -69,6 +69,8 @@ enrollment (`attendance`, `attendance_log`, `points_log` all use
 - ✅ دعوة خادم جديد: scoped invite link + QR per manager level (`/settings/invite`)
 - ✅ إدارة الخدام: edit / suspend / delete scoped per level (`/settings/servants`), servant photos
 - ✅ Null scope = "كل الـ...": manager with empty service/class scope covers everything under his parent scope (migration 0006)
+- ✅ **بوابة المخدوم / Child Portal (0021)**: "دخول المخدوم" button on `/login` → `/child/login` scans the child's QR (camera, **gallery image**, or typed code) → portal with the **same header style** (church logo / service · class) and a **bottom bar**: الرئيسية، الحضور، النقاط، البيانات، الخيارات. Main page shows name, picture, attendance & points; الحضور lists every attendance by day with event, registration date & time and points; النقاط shows balance + every addition/deduction by cause or attendance; البيانات shows the child's data, QR (downloadable) and picture — the child can **upload a new picture** or **request data changes** (name / birthdate / gender / phone / address) which go to the managers as *change requests* to be **approved or denied**; الخيارات: profile, refresh, install hint, logout
+- ✅ **طلبات تعديل البيانات** (`/settings/data-requests`): class servant, service manager, church manager or owner of the child's scope reviews pending requests (photo before/after or field diff), approves (applied to `persons`) or rejects with a note — realtime, with a pending-count badge on الإعدادات and in the side menu
 
 ## Functional Entry Points
 | Path | Description |
@@ -86,6 +88,13 @@ enrollment (`attendance`, `attendance_log`, `points_log` all use
 | `/settings/services` | manage services (photo, church select) |
 | `/settings/classes` | manage classes (photo, church→service cascade) |
 | `/signup?church=..&service=..&class=..` | invite-scoped signup (locked pre-fill) |
+| `/child/login` | **بوابة المخدوم** — scan QR (camera / gallery / typed national id), public |
+| `/child` | child main page: name, picture, attendance & points, enrollments, latest activity |
+| `/child/attendance` | child attendance: by day, event filter, registration date/time, points |
+| `/child/points` | child points: balance, added/removed, by cause / attendance |
+| `/child/data` | child data + QR + picture; upload picture / request data change; request history & cancel |
+| `/child/options` | child options: profile, refresh, install, logout |
+| `/settings/data-requests` | managers: approve / reject children's photo & data change requests |
 
 ## Data Models & Storage
 - **Tables**: `churches`, `services`, `classes`, `profiles`, `children`, `attendance` — all with RLS + realtime
@@ -97,10 +106,11 @@ enrollment (`attendance`, `attendance_log`, `points_log` all use
 
 ### 1. Supabase
 1. Create a project at supabase.com
-2. SQL Editor → run **all** migrations in `supabase/migrations/` in numeric order (`0001` → `0020`); `0002_bootstrap_owner.sql` runs after step 5
+2. SQL Editor → run **all** migrations in `supabase/migrations/` in numeric order (`0001` → `0021`); `0002_bootstrap_owner.sql` runs after step 5
    ⚠️ In `0005` the `alter type ... add value 'suspended'` must run in its own query before the rest of the file
    ⚠️ `0019_performance_rls_indexes_rpc.sql` is **required** by the current frontend (home / scanner call its RPCs). It is safe to re-run (idempotent).
    ⚠️ `0020_statistics_rpcs.sql` is **required** by the الإحصائيات tab (all `stats_*` RPCs). Idempotent; depends on 0019 (`my_scope()`, `enrollment_visible()`).
+   ⚠️ `0021_child_portal.sql` is **required** by بوابة المخدوم (`/child/*`) and `/settings/data-requests`. Creates `data_change_requests`, the `child_portal_*` RPCs (SECURITY DEFINER, granted to `anon`, keyed by the scanned national id), `review_data_change_request` / `pending_data_requests_count` (authenticated) and a storage policy letting the portal upload into `photos/child-requests/`. Idempotent; run after 0020.
 3. **Authentication → Providers → Email**: disable "Confirm email"
 4. Authentication → Users → Add user: `owner@diocese.app` + password
 5. Copy that user's UUID into `supabase/migrations/0002_bootstrap_owner.sql` and run it
@@ -243,19 +253,23 @@ the by-cause queries indexed. Frontend helpers live in `src/lib/stats.ts`
 \*Vercel Hobby is for non-commercial use; a church ministry generally
 qualifies but check Vercel's fair-use policy.
 
+## Child Portal Architecture — migration 0021
+- **No auth account for children.** The QR value (`persons.national_id`) is the bearer token: the browser stores it in `localStorage` (`child_portal_token`) and passes it as `p_national_id` to `child_portal_profile / attendance / points / requests / submit_request / cancel_request` (SECURITY DEFINER RPCs executable by `anon`). Nothing else is readable by `anon`; `/child` is public in `middleware.ts`.
+- **QR decoding** (`src/lib/qr-decode.ts`): native `BarcodeDetector` when available, otherwise `jsqr` on canvas frames; gallery images are decoded at several down-scales.
+- **Change requests** (`data_change_requests`): `kind = 'data' | 'photo'`, `changes` jsonb (whitelisted fields: name, birthdate, gender, phone, address — or `image_url` for photos), `previous` snapshot, `status = pending | approved | rejected | cancelled`. Only one pending request per person & kind. Managers see requests via RLS (`can_access_person`) and decide with `review_data_change_request(p_request, p_approve, p_note)`; approval writes the changes into `persons`. Realtime keeps both the child's page and the review page in sync.
+
 ## Features Not Yet Implemented
-- Child edit/delete UI, profile photo
 - Push notifications
-- Attendance history per date (per-person list view)
+- Attendance history per date (per-person list view for servants)
 - PDF report export (Excel is done in الإحصائيات)
 - Points store / rewards module
 
 ## Recommended Next Steps
-1. Run migrations `0017` → `0020` (`0020_statistics_rpcs.sql` powers the new الإحصائيات tab) in Supabase SQL editor
+1. Run migrations `0017` → `0021` (`0021_child_portal.sql` powers بوابة المخدوم) in Supabase SQL editor
 2. Deploy to Vercel and test the full approval flow
 3. Per-person attendance history view
 
 ## Deployment
 - **Platform**: Vercel + Supabase
-- **Status**: ✅ Code complete for Phase 1 + performance/scale hardening (0019) + comprehensive statistics tab (0020) — awaiting Supabase project + Vercel connect
-- **Last Updated**: 2026-09-02
+- **Status**: ✅ Code complete for Phase 1 + performance/scale hardening (0019) + statistics tab (0020) + child portal & data change requests (0021) — awaiting Supabase project + Vercel connect
+- **Last Updated**: 2026-09-03

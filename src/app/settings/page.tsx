@@ -1,20 +1,35 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import {
   Settings, UserCheck, Church, Layers, School, LogOut, ChevronLeft, User, Phone, ShieldCheck,
-  QrCode, Pencil, Users, CalendarDays, Award, IdCard,
+  QrCode, Pencil, Users, CalendarDays, Award, IdCard, Inbox,
 } from 'lucide-react';
 import AppShell from '@/components/AppShell';
 import EditProfileModal from '@/components/EditProfileModal';
 import { useAuth } from '@/lib/auth-context';
+import { createClient } from '@/lib/supabase/client';
+import { useDebouncedRealtime } from '@/lib/realtime';
 import { ROLE_LABELS } from '@/lib/types';
 
 export default function SettingsPage() {
   const { profile, signOut } = useAuth();
   const [editProfile, setEditProfile] = useState(false);
+
+  // Pending data-change requests from the child portal (scoped by RLS)
+  const [supabase] = useState(() => createClient());
+  const [pendingRequests, setPendingRequests] = useState<number | null>(null);
+  const loadPending = async () => {
+    const { data } = await supabase.rpc('pending_data_requests_count');
+    setPendingRequests(typeof data === 'number' ? data : 0);
+  };
+  useEffect(() => {
+    if (profile?.status === 'approved') loadPending();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.status]);
+  useDebouncedRealtime(supabase, 'settings-dcr-badge', [{ table: 'data_change_requests' }], loadPending, { enabled: !!profile });
 
   const isOwner = profile?.role === 'owner';
   const isManager =
@@ -115,6 +130,13 @@ export default function SettingsPage() {
           <h3 className="mb-2 text-sm font-extrabold text-slate-500">النشاط</h3>
           <div className="card !p-0 divide-y divide-indigo-50 overflow-hidden">
             <SettingsLink
+              href="/settings/data-requests"
+              icon={<Inbox className="h-5 w-5 text-primary-600" />}
+              label="طلبات تعديل البيانات"
+              desc="طلبات المخدومين من بوابة المخدوم — موافقة أو رفض"
+              badge={pendingRequests ?? undefined}
+            />
+            <SettingsLink
               href="/settings/events"
               icon={<CalendarDays className="h-5 w-5 text-violet-600" />}
               label="إدارة المناسبات"
@@ -155,9 +177,9 @@ export default function SettingsPage() {
 }
 
 function SettingsLink({
-  href, icon, label, desc,
+  href, icon, label, desc, badge,
 }: {
-  href: string; icon: React.ReactNode; label: string; desc: string;
+  href: string; icon: React.ReactNode; label: string; desc: string; badge?: number;
 }) {
   return (
     <Link href={href} className="flex items-center gap-3 px-4 py-3.5 hover:bg-indigo-50/50 transition">
@@ -166,6 +188,9 @@ function SettingsLink({
         <span className="block font-bold text-sm">{label}</span>
         <span className="block text-xs text-slate-400 truncate">{desc}</span>
       </span>
+      {!!badge && (
+        <span className="badge bg-gold-500 text-white tabular-nums">{badge}</span>
+      )}
       <ChevronLeft className="h-4 w-4 text-slate-300" />
     </Link>
   );
