@@ -13,7 +13,7 @@ import {
   type EnrollmentWithPerson, type Person, type ClassRoom, type Church, type Service,
   type AppEvent, type Cause,
 } from '@/lib/types';
-import { eventAvailability, eventPhase, describeEventSchedule, cairoToday } from '@/lib/time';
+import { eventAvailability, eventPhase, describeEventSchedule, cairoToday, formatCairoTime } from '@/lib/time';
 import { useAppDate } from '@/lib/app-date-context';
 import NumPadModal from '@/components/NumPadModal';
 import {
@@ -39,7 +39,28 @@ type DataMode = 'view' | 'edit' | 'delete';
 
 type ScanResult = { type: 'ok' | 'dup' | 'err'; message: string };
 
-const RECENT_MAX = 8;
+// Archive of scan operations shown under the page (newest first)
+type HistoryKind = 'att_add' | 'att_remove' | 'pts_add' | 'pts_sub' | 'data' | 'warn';
+interface HistoryEntry {
+  id: string;
+  at: Date;
+  kind: HistoryKind;
+  name: string;
+  scope: string;
+  detail: string;       // e.g. event / cause name
+  delta?: number;       // points change
+  balance?: number;     // points balance after the operation
+}
+const HISTORY_MAX = 100;
+
+const HISTORY_STYLE: Record<HistoryKind, { label: string; bg: string; icon: React.ReactNode }> = {
+  att_add:    { label: 'تسجيل حضور',  bg: 'bg-emerald-100 text-emerald-600', icon: <Check className="h-4 w-4" /> },
+  att_remove: { label: 'إزالة حضور',  bg: 'bg-red-100 text-red-500',         icon: <X className="h-4 w-4" /> },
+  pts_add:    { label: 'إضافة نقاط',  bg: 'bg-emerald-100 text-emerald-600', icon: <Plus className="h-4 w-4" /> },
+  pts_sub:    { label: 'خصم نقاط',    bg: 'bg-red-100 text-red-500',         icon: <Minus className="h-4 w-4" /> },
+  data:       { label: 'البيانات',    bg: 'bg-primary-100 text-primary-600', icon: <Database className="h-4 w-4" /> },
+  warn:       { label: 'تنبيه',       bg: 'bg-gold-100 text-gold-600',       icon: <AlertCircle className="h-4 w-4" /> },
+};
 
 export default function ScannerPage() {
   const { profile } = useAuth();
@@ -82,7 +103,7 @@ export default function ScannerPage() {
 
   // ---------- Results / lists ----------
   const [result, setResult] = useState<ScanResult | null>(null);
-  const [recent, setRecent] = useState<EnrollmentWithPerson[]>([]);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [search, setSearch] = useState('');
   const [searchRows, setSearchRows] = useState<EnrollmentWithPerson[]>([]);
   const [searching, setSearching] = useState(false);
@@ -244,15 +265,8 @@ export default function ScannerPage() {
     return () => { cancelled = true; clearTimeout(t); };
   }, [search, supabase, churchFilter, serviceFilter, classFilter]);
 
-  // Rows currently on screen (recent scans + search results, deduped)
-  const visibleRows = useMemo(() => {
-    const seen = new Set<string>();
-    const out: EnrollmentWithPerson[] = [];
-    [...recent, ...searchRows].forEach((e) => {
-      if (!seen.has(e.id)) { seen.add(e.id); out.push(e); }
-    });
-    return out;
-  }, [recent, searchRows]);
+  // Rows currently on screen (search results)
+  const visibleRows = searchRows;
 
   // ---------- Attendance of the selected event for the rows on screen ----------
   const [attendedSet, setAttendedSet] = useState<Set<string>>(new Set());
@@ -287,19 +301,36 @@ export default function ScannerPage() {
   // Patch one enrollment everywhere it is shown (optimistic update)
   const patchEnrollment = useCallback((id: string, patch: Partial<EnrollmentWithPerson>) => {
     const fn = (prev: EnrollmentWithPerson[]) => prev.map((x) => (x.id === id ? { ...x, ...patch } : x));
-    setRecent(fn);
     setSearchRows(fn);
+    // keep the open manual-points modal in sync as well
+    setManualTarget((cur) => (cur && cur.id === id ? { ...cur, ...patch } : cur));
   }, []);
 
-  // Push a scanned enrollment to the top of the recent list
-  const remember = useCallback((e: EnrollmentWithPerson) => {
-    setRecent((prev) => [e, ...prev.filter((x) => x.id !== e.id)].slice(0, RECENT_MAX));
-  }, []);
+  // Append an operation to the archive (newest first)
+  const logOp = useCallback(
+    (e: EnrollmentWithPerson, kind: HistoryKind, detail: string, delta?: number, balance?: number) => {
+      setHistory((prev) =>
+        [
+          {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            at: new Date(),
+            kind,
+            name: e.person.name,
+            scope: scopeLabel(e),
+            detail,
+            delta,
+            balance,
+          },
+          ...prev,
+        ].slice(0, HISTORY_MAX)
+      );
+    },
+    [scopeLabel]
+  );
 
   // ---------- Per-person job action (same rules as the children page) ----------
   const doJob = useCallback(
     async (e: EnrollmentWithPerson) => {
-      remember(e);
       setPicker(null);
 
       if (job === 'attendance') {
@@ -341,6 +372,7 @@ export default function ScannerPage() {
             type: 'ok',
             message: `تم تسجيل حضور ${e.person.name} ✔ (${className(e.class_id)}) +${effectiveEventPoints} نقطة`,
           });
+          logOp(e, 'att_add', ev.name, effectiveEventPoints, e.points + effectiveEventPoints);
         } else {
           // Remove the attendance entry of the WORKING DATE only
           const workingDay = cairoToday(now());
@@ -380,6 +412,7 @@ export default function ScannerPage() {
           setAttendedSet((s) => { const n = new Set(s); n.delete(e.id); return n; });
           setEventCounts((c) => ({ ...c, [e.id]: Math.max(0, (c[e.id] ?? 1) - 1) }));
           setResult({ type: 'ok', message: `تمت إزالة حضور ${e.person.name} (${className(e.class_id)})${delta ? ` −${delta} نقطة` : ''}` });
+          logOp(e, 'att_remove', selectedEvent?.name ?? 'كل المناسبات', -delta, e.points - delta);
         }
       } else if (job === 'points') {
         if (pointsMode === 'manual') {
@@ -415,15 +448,17 @@ export default function ScannerPage() {
           type: 'ok',
           message: `${e.person.name} — ${delta > 0 ? `+${delta}` : delta} نقطة (${ca.name}) → الرصيد ${e.points + delta}`,
         });
+        logOp(e, delta > 0 ? 'pts_add' : 'pts_sub', ca.name, delta, e.points + delta);
       } else if (job === 'data') {
         setResult(null);
         setDataTarget(e);
+        logOp(e, 'data', dataMode === 'view' ? 'عرض البيانات' : dataMode === 'edit' ? 'تعديل البيانات' : 'حذف');
       }
     },
     [
-      job, attendanceMode, pointsMode, events, eventId, causes, causeId,
+      job, attendanceMode, pointsMode, dataMode, events, eventId, causes, causeId,
       effectiveEventPoints, effectiveCausePoints, supabase, profile, now,
-      className, patchEnrollment, remember,
+      className, patchEnrollment, logOp, selectedEvent,
     ]
   );
 
@@ -1005,20 +1040,6 @@ export default function ScannerPage() {
         </div>
       )}
 
-      {/* ---------- Recent scans ---------- */}
-      {recent.length > 0 && (
-        <section id="recent-section" className="mb-4">
-          <div className="mb-2 flex items-center justify-between">
-            <h3 className="flex items-center gap-1.5 text-sm font-extrabold text-slate-500">
-              <History className="h-4 w-4" /> آخر المخدومين الممسوحين
-              <span className="badge bg-primary-100 text-primary-700">{recent.length}</span>
-            </h3>
-            <button onClick={() => setRecent([])} className="text-xs font-bold text-slate-400 hover:text-red-500">مسح القائمة</button>
-          </div>
-          <ul className="space-y-2">{recent.map(personRow)}</ul>
-        </section>
-      )}
-
       {/* ---------- Manual search (scoped) ---------- */}
       <section id="manual-section">
         <h3 className="mb-2 text-sm font-extrabold text-slate-500">بحث يدوي</h3>
@@ -1040,6 +1061,55 @@ export default function ScannerPage() {
           <p className="card py-6 text-center text-sm font-bold text-slate-400">لا توجد نتائج في النطاق المختار</p>
         )}
         <ul className="space-y-2">{searchRows.map(personRow)}</ul>
+      </section>
+
+      {/* ---------- Archive of scan operations ---------- */}
+      <section id="history-section" className="mt-6">
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="flex items-center gap-1.5 text-sm font-extrabold text-slate-500">
+            <History className="h-4 w-4" /> أرشيف عمليات المسح
+            <span className="badge bg-primary-100 text-primary-700">{history.length}</span>
+          </h3>
+          {history.length > 0 && (
+            <button id="history-clear" onClick={() => setHistory([])} className="text-xs font-bold text-slate-400 hover:text-red-500">
+              مسح الأرشيف
+            </button>
+          )}
+        </div>
+        {history.length === 0 ? (
+          <p className="card py-6 text-center text-sm font-bold text-slate-400">لا توجد عمليات بعد — ستظهر هنا كل عملية بعد المسح</p>
+        ) : (
+          <ul id="history-list" className="card !p-0 divide-y divide-indigo-50 overflow-hidden">
+            {history.map((h) => (
+              <li key={h.id} className="flex items-center gap-3 px-3 py-2.5">
+                <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${HISTORY_STYLE[h.kind].bg}`}>
+                  {HISTORY_STYLE[h.kind].icon}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-extrabold">{h.name}</p>
+                  <p className="truncate text-[11px] font-bold text-slate-500">
+                    {HISTORY_STYLE[h.kind].label}
+                    {h.detail ? ` · ${h.detail}` : ''}
+                  </p>
+                  <p className="truncate text-[10px] text-slate-400">{h.scope}</p>
+                </div>
+                <div className="shrink-0 text-left">
+                  {typeof h.delta === 'number' && h.delta !== 0 && (
+                    <p className={`text-sm font-extrabold tabular-nums ${h.delta > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                      {h.delta > 0 ? `+${h.delta}` : h.delta}
+                    </p>
+                  )}
+                  {typeof h.balance === 'number' && (
+                    <p className="flex items-center justify-end gap-0.5 text-[11px] font-bold text-gold-600 tabular-nums">
+                      <Star className="h-3 w-3" /> {h.balance}
+                    </p>
+                  )}
+                  <p className="text-[10px] text-slate-400 tabular-nums">{formatCairoTime(h.at)}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       {/* ---------- NumPads ---------- */}
@@ -1067,14 +1137,18 @@ export default function ScannerPage() {
           causes={visibleCauses.filter((ca) => scopeApplies(ca, manualTarget))}
           defaultCauseId={causeId}
           recorderId={profile?.id ?? null}
-          onDone={(delta, cause) => {
-            patchEnrollment(manualTarget.id, { points: manualTarget.points + delta });
+          onApplied={(delta, cause) => {
+            // Modal STAYS OPEN — the balance updates live (optimistic patch,
+            // then realtime confirms it)
+            const next = manualTarget.points + delta;
+            patchEnrollment(manualTarget.id, { points: next });
             setResult({
               type: 'ok',
-              message: `${manualTarget.person.name} — ${delta > 0 ? `+${delta}` : delta} نقطة (${cause.name}) → الرصيد ${manualTarget.points + delta}`,
+              message: `${manualTarget.person.name} — ${delta > 0 ? `+${delta}` : delta} نقطة (${cause.name}) → الرصيد ${next}`,
             });
-            setManualTarget(null);
+            logOp(manualTarget, delta > 0 ? 'pts_add' : 'pts_sub', cause.name, delta, next);
           }}
+          onBalance={(pts) => patchEnrollment(manualTarget.id, { points: pts })}
           onClose={() => setManualTarget(null)}
         />
       )}
@@ -1095,7 +1169,7 @@ export default function ScannerPage() {
         <EditPersonModal
           enrollment={dataTarget}
           onSaved={async () => {
-            // Re-read the edited person so the recent card shows the new data
+            // Re-read the edited person so the search rows show the new data
             const { data } = await supabase.from('persons').select('*').eq('id', dataTarget.person_id).maybeSingle();
             if (data) patchEnrollment(dataTarget.id, { person: data as Person });
             setResult({ type: 'ok', message: `تم حفظ بيانات ${(data as Person | null)?.name ?? dataTarget.person.name} ✔` });
@@ -1110,7 +1184,6 @@ export default function ScannerPage() {
           services={services}
           classes={classes}
           onDeleted={() => {
-            setRecent((prev) => prev.filter((x) => x.id !== dataTarget.id));
             setSearchRows((prev) => prev.filter((x) => x.id !== dataTarget.id));
             setResult({ type: 'ok', message: `تم حذف ${dataTarget.person.name}` });
           }}
@@ -1123,39 +1196,77 @@ export default function ScannerPage() {
 
 // =====================================================================
 // Manual points modal — opened when a child is scanned in "يدوي" mode.
-// Shows the child's name + current balance, a cause dropdown, a number
-// field, and ADD / SUBTRACT buttons that apply the written number.
+// Shows the child's name + LIVE balance, a cause dropdown, a tappable
+// number (opens the same NumPad used everywhere) and ADD / SUBTRACT
+// buttons that apply the number. The modal STAYS OPEN after applying so
+// the servant can keep adjusting; the balance updates instantly
+// (optimistic) and is confirmed by a realtime subscription on the
+// enrollment row.
 // =====================================================================
 function ManualPointsModal({
-  enrollment, causes, defaultCauseId, recorderId, onDone, onClose,
+  enrollment, causes, defaultCauseId, recorderId, onApplied, onBalance, onClose,
 }: {
   enrollment: EnrollmentWithPerson;
   causes: Cause[];
   defaultCauseId: string;
   recorderId: string | null;
-  onDone: (delta: number, cause: Cause) => void;
+  onApplied: (delta: number, cause: Cause) => void;
+  onBalance: (points: number) => void;
   onClose: () => void;
 }) {
   const supabase = createClient();
   const initialCause = causes.find((c) => c.id === defaultCauseId) ?? causes[0] ?? null;
   const [causeId, setCauseId] = useState<string>(initialCause?.id ?? '');
   const cause = causes.find((c) => c.id === causeId) ?? null;
-  const [amount, setAmount] = useState<string>(
-    initialCause && initialCause.points_mode !== 'open' ? String(initialCause.points) : ''
+  const [amount, setAmount] = useState<number>(
+    initialCause && initialCause.points_mode !== 'open' ? initialCause.points : 0
   );
+  const [numpadOpen, setNumpadOpen] = useState(false);
   const [busy, setBusy] = useState<'add' | 'subtract' | null>(null);
   const [error, setError] = useState('');
+  const [flash, setFlash] = useState<'up' | 'down' | null>(null);
+  const [lastOp, setLastOp] = useState<{ delta: number; cause: string } | null>(null);
+
+  // ---- Realtime: keep the balance in sync with the DB row ----
+  useEffect(() => {
+    const channel = supabase
+      .channel(`scanner-manual-${enrollment.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'enrollments', filter: `id=eq.${enrollment.id}` },
+        (payload) => {
+          const pts = (payload.new as { points?: number } | null)?.points;
+          if (typeof pts === 'number') onBalance(pts);
+        }
+      )
+      .subscribe();
+    // Also re-read once on open so a stale search row gets corrected
+    supabase.from('enrollments').select('points').eq('id', enrollment.id).maybeSingle()
+      .then(({ data }) => { if (data && typeof data.points === 'number') onBalance(data.points); });
+    return () => { supabase.removeChannel(channel); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enrollment.id]);
+
+  // Flash the balance badge whenever it changes
+  const prevPoints = useRef(enrollment.points);
+  useEffect(() => {
+    if (enrollment.points === prevPoints.current) return;
+    setFlash(enrollment.points > prevPoints.current ? 'up' : 'down');
+    prevPoints.current = enrollment.points;
+    const t = setTimeout(() => setFlash(null), 700);
+    return () => clearTimeout(t);
+  }, [enrollment.points]);
 
   // Changing the cause pre-fills its bound number (fixed → locked)
   const pickCause = (id: string) => {
     setCauseId(id);
     const c = causes.find((x) => x.id === id);
-    setAmount(c && c.points_mode !== 'open' ? String(c.points) : '');
+    setAmount(c && c.points_mode !== 'open' ? c.points : 0);
     setError('');
   };
 
   const locked = !!cause && cause.points_mode === 'fixed';
-  const n = Math.max(0, parseInt(amount, 10) || 0);
+  const n = Math.max(0, amount);
   const canSubmit = !!cause && n > 0 && !busy;
 
   const submit = async (mode: 'add' | 'subtract') => {
@@ -1172,94 +1283,136 @@ function ManualPointsModal({
     });
     setBusy(null);
     if (err) { setError('تعذر تسجيل النقاط، حاول مجدداً'); return; }
-    onDone(delta, cause);
+    setLastOp({ delta, cause: cause.name });
+    onApplied(delta, cause); // parent patches the balance; modal stays open
   };
 
   return (
-    <ModalFrame title="النقاط" icon={<Calculator className="h-5 w-5 text-gold-500" />} onClose={onClose}>
-      {/* Child name + current balance */}
-      <div className="mb-4 flex items-center gap-3 rounded-2xl bg-slate-50 px-3 py-3">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary-600 to-accent-600 text-white">
-          <Star className="h-5 w-5" />
+    <>
+      <ModalFrame title="النقاط" icon={<Calculator className="h-5 w-5 text-gold-500" />} onClose={onClose}>
+        {/* Child name + LIVE balance */}
+        <div className="mb-4 flex items-center gap-3 rounded-2xl bg-slate-50 px-3 py-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary-600 to-accent-600 text-white">
+            <Star className="h-5 w-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p id="manual-points-name" className="truncate text-base font-extrabold">{enrollment.person.name}</p>
+            <p className="flex items-center gap-1 text-xs font-bold text-slate-500">
+              الرصيد الحالي
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" title="مباشر" />
+            </p>
+          </div>
+          <span
+            id="manual-points-balance"
+            className={`badge-btn !text-lg !px-3 !py-1.5 transition-all duration-300 ${
+              flash === 'up' ? 'bg-emerald-100 text-emerald-600 scale-110'
+              : flash === 'down' ? 'bg-red-100 text-red-600 scale-110'
+              : 'bg-gold-100 text-gold-600'
+            }`}
+          >
+            <Star className="h-4 w-4" /> {enrollment.points}
+          </span>
         </div>
-        <div className="min-w-0 flex-1">
-          <p id="manual-points-name" className="truncate text-base font-extrabold">{enrollment.person.name}</p>
-          <p className="text-xs font-bold text-slate-500">الرصيد الحالي</p>
+
+        {/* Number of points — tap to open the NumPad */}
+        <label className="mb-1 block text-xs font-bold text-slate-500">عدد النقاط</label>
+        <button
+          id="manual-points-amount"
+          type="button"
+          disabled={locked}
+          onClick={() => { if (!locked) setNumpadOpen(true); }}
+          className={`input-field mb-3 flex w-full items-center justify-center gap-2 !text-2xl font-extrabold tabular-nums ${
+            locked ? 'bg-slate-50 text-slate-500 cursor-not-allowed' : 'cursor-pointer hover:border-primary-400 active:scale-[0.98]'
+          }`}
+        >
+          {!locked && <Calculator className="h-5 w-5 text-slate-400" />}
+          <span className={n === 0 ? 'text-slate-300' : ''}>{n}</span>
+        </button>
+        <p className="-mt-2 mb-3 text-[11px] font-bold text-slate-400">
+          {locked ? 'هذا السبب نقاطه ثابتة — لا يمكن تغيير العدد' : 'اضغط على الرقم لكتابة عدد النقاط'}
+        </p>
+
+        {/* Cause */}
+        <label className="mb-1 block text-xs font-bold text-slate-500">سبب النقاط</label>
+        <select
+          id="manual-points-cause"
+          className="input-field mb-4 appearance-none text-sm font-bold"
+          value={causeId}
+          onChange={(e) => pickCause(e.target.value)}
+        >
+          <option value="">اختر سبب النقاط *</option>
+          {causes.map((ca) => (
+            <option key={ca.id} value={ca.id}>
+              {ca.name}{ca.points_mode !== 'open' ? ` — ${ca.points} نقطة` : ''}
+            </option>
+          ))}
+        </select>
+        {causes.length === 0 && (
+          <p className="mb-3 rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-600">
+            لا توجد أسباب تشمل هذا المخدوم — أضف سبباً من الإعدادات ← إدارة أسباب النقاط
+          </p>
+        )}
+
+        {error && <p className="mb-3 rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-600">{error}</p>}
+
+        {/* Add / subtract the number — modal stays open */}
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            id="manual-points-add"
+            type="button"
+            disabled={!canSubmit}
+            onClick={() => submit('add')}
+            className="flex items-center justify-center gap-2 rounded-xl bg-emerald-500 py-3 font-extrabold text-white shadow transition hover:bg-emerald-600 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {busy === 'add' ? <Loader2 className="h-5 w-5 animate-spin" /> : <Plus className="h-5 w-5" />}
+            إضافة {n > 0 ? n : ''}
+          </button>
+          <button
+            id="manual-points-subtract"
+            type="button"
+            disabled={!canSubmit}
+            onClick={() => submit('subtract')}
+            className="flex items-center justify-center gap-2 rounded-xl bg-red-500 py-3 font-extrabold text-white shadow transition hover:bg-red-600 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {busy === 'subtract' ? <Loader2 className="h-5 w-5 animate-spin" /> : <Minus className="h-5 w-5" />}
+            خصم {n > 0 ? n : ''}
+          </button>
         </div>
-        <span id="manual-points-balance" className="badge-btn bg-gold-100 text-gold-600 !text-base !px-3 !py-1.5">
-          <Star className="h-4 w-4" /> {enrollment.points}
-        </span>
-      </div>
 
-      {/* Number of points */}
-      <label className="mb-1 block text-xs font-bold text-slate-500">عدد النقاط</label>
-      <input
-        id="manual-points-amount"
-        type="text"
-        inputMode="numeric"
-        pattern="[0-9]*"
-        className={`input-field mb-3 text-center !text-2xl font-extrabold tabular-nums ${locked ? 'bg-slate-50 text-slate-500' : ''}`}
-        placeholder="0"
-        value={amount}
-        disabled={locked}
-        onChange={(e) => { setAmount(e.target.value.replace(/\D/g, '').slice(0, 4)); setError(''); }}
-        autoFocus={!locked}
-      />
-      {locked && (
-        <p className="-mt-2 mb-3 text-[11px] font-bold text-slate-400">هذا السبب نقاطه ثابتة — لا يمكن تغيير العدد</p>
-      )}
+        {lastOp && (
+          <p
+            id="manual-points-last"
+            className={`mt-3 flex items-center justify-center gap-1 rounded-xl px-3 py-2 text-xs font-bold ${
+              lastOp.delta > 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'
+            }`}
+          >
+            <CheckCircle2 className="h-4 w-4" />
+            تم تسجيل {lastOp.delta > 0 ? `+${lastOp.delta}` : lastOp.delta} نقطة ({lastOp.cause})
+          </p>
+        )}
+        {cause && n > 0 && (
+          <p className="mt-3 text-center text-xs font-bold text-slate-400">
+            الرصيد بعد الإضافة {enrollment.points + n} · بعد الخصم {Math.max(0, enrollment.points - n)}
+          </p>
+        )}
 
-      {/* Cause */}
-      <label className="mb-1 block text-xs font-bold text-slate-500">سبب النقاط</label>
-      <select
-        id="manual-points-cause"
-        className="input-field mb-4 appearance-none text-sm font-bold"
-        value={causeId}
-        onChange={(e) => pickCause(e.target.value)}
-      >
-        <option value="">اختر سبب النقاط *</option>
-        {causes.map((ca) => (
-          <option key={ca.id} value={ca.id}>
-            {ca.name}{ca.points_mode !== 'open' ? ` — ${ca.points} نقطة` : ''}
-          </option>
-        ))}
-      </select>
-      {causes.length === 0 && (
-        <p className="mb-3 rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-600">
-          لا توجد أسباب تشمل هذا المخدوم — أضف سبباً من الإعدادات ← إدارة أسباب النقاط
-        </p>
-      )}
-
-      {error && <p className="mb-3 rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-600">{error}</p>}
-
-      {/* Add / subtract the written number */}
-      <div className="grid grid-cols-2 gap-2">
         <button
-          id="manual-points-add"
           type="button"
-          disabled={!canSubmit}
-          onClick={() => submit('add')}
-          className="flex items-center justify-center gap-2 rounded-xl bg-emerald-500 py-3 font-extrabold text-white shadow transition hover:bg-emerald-600 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+          onClick={onClose}
+          className="btn-secondary mt-4 w-full"
         >
-          {busy === 'add' ? <Loader2 className="h-5 w-5 animate-spin" /> : <Plus className="h-5 w-5" />}
-          إضافة {n > 0 ? n : ''}
+          إغلاق
         </button>
-        <button
-          id="manual-points-subtract"
-          type="button"
-          disabled={!canSubmit}
-          onClick={() => submit('subtract')}
-          className="flex items-center justify-center gap-2 rounded-xl bg-red-500 py-3 font-extrabold text-white shadow transition hover:bg-red-600 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {busy === 'subtract' ? <Loader2 className="h-5 w-5 animate-spin" /> : <Minus className="h-5 w-5" />}
-          خصم {n > 0 ? n : ''}
-        </button>
-      </div>
-      {cause && n > 0 && (
-        <p className="mt-3 text-center text-xs font-bold text-slate-400">
-          الرصيد بعد الإضافة {enrollment.points + n} · بعد الخصم {enrollment.points - n}
-        </p>
+      </ModalFrame>
+
+      {numpadOpen && (
+        <NumPadModal
+          title={`عدد النقاط — ${enrollment.person.name}`}
+          initial={n}
+          onConfirm={(v) => { setAmount(v); setNumpadOpen(false); setError(''); }}
+          onClose={() => setNumpadOpen(false)}
+        />
       )}
-    </ModalFrame>
+    </>
   );
 }
