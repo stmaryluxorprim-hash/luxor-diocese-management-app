@@ -60,9 +60,9 @@ enrollment (`attendance`, `attendance_log`, `points_log` all use
 - ✅ الرئيسية: role-aware stat cards + quick actions
 - ✅ **Person-centric core (0011)**: `persons` (national_id = QR) + `enrollments`; one person in many churches/services/classes; existing children data migrated automatically
 - ✅ المخدومين: realtime list on enrollments+persons, search by name/phone/national id, add person (single & bulk) via `add_person_and_enroll` RPC with duplicate-person detection by national id
-- ✅ الماسح: **same system as المخدومين** — church → service → class scope selectors, job selector (الحضور / النقاط / البيانات) with the same mode buttons; the chosen job runs on the person the moment his QR (national id) is scanned. QR camera (native BarcodeDetector) + scoped manual search; multi-enrollment picker; recent-scans list with attendance/points log badges
+- ✅ الماسح: **same system as المخدومين** — church → service → class scope selectors, job selector (الحضور / النقاط / البيانات) with the same mode buttons; the chosen job runs on the person the moment his QR (national id) is scanned. QR camera (native BarcodeDetector) + scoped manual search; multi-enrollment picker; **archive of scan operations** below (timestamped list of every attendance / points / data action with delta & balance — no child cards)
   - الحضور: event dropdown + تسجيل / إزالة + event points badge (numpad for editable/open), day/time window enforced
-  - النقاط: cause dropdown + إضافة / خصم + **يدوي (new)** — scanning opens a modal with the child's name & balance, a number field, a cause dropdown and إضافة / خصم buttons that apply the written number
+  - النقاط: cause dropdown + إضافة / خصم + **يدوي (new)** — scanning opens a modal with the child's name & **live balance** (realtime subscription on the enrollment row), a tappable number that opens the same **NumPad**, a cause dropdown and إضافة / خصم buttons that apply the number — the modal **stays open** after each operation so the servant can keep adjusting
   - البيانات: عرض / تعديل / حذف — scanning opens the matching person modal
 - ✅ **الإحصائيات (rebuilt, 0020)**: church → service → class cascading selectors (each with "كل الـ…"), working-day picker, totals (المخدومين / النقاط / الحضور / الفصول), gender split, day summary, attendance of the day **by event**, points of the day **by cause**, per-class breakdown, attendance-over-time chart **stacked by event** (7d–365d presets or custom range; day/week/month buckets), points-over-time by cause, weekday profile, points/attendance leaderboard, one-click **Excel export** (8 sheets) — all realtime
 - ✅ الإعدادات: profile (self-edit + photo), approvals, churches (with logo upload), services & classes (photos, church→service cascade), servants management
@@ -76,7 +76,7 @@ enrollment (`attendance`, `attendance_log`, `points_log` all use
 | `/login`, `/signup` | Auth (public) |
 | `/` | الرئيسية — dashboard |
 | `/children` | المخدومين — list/search/add |
-| `/scanner` | الماسح — scope + job (attendance / points / data) applied on scan; manual points modal |
+| `/scanner` | الماسح — scope + job (attendance / points / data) applied on scan; live manual points modal (NumPad, stays open); scan-operations archive |
 | `/stats` | الإحصائيات — scoped KPIs, by-event / by-cause breakdowns, timelines, leaderboard, Excel export |
 | `/settings` | الإعدادات hub |
 | `/settings/approvals` | approve/reject servant requests (scope defaults from request) |
