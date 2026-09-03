@@ -1,164 +1,433 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import {
-  ScanLine, Camera, CameraOff, CheckCircle2, AlertCircle, Search, Star, Loader2, School, CalendarDays,
+  ScanLine, Camera, CameraOff, CheckCircle2, AlertCircle, Search, Star, Loader2, School,
+  Check, X, Plus, Minus, Eye, Pencil, Trash2, Database, CalendarCheck, Calculator, History,
 } from 'lucide-react';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
 import { createClient } from '@/lib/supabase/client';
-import { scopeApplies, type EnrollmentWithPerson, type Person, type ClassRoom, type AppEvent } from '@/lib/types';
-import { eventAvailability, describeEventSchedule, cairoToday } from '@/lib/time';
+import {
+  scopeApplies,
+  type EnrollmentWithPerson, type Person, type ClassRoom, type Church, type Service,
+  type AppEvent, type Cause,
+} from '@/lib/types';
+import { eventAvailability, eventPhase, describeEventSchedule, cairoToday } from '@/lib/time';
 import { useAppDate } from '@/lib/app-date-context';
 import NumPadModal from '@/components/NumPadModal';
+import {
+  ViewPersonModal, EditPersonModal, DeletePersonModal, ModalFrame,
+} from '@/components/PersonDataModals';
+import { AttendanceLogModal, PointsLogModal } from '@/components/LogModals';
 import { fetchEnrollmentsPage, cachedLookup, ALL } from '@/lib/queries';
 
+// ---------- Scanner jobs — same system as the children page ----------
+// Attendance / points / data. Calls, messages and card printing don't make
+// sense while scanning, so they're not offered here.
+type ScannerJob = 'attendance' | 'points' | 'data';
+const SCANNER_JOBS: { value: ScannerJob; label: string }[] = [
+  { value: 'attendance', label: 'الحضور' },
+  { value: 'points', label: 'النقاط' },
+  { value: 'data', label: 'البيانات' },
+];
+
+type AttendanceMode = 'add' | 'remove';
+// 'manual' = NEW: scanning opens a modal (name + points + number + add/subtract + cause)
+type PointsMode = 'add' | 'subtract' | 'manual';
+type DataMode = 'view' | 'edit' | 'delete';
+
 type ScanResult = { type: 'ok' | 'dup' | 'err'; message: string };
+
+const RECENT_MAX = 8;
 
 export default function ScannerPage() {
   const { profile } = useAuth();
   const supabase = createClient();
+  const { now } = useAppDate();
+
+  // ---------- Lookups ----------
+  const [churches, setChurches] = useState<Church[]>([]);
+  const [services, setServices] = useState<Service[]>([]);
+  const [classes, setClasses] = useState<ClassRoom[]>([]);
+  const [events, setEvents] = useState<AppEvent[]>([]);
+  const [causes, setCauses] = useState<Cause[]>([]);
+
+  // ---------- Scope selectors: church -> service -> class ----------
+  const [churchFilter, setChurchFilter] = useState<string>(ALL);
+  const [serviceFilter, setServiceFilter] = useState<string>(ALL);
+  const [classFilter, setClassFilter] = useState<string>(ALL);
+
+  // ---------- Job + modes ----------
+  const [job, setJob] = useState<ScannerJob>('attendance');
+  const [attendanceMode, setAttendanceMode] = useState<AttendanceMode>('add');
+  const [pointsMode, setPointsMode] = useState<PointsMode>('add');
+  const [dataMode, setDataMode] = useState<DataMode>('view');
+  const [eventId, setEventId] = useState<string>('');
+  const [causeId, setCauseId] = useState<string>('');
+
+  // Points overrides (numpad) for editable / open modes
+  const [eventPtsOverride, setEventPtsOverride] = useState<number | null>(null);
+  const [causePtsOverride, setCausePtsOverride] = useState<number | null>(null);
+  const [numpadFor, setNumpadFor] = useState<'event' | 'cause' | null>(null);
+  useEffect(() => { setEventPtsOverride(null); }, [eventId]);
+  useEffect(() => { setCausePtsOverride(null); }, [causeId]);
+
+  // ---------- Camera ----------
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const scanningRef = useRef(false);
   const [cameraOn, setCameraOn] = useState(false);
   const [cameraError, setCameraError] = useState('');
+
+  // ---------- Results / lists ----------
   const [result, setResult] = useState<ScanResult | null>(null);
+  const [recent, setRecent] = useState<EnrollmentWithPerson[]>([]);
   const [search, setSearch] = useState('');
-  // Manual-search results only (server-side search, max 8 rows) — the
-  // scanner never holds the whole enrollments table in memory any more.
-  const [filtered, setFiltered] = useState<EnrollmentWithPerson[]>([]);
+  const [searchRows, setSearchRows] = useState<EnrollmentWithPerson[]>([]);
   const [searching, setSearching] = useState(false);
-  const [classes, setClasses] = useState<ClassRoom[]>([]);
-  const [events, setEvents] = useState<AppEvent[]>([]);
-  const [eventId, setEventId] = useState<string>('');
-  const [busy, setBusy] = useState(false);
-  const { now } = useAppDate();
+  const [busyId, setBusyId] = useState<string | null>(null);
 
-  // Points override (numpad) — for 'editable' and 'open' modes
-  const [ptsOverride, setPtsOverride] = useState<number | null>(null);
-  const [numpadOpen, setNumpadOpen] = useState(false);
-  useEffect(() => setPtsOverride(null), [eventId]);
+  // Modals
+  const [picker, setPicker] = useState<{ person: Person; options: EnrollmentWithPerson[] } | null>(null);
+  const [manualTarget, setManualTarget] = useState<EnrollmentWithPerson | null>(null);
+  const [dataTarget, setDataTarget] = useState<EnrollmentWithPerson | null>(null);
+  const [logTarget, setLogTarget] = useState<{ kind: 'attendance' | 'points'; e: EnrollmentWithPerson } | null>(null);
 
-  const selectedEvent = events.find((x) => x.id === eventId) ?? null;
-  // Day / time availability of the selected event (working date, or live
-  // clock when no override) — attendance registration is forbidden outside
-  // this window; no confirm-override.
-  const scannerAvail = selectedEvent ? eventAvailability(selectedEvent, now()) : null;
-  const attendanceForbidden = !!selectedEvent && !!scannerAvail && !scannerAvail.ok;
-  const effectivePoints: number | null = selectedEvent
+  // ---------- Load lookups (cached 60s) ----------
+  const loadLookups = useCallback(async (force = false) => {
+    const [chs, svs, cls, evs, cas] = await Promise.all([
+      cachedLookup<Church>(supabase, 'churches', { column: 'name' }, force),
+      cachedLookup<Service>(supabase, 'services', { column: 'name' }, force),
+      cachedLookup<ClassRoom>(supabase, 'classes', { column: 'name' }, force),
+      cachedLookup<AppEvent>(supabase, 'events', { column: 'event_date', ascending: false, nullsFirst: false }, force),
+      cachedLookup<Cause>(supabase, 'causes', { column: 'name' }, force),
+    ]);
+    setChurches(chs);
+    setServices(svs);
+    setClasses(cls);
+    setEvents(evs);
+    setCauses(cas);
+  }, [supabase]);
+
+  useEffect(() => {
+    if (profile?.status === 'approved') loadLookups();
+  }, [profile?.status, loadLookups]);
+
+  // Preselect defaults (marked in settings)
+  useEffect(() => {
+    setEventId((cur) => cur || (events.find((ev) => ev.is_default)?.id ?? ''));
+  }, [events]);
+  useEffect(() => {
+    setCauseId((cur) => cur || (causes.find((ca) => ca.is_default)?.id ?? ''));
+  }, [causes]);
+
+  // ---------- Cascading selector options ----------
+  const visibleServices = useMemo(
+    () => services.filter((s) => churchFilter === ALL || s.church_id === churchFilter),
+    [services, churchFilter]
+  );
+  const visibleClasses = useMemo(
+    () =>
+      classes.filter(
+        (c) =>
+          (churchFilter === ALL || c.church_id === churchFilter) &&
+          (serviceFilter === ALL || c.service_id === serviceFilter)
+      ),
+    [classes, churchFilter, serviceFilter]
+  );
+  const onChurchChange = (v: string) => { setChurchFilter(v); setServiceFilter(ALL); setClassFilter(ALL); };
+  const onServiceChange = (v: string) => { setServiceFilter(v); setClassFilter(ALL); };
+
+  const visibleEvents = useMemo(
+    () =>
+      events.filter(
+        (ev) =>
+          (churchFilter === ALL || ev.church_id === churchFilter) &&
+          (serviceFilter === ALL || ev.service_id === null || ev.service_id === serviceFilter) &&
+          (classFilter === ALL || ev.class_id === null || ev.class_id === classFilter)
+      ),
+    [events, churchFilter, serviceFilter, classFilter]
+  );
+  const visibleCauses = useMemo(
+    () =>
+      causes.filter(
+        (ca) =>
+          (churchFilter === ALL || ca.church_id === churchFilter) &&
+          (serviceFilter === ALL || ca.service_id === null || ca.service_id === serviceFilter) &&
+          (classFilter === ALL || ca.class_id === null || ca.class_id === classFilter)
+      ),
+    [causes, churchFilter, serviceFilter, classFilter]
+  );
+  useEffect(() => {
+    if (eventId && !visibleEvents.some((ev) => ev.id === eventId)) setEventId('');
+  }, [visibleEvents, eventId]);
+  useEffect(() => {
+    if (causeId && !visibleCauses.some((ca) => ca.id === causeId)) setCauseId('');
+  }, [visibleCauses, causeId]);
+
+  const selectedEvent = useMemo(() => events.find((ev) => ev.id === eventId) ?? null, [events, eventId]);
+  const selectedCause = useMemo(() => causes.find((ca) => ca.id === causeId) ?? null, [causes, causeId]);
+
+  // Clock tick so the event day/time window stays fresh
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setTick((x) => x + 1), 30_000);
+    return () => clearInterval(t);
+  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const nowDate = useMemo(() => now(), [now, tick]);
+  const eventAvail = useMemo(
+    () => (selectedEvent ? eventAvailability(selectedEvent, nowDate) : null),
+    [selectedEvent, nowDate]
+  );
+  const phase = useMemo(
+    () => (selectedEvent ? eventPhase(selectedEvent, nowDate) : null),
+    [selectedEvent, nowDate]
+  );
+  const attendanceForbidden = job === 'attendance' && attendanceMode === 'add' && !!eventAvail && !eventAvail.ok;
+
+  // Effective points respecting points_mode (fixed / editable / open)
+  const effectiveEventPoints: number | null = selectedEvent
     ? selectedEvent.points_mode === 'fixed'
       ? selectedEvent.points
       : selectedEvent.points_mode === 'editable'
-      ? ptsOverride ?? selectedEvent.points
-      : ptsOverride // open: must be entered
+        ? (eventPtsOverride ?? selectedEvent.points)
+        : eventPtsOverride
+    : null;
+  const effectiveCausePoints: number | null = selectedCause
+    ? selectedCause.points_mode === 'fixed'
+      ? selectedCause.points
+      : selectedCause.points_mode === 'editable'
+        ? (causePtsOverride ?? selectedCause.points)
+        : causePtsOverride
     : null;
 
-  // When a scanned person has multiple enrollments, let the servant pick
-  const [picker, setPicker] = useState<{ person: Person; options: EnrollmentWithPerson[] } | null>(null);
+  // ---------- Names ----------
+  const churchName = useCallback((id: string) => churches.find((c) => c.id === id)?.name ?? 'كنيسة', [churches]);
+  const serviceName = useCallback((id: string) => services.find((s) => s.id === id)?.name ?? 'خدمة', [services]);
+  const className = useCallback((id: string) => classes.find((c) => c.id === id)?.name ?? 'فصل', [classes]);
+  const scopeLabel = useCallback(
+    (e: EnrollmentWithPerson) => `${churchName(e.church_id)} › ${serviceName(e.service_id)} › ${className(e.class_id)}`,
+    [churchName, serviceName, className]
+  );
 
-  // Lookup tables only (cached) — persons are resolved per scan by RPC
-  useEffect(() => {
-    if (profile?.status !== 'approved') return;
-    (async () => {
-      const [cls, evs] = await Promise.all([
-        cachedLookup<ClassRoom>(supabase, 'classes', { column: 'name' }),
-        cachedLookup<AppEvent>(supabase, 'events', { column: 'created_at', ascending: false }),
-      ]);
-      setClasses(cls);
-      setEvents(evs);
-      // Preselect the default event if none chosen yet
-      const def = evs.find((ev) => ev.is_default);
-      if (def) setEventId((cur) => cur || def.id);
-    })();
-  }, [profile, supabase]);
+  // Does this enrollment fall inside the selected scope?
+  const inScope = useCallback(
+    (e: { church_id: string; service_id: string; class_id: string }) =>
+      (churchFilter === ALL || e.church_id === churchFilter) &&
+      (serviceFilter === ALL || e.service_id === serviceFilter) &&
+      (classFilter === ALL || e.class_id === classFilter),
+    [churchFilter, serviceFilter, classFilter]
+  );
 
-  // Debounced server-side manual search (name / phone / national id)
+  // ---------- Debounced, scoped manual search ----------
   useEffect(() => {
     const q = search.trim();
-    if (!q) { setFiltered([]); return; }
+    if (!q) { setSearchRows([]); setSearching(false); return; }
     let cancelled = false;
     setSearching(true);
     const t = setTimeout(async () => {
       try {
         const { rows } = await fetchEnrollmentsPage(
           supabase,
-          { church: ALL, service: ALL, class: ALL },
+          { church: churchFilter, service: serviceFilter, class: classFilter },
           { page: 0, pageSize: 8, search: q }
         );
-        if (!cancelled) setFiltered(rows);
+        if (!cancelled) setSearchRows(rows);
+      } catch {
+        if (!cancelled) setSearchRows([]);
       } finally {
         if (!cancelled) setSearching(false);
       }
     }, 300);
     return () => { cancelled = true; clearTimeout(t); };
-  }, [search, supabase]);
+  }, [search, supabase, churchFilter, serviceFilter, classFilter]);
 
-  const className = useCallback(
-    (id: string) => classes.find((c) => c.id === id)?.name ?? 'فصل',
-    [classes]
-  );
+  // Rows currently on screen (recent scans + search results, deduped)
+  const visibleRows = useMemo(() => {
+    const seen = new Set<string>();
+    const out: EnrollmentWithPerson[] = [];
+    [...recent, ...searchRows].forEach((e) => {
+      if (!seen.has(e.id)) { seen.add(e.id); out.push(e); }
+    });
+    return out;
+  }, [recent, searchRows]);
 
-  const recordAttendance = useCallback(
+  // ---------- Attendance of the selected event for the rows on screen ----------
+  const [attendedSet, setAttendedSet] = useState<Set<string>>(new Set());
+  const [eventCounts, setEventCounts] = useState<Record<string, number>>({});
+  const visibleIdsKey = visibleRows.map((e) => e.id).join(',');
+  useEffect(() => {
+    if (!selectedEvent || !visibleIdsKey) { setAttendedSet(new Set()); setEventCounts({}); return; }
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from('attendance_log')
+        .select('enrollment_id, attended_on')
+        .eq('event_id', selectedEvent.id)
+        .in('enrollment_id', visibleIdsKey.split(','));
+      if (cancelled) return;
+      const today = cairoToday(nowDate);
+      const present = new Set<string>();
+      const counts: Record<string, number> = {};
+      ((data ?? []) as { enrollment_id: string; attended_on: string }[]).forEach((r) => {
+        counts[r.enrollment_id] = (counts[r.enrollment_id] ?? 0) + 1;
+        if (r.attended_on === today) present.add(r.enrollment_id);
+      });
+      setAttendedSet(present);
+      setEventCounts(counts);
+    })();
+    return () => { cancelled = true; };
+  }, [selectedEvent, supabase, nowDate, visibleIdsKey]);
+
+  const attendanceShown = (e: EnrollmentWithPerson): number =>
+    selectedEvent ? (eventCounts[e.id] ?? 0) : e.attendance_count;
+
+  // Patch one enrollment everywhere it is shown (optimistic update)
+  const patchEnrollment = useCallback((id: string, patch: Partial<EnrollmentWithPerson>) => {
+    const fn = (prev: EnrollmentWithPerson[]) => prev.map((x) => (x.id === id ? { ...x, ...patch } : x));
+    setRecent(fn);
+    setSearchRows(fn);
+  }, []);
+
+  // Push a scanned enrollment to the top of the recent list
+  const remember = useCallback((e: EnrollmentWithPerson) => {
+    setRecent((prev) => [e, ...prev.filter((x) => x.id !== e.id)].slice(0, RECENT_MAX));
+  }, []);
+
+  // ---------- Per-person job action (same rules as the children page) ----------
+  const doJob = useCallback(
     async (e: EnrollmentWithPerson) => {
-      // Attendance is registered against an EVENT whose scope covers this enrollment
-      const ev = events.find((x) => x.id === eventId);
-      if (!ev) {
-        setResult({ type: 'err', message: 'اختر المناسبة أولاً قبل المسح' });
-        return;
-      }
-      if (!scopeApplies(ev, e)) {
-        setResult({ type: 'err', message: `المناسبة المختارة لا تشمل ${e.person.name}` });
-        return;
-      }
-      if (effectivePoints === null) {
-        setResult({ type: 'err', message: 'أدخل عدد النقاط أولاً — المناسبة نقاطها مفتوحة' });
-        setNumpadOpen(true);
-        return;
-      }
-      // Day / time check (Africa/Cairo, working date) — attendance is
-      // FORBIDDEN outside the event's scheduled day/time (or its live
-      // window, when no working-date override is active). No override.
-      const avail = eventAvailability(ev, now());
-      if (!avail.ok) {
-        setResult({ type: 'err', message: `⛔ ممنوع تسجيل الحضور — ${avail.reason}` });
-        return;
-      }
-      setBusy(true);
+      remember(e);
       setPicker(null);
 
-      const { error } = await supabase.from('attendance_log').insert({
-        enrollment_id: e.id,
-        event_id: ev.id,
-        points_delta: effectivePoints,
-        attended_on: cairoToday(now()),
-        recorded_by: profile?.id,
-      });
-      setBusy(false);
-      if (error) {
-        // unique (enrollment_id, event_id, attended_on): one attendance per event per Cairo day
-        if (error.code === '23505') {
-          setResult({ type: 'dup', message: `${e.person.name} — حضوره مسجل بالفعل في هذه المناسبة اليوم` });
+      if (job === 'attendance') {
+        if (attendanceMode === 'add') {
+          const ev = events.find((x) => x.id === eventId);
+          if (!ev) { setResult({ type: 'err', message: 'اختر المناسبة أولاً' }); return; }
+          if (!scopeApplies(ev, e)) {
+            setResult({ type: 'err', message: `المناسبة المختارة لا تشمل ${e.person.name}` });
+            return;
+          }
+          if (effectiveEventPoints === null) {
+            setResult({ type: 'err', message: 'حدد عدد النقاط أولاً — اضغط على شارة النقاط ⭐' });
+            setNumpadFor('event');
+            return;
+          }
+          const avail = eventAvailability(ev, now());
+          if (!avail.ok) {
+            setResult({ type: 'err', message: `⛔ ممنوع تسجيل الحضور — ${avail.reason}` });
+            return;
+          }
+          setBusyId(e.id);
+          const { error } = await supabase.from('attendance_log').insert({
+            enrollment_id: e.id,
+            event_id: ev.id,
+            points_delta: effectiveEventPoints,
+            attended_on: cairoToday(now()),
+            recorded_by: profile?.id,
+          });
+          setBusyId(null);
+          if (error?.code === '23505') {
+            setResult({ type: 'dup', message: `${e.person.name} — حضوره مسجل بالفعل في هذه المناسبة اليوم` });
+            return;
+          }
+          if (error) { setResult({ type: 'err', message: 'تعذر تسجيل الحضور، حاول مجدداً' }); return; }
+          patchEnrollment(e.id, { attendance_count: e.attendance_count + 1, points: e.points + effectiveEventPoints });
+          setAttendedSet((s) => new Set(s).add(e.id));
+          setEventCounts((c) => ({ ...c, [e.id]: (c[e.id] ?? 0) + 1 }));
+          setResult({
+            type: 'ok',
+            message: `تم تسجيل حضور ${e.person.name} ✔ (${className(e.class_id)}) +${effectiveEventPoints} نقطة`,
+          });
         } else {
-          setResult({ type: 'err', message: 'تعذر تسجيل الحضور، حاول مجدداً' });
+          // Remove the attendance entry of the WORKING DATE only
+          const workingDay = cairoToday(now());
+          setBusyId(e.id);
+          let query = supabase
+            .from('attendance_log')
+            .select('id')
+            .eq('enrollment_id', e.id)
+            .eq('attended_on', workingDay)
+            .order('created_at', { ascending: false })
+            .limit(1);
+          if (eventId) query = query.eq('event_id', eventId);
+          const { data: rows } = await query;
+          if (!rows || rows.length === 0) {
+            setBusyId(null);
+            setResult({
+              type: 'dup',
+              message: eventId
+                ? `${e.person.name} — لا يوجد حضور مسجل في هذه المناسبة في هذا اليوم`
+                : `${e.person.name} — لا يوجد حضور مسجل في هذا اليوم`,
+            });
+            return;
+          }
+          const { data: removed, error } = await supabase
+            .from('attendance_log')
+            .delete()
+            .eq('id', rows[0].id)
+            .select('points_delta')
+            .maybeSingle();
+          setBusyId(null);
+          if (error) { setResult({ type: 'err', message: 'تعذر إزالة الحضور، حاول مجدداً' }); return; }
+          const delta = (removed as { points_delta?: number } | null)?.points_delta ?? 0;
+          patchEnrollment(e.id, {
+            attendance_count: Math.max(0, e.attendance_count - 1),
+            points: e.points - delta,
+          });
+          setAttendedSet((s) => { const n = new Set(s); n.delete(e.id); return n; });
+          setEventCounts((c) => ({ ...c, [e.id]: Math.max(0, (c[e.id] ?? 1) - 1) }));
+          setResult({ type: 'ok', message: `تمت إزالة حضور ${e.person.name} (${className(e.class_id)})${delta ? ` −${delta} نقطة` : ''}` });
         }
-        return;
+      } else if (job === 'points') {
+        if (pointsMode === 'manual') {
+          // NEW: open the modal — name + points + number + add / subtract + cause
+          setResult(null);
+          setManualTarget(e);
+          return;
+        }
+        const ca = causes.find((x) => x.id === causeId);
+        if (!ca) { setResult({ type: 'err', message: 'اختر سبب النقاط أولاً' }); return; }
+        if (!scopeApplies(ca, e)) {
+          setResult({ type: 'err', message: `السبب المختار لا يشمل ${e.person.name}` });
+          return;
+        }
+        if (effectiveCausePoints === null) {
+          setResult({ type: 'err', message: 'حدد عدد النقاط أولاً — اضغط على شارة النقاط ⭐' });
+          setNumpadFor('cause');
+          return;
+        }
+        if (effectiveCausePoints === 0) return;
+        setBusyId(e.id);
+        const delta = (pointsMode === 'add' ? 1 : -1) * effectiveCausePoints;
+        const { error } = await supabase.from('points_log').insert({
+          enrollment_id: e.id,
+          cause_id: ca.id,
+          delta,
+          recorded_by: profile?.id,
+        });
+        setBusyId(null);
+        if (error) { setResult({ type: 'err', message: 'تعذر تسجيل النقاط، حاول مجدداً' }); return; }
+        patchEnrollment(e.id, { points: e.points + delta });
+        setResult({
+          type: 'ok',
+          message: `${e.person.name} — ${delta > 0 ? `+${delta}` : delta} نقطة (${ca.name}) → الرصيد ${e.points + delta}`,
+        });
+      } else if (job === 'data') {
+        setResult(null);
+        setDataTarget(e);
       }
-      setResult({ type: 'ok', message: `تم تسجيل حضور ${e.person.name} ✔ (${className(e.class_id)}) +${effectivePoints} نقطة` });
-      // refresh local counters in the visible search results
-      setFiltered((prev) =>
-        prev.map((x) =>
-          x.id === e.id
-            ? { ...x, attendance_count: x.attendance_count + 1, points: x.points + effectivePoints }
-            : x
-        )
-      );
     },
-    [supabase, profile, className, events, eventId, effectivePoints, now]
+    [
+      job, attendanceMode, pointsMode, events, eventId, causes, causeId,
+      effectiveEventPoints, effectiveCausePoints, supabase, profile, now,
+      className, patchEnrollment, remember,
+    ]
   );
 
-  // Scan flow: national id (QR) -> RPC -> that person's enrollments in my
-  // scope (RLS applies inside the RPC). One indexed lookup per scan.
+  // ---------- Scan flow: national id (QR) -> RPC -> enrollments in scope ----------
   const handleQr = useCallback(
     async (qrValue: string) => {
       const nationalId = qrValue.trim();
@@ -169,30 +438,45 @@ export default function ScannerPage() {
         setResult({ type: 'err', message: 'تعذر البحث عن الرقم القومي — تأكد من تشغيل تحديث قاعدة البيانات (0019)' });
         return;
       }
-      const mine = ((data ?? []) as EnrollmentWithPerson[]).filter((e) => e.person);
-      if (mine.length === 0) {
+      const all = ((data ?? []) as EnrollmentWithPerson[]).filter((e) => e.person);
+      if (all.length === 0) {
         setResult({ type: 'err', message: 'رقم قومي غير معروف أو الشخص غير مسجل في نطاق صلاحيتك' });
         return;
       }
-      if (mine.length === 1) {
-        await recordAttendance(mine[0]);
+      // Narrow to the selected church / service / class
+      const mine = all.filter(inScope);
+      if (mine.length === 0) {
+        setResult({
+          type: 'err',
+          message: `${all[0].person.name} غير مسجل في النطاق المختار (${all.map(scopeLabel).join(' / ')})`,
+        });
         return;
       }
-      // Person enrolled in multiple classes/services — let the servant pick
+      if (mine.length === 1) {
+        await doJob(mine[0]);
+        return;
+      }
+      // Enrolled in several classes / services — let the servant pick
       setResult(null);
       setPicker({ person: mine[0].person, options: mine });
     },
-    [supabase, recordAttendance]
+    [supabase, inScope, scopeLabel, doJob]
   );
 
-  // BarcodeDetector-based scanning loop (native, no deps)
+  // Keep the scanning loop pointed at the LATEST handler (job / mode may
+  // change while the camera is running). While a modal is open the camera
+  // keeps running but scans are ignored, so a second QR in frame can never
+  // hijack the open modal.
+  const modalOpen = !!manualTarget || !!dataTarget || !!picker || !!logTarget || numpadFor !== null;
+  const handleQrRef = useRef<(v: string) => Promise<void>>(handleQr);
+  handleQrRef.current = modalOpen ? async () => {} : handleQr;
+
+  // ---------- Camera (native BarcodeDetector) ----------
   const startCamera = async () => {
     setCameraError('');
     setResult(null);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' },
-      });
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -200,7 +484,11 @@ export default function ScannerPage() {
       }
       setCameraOn(true);
 
-      const BD = (window as unknown as { BarcodeDetector?: new (opts: { formats: string[] }) => { detect: (v: HTMLVideoElement) => Promise<{ rawValue: string }[]> } }).BarcodeDetector;
+      const BD = (window as unknown as {
+        BarcodeDetector?: new (opts: { formats: string[] }) => {
+          detect: (v: HTMLVideoElement) => Promise<{ rawValue: string }[]>;
+        };
+      }).BarcodeDetector;
       if (!BD) {
         setCameraError('المتصفح لا يدعم المسح المباشر — استخدم البحث اليدوي بالأسفل');
         return;
@@ -209,26 +497,30 @@ export default function ScannerPage() {
       scanningRef.current = true;
       let lastCode = '';
       let lastAt = 0;
+      let handling = false;
 
-      const tick = async () => {
+      const tickFrame = async () => {
         if (!scanningRef.current || !videoRef.current) return;
         try {
-          const codes = await detector.detect(videoRef.current);
-          if (codes.length > 0) {
-            const value = codes[0].rawValue;
-            const now = Date.now();
-            if (value !== lastCode || now - lastAt > 4000) {
-              lastCode = value;
-              lastAt = now;
-              await handleQr(value);
+          if (!handling) {
+            const codes = await detector.detect(videoRef.current);
+            if (codes.length > 0) {
+              const value = codes[0].rawValue;
+              const t = Date.now();
+              if (value !== lastCode || t - lastAt > 4000) {
+                lastCode = value;
+                lastAt = t;
+                handling = true;
+                try { await handleQrRef.current(value); } finally { handling = false; }
+              }
             }
           }
         } catch {
           /* frame not ready */
         }
-        if (scanningRef.current) requestAnimationFrame(tick);
+        if (scanningRef.current) requestAnimationFrame(tickFrame);
       };
-      requestAnimationFrame(tick);
+      requestAnimationFrame(tickFrame);
     } catch {
       setCameraError('تعذر فتح الكاميرا — تأكد من منح الإذن أو استخدم البحث اليدوي');
     }
@@ -240,71 +532,406 @@ export default function ScannerPage() {
     streamRef.current = null;
     setCameraOn(false);
   }, []);
-
   useEffect(() => stopCamera, [stopCamera]);
+
+  // ---------- Card tone + per-person job button (mirrors the children page) ----------
+  const cardTone = (e: EnrollmentWithPerson): string => {
+    if (job !== 'attendance' || !selectedEvent || !scopeApplies(selectedEvent, e)) return 'bg-white';
+    if (attendedSet.has(e.id)) return 'bg-emerald-50';
+    if (phase === 'after') return 'bg-red-50';
+    return 'bg-white';
+  };
+
+  const jobButton = (e: EnrollmentWithPerson) => {
+    if (busyId === e.id) return <Loader2 className="h-6 w-6 animate-spin text-primary-500" />;
+    if (job === 'attendance') {
+      const present = !!selectedEvent && scopeApplies(selectedEvent, e) && attendedSet.has(e.id);
+      if (attendanceMode === 'add') {
+        const forbidden = !!selectedEvent && !!eventAvail && !eventAvail.ok;
+        return (
+          <button
+            id={`job-btn-${e.id}`}
+            aria-label={present ? 'حاضر بالفعل' : 'تسجيل حضور'}
+            aria-pressed={present}
+            onClick={() => doJob(e)}
+            disabled={forbidden}
+            title={forbidden ? eventAvail?.reason ?? undefined : undefined}
+            className={`flex h-10 w-10 items-center justify-center rounded-full shadow transition active:scale-95 ${
+              forbidden
+                ? 'cursor-not-allowed bg-slate-100 text-slate-300 shadow-none'
+                : present
+                  ? 'bg-emerald-500 text-white hover:bg-emerald-600'
+                  : 'bg-emerald-50 text-emerald-400 hover:bg-emerald-100'
+            }`}
+          >
+            <Check className="h-5 w-5" />
+          </button>
+        );
+      }
+      return (
+        <button
+          id={`job-btn-${e.id}`}
+          aria-label={present ? 'إزالة حضور' : 'غير حاضر بالفعل'}
+          aria-pressed={!present}
+          onClick={() => doJob(e)}
+          className={`flex h-10 w-10 items-center justify-center rounded-full shadow transition active:scale-95 ${
+            present ? 'bg-red-50 text-red-300 hover:bg-red-100' : 'bg-red-500 text-white hover:bg-red-600'
+          }`}
+        >
+          <X className="h-5 w-5" />
+        </button>
+      );
+    }
+    if (job === 'points') {
+      if (pointsMode === 'manual') {
+        return (
+          <button
+            id={`job-btn-${e.id}`}
+            aria-label="نقاط يدوية"
+            onClick={() => doJob(e)}
+            className="flex h-10 w-10 items-center justify-center rounded-full bg-gold-500 text-white shadow transition hover:bg-gold-600 active:scale-95"
+          >
+            <Calculator className="h-5 w-5" />
+          </button>
+        );
+      }
+      const add = pointsMode === 'add';
+      return (
+        <button
+          id={`job-btn-${e.id}`}
+          aria-label={add ? 'إضافة نقاط' : 'خصم نقاط'}
+          onClick={() => doJob(e)}
+          className={`flex h-10 w-10 items-center justify-center rounded-full text-white shadow transition active:scale-95 ${
+            add ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-red-500 hover:bg-red-600'
+          }`}
+        >
+          {add ? <Plus className="h-5 w-5" /> : <Minus className="h-5 w-5" />}
+        </button>
+      );
+    }
+    // data
+    const tone =
+      dataMode === 'view'
+        ? 'bg-primary-600 hover:bg-primary-700'
+        : dataMode === 'edit'
+          ? 'bg-amber-500 hover:bg-amber-600'
+          : 'bg-red-500 hover:bg-red-600';
+    return (
+      <button
+        id={`job-btn-${e.id}`}
+        aria-label={dataMode === 'view' ? 'عرض البيانات' : dataMode === 'edit' ? 'تعديل البيانات' : 'حذف الطفل'}
+        onClick={() => doJob(e)}
+        className={`flex h-10 w-10 items-center justify-center rounded-full text-white shadow transition active:scale-95 ${tone}`}
+      >
+        {dataMode === 'view' ? <Eye className="h-5 w-5" /> : dataMode === 'edit' ? <Pencil className="h-5 w-5" /> : <Trash2 className="h-5 w-5" />}
+      </button>
+    );
+  };
+
+  // One person row — identical layout to the children page card
+  const personRow = (e: EnrollmentWithPerson) => (
+    <li key={e.id} className={`card flex items-center justify-between gap-3 !py-3 transition-colors duration-300 ${cardTone(e)}`}>
+      <div className="min-w-0 flex-1">
+        <p className="font-extrabold truncate">{e.person.name}</p>
+        <p className="text-[11px] text-slate-400 truncate">{scopeLabel(e)}</p>
+        <div className="mt-1.5 flex gap-2">
+          <button
+            id={`att-badge-${e.id}`}
+            type="button"
+            aria-label={selectedEvent ? `سجل الحضور — ${selectedEvent.name}` : 'سجل الحضور — كل المناسبات'}
+            onClick={() => setLogTarget({ kind: 'attendance', e })}
+            className="badge-btn bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
+          >
+            <CalendarCheck className="h-3.5 w-3.5" /> {attendanceShown(e)}
+          </button>
+          <button
+            id={`pts-badge-${e.id}`}
+            type="button"
+            aria-label="سجل النقاط"
+            onClick={() => setLogTarget({ kind: 'points', e })}
+            className="badge-btn bg-gold-100 text-gold-600 hover:bg-gold-200"
+          >
+            <Star className="h-3.5 w-3.5" /> {e.points}
+          </button>
+        </div>
+      </div>
+      <div className="shrink-0">{jobButton(e)}</div>
+    </li>
+  );
+
+  const jobLabel = SCANNER_JOBS.find((j) => j.value === job)?.label ?? '';
 
   return (
     <AppShell>
       <section id="scanner-header" className="mb-4">
         <h2 className="flex items-center gap-2 text-lg font-extrabold">
           <ScanLine className="h-5 w-5 text-primary-600" />
-          الماسح — تسجيل الحضور
+          الماسح — {jobLabel}
         </h2>
-        <p className="text-xs text-slate-500 mt-1">
-          اختر المناسبة ثم امسح الرقم القومي (QR)، أو ابحث يدوياً — النقاط حسب المناسبة والمواعيد بتوقيت القاهرة
+        <p className="mt-1 text-xs text-slate-500">
+          اختر النطاق والوظيفة ثم امسح الرقم القومي (QR) أو ابحث يدوياً — تُنفَّذ الوظيفة المختارة على المخدوم فور مسحه
         </p>
       </section>
 
-      {/* Event selector — attendance is registered against an event */}
-      <section id="event-select-section" className="card mb-4 flex items-center gap-2 !py-3">
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-50">
-          <CalendarDays className="h-5 w-5 text-violet-500" />
-        </span>
-        <select
-          id="scanner-event-selector"
-          aria-label="اختيار المناسبة"
-          className="input-field flex-1 appearance-none text-sm font-bold"
-          value={eventId}
-          onChange={(e) => { setEventId(e.target.value); setResult(null); }}
-        >
-          <option value="">اختر المناسبة *</option>
-          {events.map((ev) => (
-            <option key={ev.id} value={ev.id}>
-              {ev.name} — {describeEventSchedule(ev)}
-            </option>
-          ))}
-        </select>
-        {selectedEvent && (
-          <button
-            id="scanner-points-badge"
-            type="button"
-            disabled={selectedEvent.points_mode === 'fixed'}
-            onClick={() => setNumpadOpen(true)}
-            className={`shrink-0 flex items-center gap-1 rounded-xl px-3 py-2 text-sm font-extrabold transition ${
-              selectedEvent.points_mode === 'fixed'
-                ? 'bg-slate-100 text-slate-500'
-                : 'bg-gold-400 text-white shadow active:scale-95'
+      {/* ---------- Control panel — same as the children page ---------- */}
+      <div id="control-zone" className="mb-4">
+        {/* Row 1: scope selectors (church / service / class) */}
+        <div className="mb-2 grid grid-cols-3 gap-2">
+          <select
+            id="church-selector"
+            aria-label="اختيار الكنيسة"
+            className="input-field appearance-none !px-2 text-xs font-bold"
+            value={churchFilter}
+            onChange={(e) => onChurchChange(e.target.value)}
+            disabled={churches.length <= 1}
+          >
+            <option value={ALL}>{churches.length === 1 ? churches[0].name : 'كل الكنائس'}</option>
+            {churches.length > 1 && churches.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          <select
+            id="service-selector"
+            aria-label="اختيار الخدمة"
+            className="input-field appearance-none !px-2 text-xs font-bold"
+            value={serviceFilter}
+            onChange={(e) => onServiceChange(e.target.value)}
+            disabled={visibleServices.length <= 1}
+          >
+            <option value={ALL}>{visibleServices.length === 1 ? visibleServices[0].name : 'كل الخدمات'}</option>
+            {visibleServices.length > 1 && visibleServices.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+          <select
+            id="class-selector"
+            aria-label="اختيار الفصل"
+            className="input-field appearance-none !px-2 text-xs font-bold"
+            value={classFilter}
+            onChange={(e) => setClassFilter(e.target.value)}
+            disabled={visibleClasses.length <= 1}
+          >
+            <option value={ALL}>{visibleClasses.length === 1 ? visibleClasses[0].name : 'كل الفصول'}</option>
+            {visibleClasses.length > 1 && visibleClasses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+
+        {/* Row 2: job selector */}
+        <div className="mb-2">
+          <select
+            id="job-selector"
+            aria-label="اختيار الوظيفة"
+            className="input-field appearance-none text-sm font-bold"
+            value={job}
+            onChange={(e) => { setJob(e.target.value as ScannerJob); setResult(null); }}
+          >
+            {SCANNER_JOBS.map((j) => <option key={j.value} value={j.value}>{j.label}</option>)}
+          </select>
+        </div>
+
+        {/* Row 3: event/cause selector + mode buttons */}
+        <div className="mb-2 flex items-stretch gap-2">
+          {job === 'attendance' && (
+            <>
+              <select
+                id="event-selector"
+                aria-label="اختيار المناسبة"
+                className="input-field !w-1/2 min-w-0 shrink-0 appearance-none !px-2 text-xs font-bold"
+                value={eventId}
+                onChange={(e) => { setEventId(e.target.value); setResult(null); }}
+              >
+                <option value="">{attendanceMode === 'add' ? 'اختر المناسبة *' : 'كل المناسبات (آخر حضور)'}</option>
+                {visibleEvents.map((ev) => (
+                  <option key={ev.id} value={ev.id}>{ev.name} — {describeEventSchedule(ev)}</option>
+                ))}
+              </select>
+              <button
+                id="att-mode-add"
+                aria-label="وضع تسجيل الحضور"
+                aria-pressed={attendanceMode === 'add'}
+                onClick={() => setAttendanceMode('add')}
+                className={`flex h-10 flex-1 items-center justify-center rounded-xl transition active:scale-95 ${
+                  attendanceMode === 'add' ? 'bg-emerald-500 text-white shadow ring-2 ring-emerald-300' : 'bg-emerald-50 text-emerald-500'
+                }`}
+              >
+                <Check className="h-5 w-5" />
+              </button>
+              <button
+                id="att-mode-remove"
+                aria-label="وضع إزالة الحضور"
+                aria-pressed={attendanceMode === 'remove'}
+                onClick={() => setAttendanceMode('remove')}
+                className={`flex h-10 flex-1 items-center justify-center rounded-xl transition active:scale-95 ${
+                  attendanceMode === 'remove' ? 'bg-red-500 text-white shadow ring-2 ring-red-300' : 'bg-red-50 text-red-500'
+                }`}
+              >
+                <X className="h-5 w-5" />
+              </button>
+              <button
+                id="event-points-badge"
+                type="button"
+                aria-label="نقاط المناسبة"
+                disabled={!selectedEvent || selectedEvent.points_mode === 'fixed'}
+                onClick={() => setNumpadFor('event')}
+                className={`flex h-10 flex-1 items-center justify-center gap-1 rounded-xl px-2 text-sm font-extrabold transition ${
+                  selectedEvent && selectedEvent.points_mode !== 'fixed'
+                    ? 'bg-gold-400 text-white shadow ring-2 ring-gold-200 active:scale-95'
+                    : 'bg-gold-100 text-gold-600'
+                }`}
+              >
+                <Star className="h-4 w-4" />
+                {!selectedEvent ? '—' : effectiveEventPoints === null ? '؟' : effectiveEventPoints}
+              </button>
+            </>
+          )}
+
+          {job === 'points' && (
+            <>
+              <select
+                id="cause-selector"
+                aria-label="اختيار سبب النقاط"
+                className="input-field !w-1/2 min-w-0 shrink-0 appearance-none !px-2 text-xs font-bold"
+                value={causeId}
+                onChange={(e) => { setCauseId(e.target.value); setResult(null); }}
+              >
+                <option value="">{pointsMode === 'manual' ? 'السبب الافتراضي (اختياري)' : 'اختر سبب النقاط *'}</option>
+                {visibleCauses.map((ca) => (
+                  <option key={ca.id} value={ca.id}>
+                    {ca.name}{ca.points_mode !== 'open' ? ` — ${ca.points} نقطة` : ''}
+                  </option>
+                ))}
+              </select>
+              <button
+                id="pts-mode-add"
+                aria-label="وضع إضافة النقاط"
+                aria-pressed={pointsMode === 'add'}
+                onClick={() => setPointsMode('add')}
+                className={`flex h-10 flex-1 items-center justify-center rounded-xl transition active:scale-95 ${
+                  pointsMode === 'add' ? 'bg-emerald-500 text-white shadow ring-2 ring-emerald-300' : 'bg-emerald-50 text-emerald-500'
+                }`}
+              >
+                <Plus className="h-5 w-5" />
+              </button>
+              <button
+                id="pts-mode-subtract"
+                aria-label="وضع خصم النقاط"
+                aria-pressed={pointsMode === 'subtract'}
+                onClick={() => setPointsMode('subtract')}
+                className={`flex h-10 flex-1 items-center justify-center rounded-xl transition active:scale-95 ${
+                  pointsMode === 'subtract' ? 'bg-red-500 text-white shadow ring-2 ring-red-300' : 'bg-red-50 text-red-500'
+                }`}
+              >
+                <Minus className="h-5 w-5" />
+              </button>
+              {/* NEW: manual mode — scanning opens the points modal */}
+              <button
+                id="pts-mode-manual"
+                aria-label="وضع النقاط اليدوي — نافذة عند المسح"
+                aria-pressed={pointsMode === 'manual'}
+                onClick={() => setPointsMode('manual')}
+                className={`flex h-10 flex-1 items-center justify-center rounded-xl transition active:scale-95 ${
+                  pointsMode === 'manual' ? 'bg-gold-500 text-white shadow ring-2 ring-gold-300' : 'bg-gold-50 text-gold-600'
+                }`}
+              >
+                <Calculator className="h-5 w-5" />
+              </button>
+              {pointsMode !== 'manual' && (
+                <button
+                  id="cause-points-badge"
+                  type="button"
+                  aria-label="نقاط السبب"
+                  disabled={!selectedCause || selectedCause.points_mode === 'fixed'}
+                  onClick={() => setNumpadFor('cause')}
+                  className={`flex h-10 flex-1 items-center justify-center gap-1 rounded-xl px-2 text-sm font-extrabold transition ${
+                    selectedCause && selectedCause.points_mode !== 'fixed'
+                      ? 'bg-gold-400 text-white shadow ring-2 ring-gold-200 active:scale-95'
+                      : 'bg-gold-100 text-gold-600'
+                  }`}
+                >
+                  <Star className="h-4 w-4" />
+                  {!selectedCause ? '—' : effectiveCausePoints === null ? '؟' : effectiveCausePoints}
+                </button>
+              )}
+            </>
+          )}
+
+          {job === 'data' && (
+            <>
+              <button
+                id="data-mode-view"
+                aria-label="عرض البيانات"
+                aria-pressed={dataMode === 'view'}
+                onClick={() => setDataMode('view')}
+                className={`flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl text-xs font-extrabold transition active:scale-95 ${
+                  dataMode === 'view' ? 'bg-primary-600 text-white shadow ring-2 ring-primary-300' : 'bg-primary-50 text-primary-600'
+                }`}
+              >
+                <Eye className="h-4 w-4" /> عرض
+              </button>
+              <button
+                id="data-mode-edit"
+                aria-label="تعديل البيانات"
+                aria-pressed={dataMode === 'edit'}
+                onClick={() => setDataMode('edit')}
+                className={`flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl text-xs font-extrabold transition active:scale-95 ${
+                  dataMode === 'edit' ? 'bg-amber-500 text-white shadow ring-2 ring-amber-300' : 'bg-amber-50 text-amber-600'
+                }`}
+              >
+                <Pencil className="h-4 w-4" /> تعديل
+              </button>
+              <button
+                id="data-mode-delete"
+                aria-label="حذف الطفل"
+                aria-pressed={dataMode === 'delete'}
+                onClick={() => setDataMode('delete')}
+                className={`flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl text-xs font-extrabold transition active:scale-95 ${
+                  dataMode === 'delete' ? 'bg-red-500 text-white shadow ring-2 ring-red-300' : 'bg-red-50 text-red-500'
+                }`}
+              >
+                <Trash2 className="h-4 w-4" /> حذف
+              </button>
+            </>
+          )}
+        </div>
+
+        {/* Hints / warnings */}
+        {attendanceForbidden && eventAvail && (
+          <p id="event-time-warning" className="mb-2 rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-600">
+            ⛔ ممنوع تسجيل الحضور — {eventAvail.reason}
+          </p>
+        )}
+        {job === 'attendance' && visibleEvents.length === 0 && (
+          <p className="mb-2 rounded-xl bg-violet-50 px-3 py-2 text-xs font-bold text-violet-600">
+            لا توجد مناسبات — أضف مناسبة من الإعدادات ← إدارة المناسبات
+          </p>
+        )}
+        {job === 'points' && visibleCauses.length === 0 && (
+          <p className="mb-2 rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-600">
+            لا توجد أسباب — أضف سبباً من الإعدادات ← إدارة أسباب النقاط
+          </p>
+        )}
+        {job === 'points' && pointsMode === 'manual' && (
+          <p id="manual-points-hint" className="mb-2 flex items-center gap-1.5 rounded-xl bg-gold-50 px-3 py-2 text-xs font-bold text-gold-600">
+            <Calculator className="h-3.5 w-3.5 shrink-0" />
+            عند مسح المخدوم تُفتح نافذة باسمه ورصيده — اكتب عدد النقاط واختر السبب ثم اضغط إضافة أو خصم
+          </p>
+        )}
+        {job === 'data' && (
+          <p
+            id="data-mode-hint"
+            className={`mb-2 flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold ${
+              dataMode === 'delete' ? 'bg-red-50 text-red-600' : dataMode === 'edit' ? 'bg-amber-50 text-amber-600' : 'bg-primary-50 text-primary-600'
             }`}
           >
-            <Star className="h-4 w-4" />
-            {effectivePoints ?? '؟'}
-          </button>
+            <Database className="h-3.5 w-3.5 shrink-0" />
+            {dataMode === 'view'
+              ? 'امسح المخدوم لعرض بياناته الكاملة مع كود QR وكل تسجيلاته'
+              : dataMode === 'edit'
+                ? 'امسح المخدوم لتعديل بياناته الشخصية'
+                : 'امسح المخدوم لحذفه — من الفصل والخدمة والكنيسة أو حذفًا نهائيًا من قاعدة البيانات'}
+          </p>
         )}
-      </section>
-      {attendanceForbidden && scannerAvail && (
-        <p id="scanner-event-time-warning" className="mb-4 rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-600">
-          ⛔ ممنوع تسجيل الحضور — {scannerAvail.reason}
-        </p>
-      )}
-      {events.length === 0 && (
-        <p className="mb-4 rounded-xl bg-violet-50 px-3 py-2 text-xs font-bold text-violet-600">
-          لا توجد مناسبات — أضف مناسبة من الإعدادات ← إدارة المناسبات
-        </p>
-      )}
+      </div>
 
-      {/* Camera area */}
+      {/* ---------- Camera ---------- */}
       <section id="camera-section" className="card mb-4 overflow-hidden !p-0">
-        <div className="relative aspect-[4/3] bg-slate-900 flex items-center justify-center">
+        <div className="relative flex aspect-[4/3] items-center justify-center bg-slate-900">
           <video ref={videoRef} className={`h-full w-full object-cover ${cameraOn ? '' : 'hidden'}`} muted playsInline />
           {!cameraOn && (
             <div className="text-center text-slate-400">
@@ -320,14 +947,14 @@ export default function ScannerPage() {
         </div>
         <div className="p-3">
           {cameraError && (
-            <p className="mb-2 rounded-xl bg-gold-50 px-3 py-2 text-xs font-bold text-gold-600 flex items-center gap-1">
+            <p className="mb-2 flex items-center gap-1 rounded-xl bg-gold-50 px-3 py-2 text-xs font-bold text-gold-600">
               <AlertCircle className="h-4 w-4 shrink-0" /> {cameraError}
             </p>
           )}
           <button
             id="camera-toggle"
             onClick={cameraOn ? stopCamera : startCamera}
-            className={`w-full flex items-center justify-center gap-2 ${cameraOn ? 'btn-secondary' : 'btn-primary'}`}
+            className={`flex w-full items-center justify-center gap-2 ${cameraOn ? 'btn-secondary' : 'btn-primary'}`}
           >
             {cameraOn ? <CameraOff className="h-5 w-5" /> : <Camera className="h-5 w-5" />}
             {cameraOn ? 'إيقاف الكاميرا' : 'تشغيل الكاميرا'}
@@ -335,79 +962,71 @@ export default function ScannerPage() {
         </div>
       </section>
 
-      {/* Result banner */}
+      {/* ---------- Result banner ---------- */}
       {result && (
         <div
           id="scan-result"
           className={`mb-4 flex items-center gap-2 rounded-2xl px-4 py-3 font-bold ${
-            result.type === 'ok'
-              ? 'bg-emerald-100 text-emerald-700'
-              : result.type === 'dup'
-              ? 'bg-gold-100 text-gold-600'
-              : 'bg-red-100 text-red-600'
+            result.type === 'ok' ? 'bg-emerald-100 text-emerald-700' : result.type === 'dup' ? 'bg-gold-100 text-gold-600' : 'bg-red-100 text-red-600'
           }`}
         >
-          {result.type === 'ok' ? (
-            <CheckCircle2 className="h-5 w-5 shrink-0" />
-          ) : (
-            <AlertCircle className="h-5 w-5 shrink-0" />
-          )}
+          {result.type === 'ok' ? <CheckCircle2 className="h-5 w-5 shrink-0" /> : <AlertCircle className="h-5 w-5 shrink-0" />}
           <span className="text-sm">{result.message}</span>
         </div>
       )}
 
-      {/* Multi-enrollment picker: person is registered in several classes */}
+      {/* ---------- Multi-enrollment picker ---------- */}
       {picker && (
         <div id="enrollment-picker" className="card mb-4">
           <p className="mb-2 text-sm font-extrabold text-slate-700">
-            {picker.person.name} مسجل في أكثر من فصل — اختر مكان تسجيل الحضور:
+            {picker.person.name} مسجل في أكثر من مكان — اختر التسجيل المطلوب:
           </p>
           <ul className="space-y-2">
             {picker.options.map((e) => (
               <li key={e.id}>
                 <button
-                  onClick={() => recordAttendance(e)}
-                  disabled={busy || attendanceForbidden}
-                  title={attendanceForbidden ? scannerAvail?.reason ?? undefined : undefined}
-                  className={`w-full flex items-center justify-between !py-2.5 ${
+                  onClick={() => doJob(e)}
+                  disabled={busyId === e.id || attendanceForbidden}
+                  title={attendanceForbidden ? eventAvail?.reason ?? undefined : undefined}
+                  className={`flex w-full items-center justify-between !py-2.5 ${
                     attendanceForbidden ? 'btn-secondary opacity-50 !text-slate-400' : 'btn-secondary'
                   }`}
                 >
-                  <span className="flex items-center gap-2 text-sm font-bold">
-                    <School className="h-4 w-4 text-primary-600" />
-                    {className(e.class_id)}
+                  <span className="flex min-w-0 items-center gap-2 text-sm font-bold">
+                    <School className="h-4 w-4 shrink-0 text-primary-600" />
+                    <span className="truncate">{scopeLabel(e)}</span>
                   </span>
-                  <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                  <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
                 </button>
               </li>
             ))}
           </ul>
-          <button
-            onClick={() => setPicker(null)}
-            className="mt-2 w-full text-xs font-bold text-slate-400"
-          >
-            إلغاء
-          </button>
+          <button onClick={() => setPicker(null)} className="mt-2 w-full text-xs font-bold text-slate-400">إلغاء</button>
         </div>
       )}
 
-      {numpadOpen && selectedEvent && (
-        <NumPadModal
-          title={`نقاط ${selectedEvent.name}`}
-          initial={effectivePoints ?? 0}
-          onConfirm={(v) => { setPtsOverride(v); setNumpadOpen(false); }}
-          onClose={() => setNumpadOpen(false)}
-        />
+      {/* ---------- Recent scans ---------- */}
+      {recent.length > 0 && (
+        <section id="recent-section" className="mb-4">
+          <div className="mb-2 flex items-center justify-between">
+            <h3 className="flex items-center gap-1.5 text-sm font-extrabold text-slate-500">
+              <History className="h-4 w-4" /> آخر المخدومين الممسوحين
+              <span className="badge bg-primary-100 text-primary-700">{recent.length}</span>
+            </h3>
+            <button onClick={() => setRecent([])} className="text-xs font-bold text-slate-400 hover:text-red-500">مسح القائمة</button>
+          </div>
+          <ul className="space-y-2">{recent.map(personRow)}</ul>
+        </section>
       )}
 
-      {/* Manual search */}
+      {/* ---------- Manual search (scoped) ---------- */}
       <section id="manual-section">
-        <h3 className="mb-2 text-sm font-extrabold text-slate-500">تسجيل يدوي</h3>
+        <h3 className="mb-2 text-sm font-extrabold text-slate-500">بحث يدوي</h3>
         <div className="relative mb-3">
           {searching ? (
-            <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-primary-500" />
+            <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-primary-500" />
           ) : (
-            <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+            <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           )}
           <input
             id="manual-search"
@@ -417,30 +1036,230 @@ export default function ScannerPage() {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <ul className="space-y-2">
-          {filtered.map((e) => (
-            <li key={e.id} className="card flex items-center justify-between gap-2 !py-3">
-              <div className="min-w-0">
-                <p className="font-bold truncate">{e.person.name}</p>
-                <p className="text-xs text-slate-400 flex items-center gap-1">
-                  <Star className="h-3 w-3 text-gold-500" /> {e.points} نقطة — {e.attendance_count} حضور — {className(e.class_id)}
-                </p>
-              </div>
-              <button
-                onClick={() => recordAttendance(e)}
-                disabled={busy || attendanceForbidden}
-                title={attendanceForbidden ? scannerAvail?.reason ?? undefined : undefined}
-                className={`!py-2 !px-3 text-sm shrink-0 flex items-center gap-1 ${
-                  attendanceForbidden ? 'btn-secondary opacity-50 !text-slate-400' : 'btn-primary'
-                }`}
-              >
-                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                حضور
-              </button>
-            </li>
-          ))}
-        </ul>
+        {search.trim() && !searching && searchRows.length === 0 && (
+          <p className="card py-6 text-center text-sm font-bold text-slate-400">لا توجد نتائج في النطاق المختار</p>
+        )}
+        <ul className="space-y-2">{searchRows.map(personRow)}</ul>
       </section>
+
+      {/* ---------- NumPads ---------- */}
+      {numpadFor === 'event' && selectedEvent && (
+        <NumPadModal
+          title={`نقاط «${selectedEvent.name}»`}
+          initial={effectiveEventPoints ?? selectedEvent.points}
+          onConfirm={(v) => { setEventPtsOverride(v); setNumpadFor(null); }}
+          onClose={() => setNumpadFor(null)}
+        />
+      )}
+      {numpadFor === 'cause' && selectedCause && (
+        <NumPadModal
+          title={`نقاط «${selectedCause.name}»`}
+          initial={effectiveCausePoints ?? selectedCause.points}
+          onConfirm={(v) => { setCausePtsOverride(v); setNumpadFor(null); }}
+          onClose={() => setNumpadFor(null)}
+        />
+      )}
+
+      {/* ---------- NEW: manual points modal ---------- */}
+      {manualTarget && (
+        <ManualPointsModal
+          enrollment={manualTarget}
+          causes={visibleCauses.filter((ca) => scopeApplies(ca, manualTarget))}
+          defaultCauseId={causeId}
+          recorderId={profile?.id ?? null}
+          onDone={(delta, cause) => {
+            patchEnrollment(manualTarget.id, { points: manualTarget.points + delta });
+            setResult({
+              type: 'ok',
+              message: `${manualTarget.person.name} — ${delta > 0 ? `+${delta}` : delta} نقطة (${cause.name}) → الرصيد ${manualTarget.points + delta}`,
+            });
+            setManualTarget(null);
+          }}
+          onClose={() => setManualTarget(null)}
+        />
+      )}
+
+      {/* ---------- Log modals ---------- */}
+      {logTarget?.kind === 'attendance' && (
+        <AttendanceLogModal enrollment={logTarget.e} events={events} selectedEvent={selectedEvent} onClose={() => setLogTarget(null)} />
+      )}
+      {logTarget?.kind === 'points' && (
+        <PointsLogModal enrollment={logTarget.e} causes={causes} events={events} onClose={() => setLogTarget(null)} />
+      )}
+
+      {/* ---------- البيانات modals ---------- */}
+      {dataTarget && dataMode === 'view' && (
+        <ViewPersonModal enrollment={dataTarget} churches={churches} services={services} classes={classes} onClose={() => setDataTarget(null)} />
+      )}
+      {dataTarget && dataMode === 'edit' && (
+        <EditPersonModal
+          enrollment={dataTarget}
+          onSaved={async () => {
+            // Re-read the edited person so the recent card shows the new data
+            const { data } = await supabase.from('persons').select('*').eq('id', dataTarget.person_id).maybeSingle();
+            if (data) patchEnrollment(dataTarget.id, { person: data as Person });
+            setResult({ type: 'ok', message: `تم حفظ بيانات ${(data as Person | null)?.name ?? dataTarget.person.name} ✔` });
+          }}
+          onClose={() => setDataTarget(null)}
+        />
+      )}
+      {dataTarget && dataMode === 'delete' && (
+        <DeletePersonModal
+          enrollment={dataTarget}
+          churches={churches}
+          services={services}
+          classes={classes}
+          onDeleted={() => {
+            setRecent((prev) => prev.filter((x) => x.id !== dataTarget.id));
+            setSearchRows((prev) => prev.filter((x) => x.id !== dataTarget.id));
+            setResult({ type: 'ok', message: `تم حذف ${dataTarget.person.name}` });
+          }}
+          onClose={() => setDataTarget(null)}
+        />
+      )}
     </AppShell>
+  );
+}
+
+// =====================================================================
+// Manual points modal — opened when a child is scanned in "يدوي" mode.
+// Shows the child's name + current balance, a cause dropdown, a number
+// field, and ADD / SUBTRACT buttons that apply the written number.
+// =====================================================================
+function ManualPointsModal({
+  enrollment, causes, defaultCauseId, recorderId, onDone, onClose,
+}: {
+  enrollment: EnrollmentWithPerson;
+  causes: Cause[];
+  defaultCauseId: string;
+  recorderId: string | null;
+  onDone: (delta: number, cause: Cause) => void;
+  onClose: () => void;
+}) {
+  const supabase = createClient();
+  const initialCause = causes.find((c) => c.id === defaultCauseId) ?? causes[0] ?? null;
+  const [causeId, setCauseId] = useState<string>(initialCause?.id ?? '');
+  const cause = causes.find((c) => c.id === causeId) ?? null;
+  const [amount, setAmount] = useState<string>(
+    initialCause && initialCause.points_mode !== 'open' ? String(initialCause.points) : ''
+  );
+  const [busy, setBusy] = useState<'add' | 'subtract' | null>(null);
+  const [error, setError] = useState('');
+
+  // Changing the cause pre-fills its bound number (fixed → locked)
+  const pickCause = (id: string) => {
+    setCauseId(id);
+    const c = causes.find((x) => x.id === id);
+    setAmount(c && c.points_mode !== 'open' ? String(c.points) : '');
+    setError('');
+  };
+
+  const locked = !!cause && cause.points_mode === 'fixed';
+  const n = Math.max(0, parseInt(amount, 10) || 0);
+  const canSubmit = !!cause && n > 0 && !busy;
+
+  const submit = async (mode: 'add' | 'subtract') => {
+    if (!cause) { setError('اختر سبب النقاط'); return; }
+    if (n <= 0) { setError('اكتب عدد النقاط'); return; }
+    setBusy(mode);
+    setError('');
+    const delta = (mode === 'add' ? 1 : -1) * n;
+    const { error: err } = await supabase.from('points_log').insert({
+      enrollment_id: enrollment.id,
+      cause_id: cause.id,
+      delta,
+      recorded_by: recorderId,
+    });
+    setBusy(null);
+    if (err) { setError('تعذر تسجيل النقاط، حاول مجدداً'); return; }
+    onDone(delta, cause);
+  };
+
+  return (
+    <ModalFrame title="النقاط" icon={<Calculator className="h-5 w-5 text-gold-500" />} onClose={onClose}>
+      {/* Child name + current balance */}
+      <div className="mb-4 flex items-center gap-3 rounded-2xl bg-slate-50 px-3 py-3">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary-600 to-accent-600 text-white">
+          <Star className="h-5 w-5" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p id="manual-points-name" className="truncate text-base font-extrabold">{enrollment.person.name}</p>
+          <p className="text-xs font-bold text-slate-500">الرصيد الحالي</p>
+        </div>
+        <span id="manual-points-balance" className="badge-btn bg-gold-100 text-gold-600 !text-base !px-3 !py-1.5">
+          <Star className="h-4 w-4" /> {enrollment.points}
+        </span>
+      </div>
+
+      {/* Number of points */}
+      <label className="mb-1 block text-xs font-bold text-slate-500">عدد النقاط</label>
+      <input
+        id="manual-points-amount"
+        type="text"
+        inputMode="numeric"
+        pattern="[0-9]*"
+        className={`input-field mb-3 text-center !text-2xl font-extrabold tabular-nums ${locked ? 'bg-slate-50 text-slate-500' : ''}`}
+        placeholder="0"
+        value={amount}
+        disabled={locked}
+        onChange={(e) => { setAmount(e.target.value.replace(/\D/g, '').slice(0, 4)); setError(''); }}
+        autoFocus={!locked}
+      />
+      {locked && (
+        <p className="-mt-2 mb-3 text-[11px] font-bold text-slate-400">هذا السبب نقاطه ثابتة — لا يمكن تغيير العدد</p>
+      )}
+
+      {/* Cause */}
+      <label className="mb-1 block text-xs font-bold text-slate-500">سبب النقاط</label>
+      <select
+        id="manual-points-cause"
+        className="input-field mb-4 appearance-none text-sm font-bold"
+        value={causeId}
+        onChange={(e) => pickCause(e.target.value)}
+      >
+        <option value="">اختر سبب النقاط *</option>
+        {causes.map((ca) => (
+          <option key={ca.id} value={ca.id}>
+            {ca.name}{ca.points_mode !== 'open' ? ` — ${ca.points} نقطة` : ''}
+          </option>
+        ))}
+      </select>
+      {causes.length === 0 && (
+        <p className="mb-3 rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-600">
+          لا توجد أسباب تشمل هذا المخدوم — أضف سبباً من الإعدادات ← إدارة أسباب النقاط
+        </p>
+      )}
+
+      {error && <p className="mb-3 rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-600">{error}</p>}
+
+      {/* Add / subtract the written number */}
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          id="manual-points-add"
+          type="button"
+          disabled={!canSubmit}
+          onClick={() => submit('add')}
+          className="flex items-center justify-center gap-2 rounded-xl bg-emerald-500 py-3 font-extrabold text-white shadow transition hover:bg-emerald-600 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {busy === 'add' ? <Loader2 className="h-5 w-5 animate-spin" /> : <Plus className="h-5 w-5" />}
+          إضافة {n > 0 ? n : ''}
+        </button>
+        <button
+          id="manual-points-subtract"
+          type="button"
+          disabled={!canSubmit}
+          onClick={() => submit('subtract')}
+          className="flex items-center justify-center gap-2 rounded-xl bg-red-500 py-3 font-extrabold text-white shadow transition hover:bg-red-600 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {busy === 'subtract' ? <Loader2 className="h-5 w-5 animate-spin" /> : <Minus className="h-5 w-5" />}
+          خصم {n > 0 ? n : ''}
+        </button>
+      </div>
+      {cause && n > 0 && (
+        <p className="mt-3 text-center text-xs font-bold text-slate-400">
+          الرصيد بعد الإضافة {enrollment.points + n} · بعد الخصم {enrollment.points - n}
+        </p>
+      )}
+    </ModalFrame>
   );
 }
