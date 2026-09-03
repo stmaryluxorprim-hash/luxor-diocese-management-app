@@ -866,23 +866,22 @@ export default function ScannerPage() {
               >
                 <Calculator className="h-5 w-5" />
               </button>
-              {pointsMode !== 'manual' && (
-                <button
-                  id="cause-points-badge"
-                  type="button"
-                  aria-label="نقاط السبب"
-                  disabled={!selectedCause || selectedCause.points_mode === 'fixed'}
-                  onClick={() => setNumpadFor('cause')}
-                  className={`flex h-10 flex-1 items-center justify-center gap-1 rounded-xl px-2 text-sm font-extrabold transition ${
-                    selectedCause && selectedCause.points_mode !== 'fixed'
-                      ? 'bg-gold-400 text-white shadow ring-2 ring-gold-200 active:scale-95'
-                      : 'bg-gold-100 text-gold-600'
-                  }`}
-                >
-                  <Star className="h-4 w-4" />
-                  {!selectedCause ? '—' : effectiveCausePoints === null ? '؟' : effectiveCausePoints}
-                </button>
-              )}
+              {/* Always rendered so the row keeps the same layout in every mode */}
+              <button
+                id="cause-points-badge"
+                type="button"
+                aria-label="نقاط السبب"
+                disabled={!selectedCause || selectedCause.points_mode === 'fixed'}
+                onClick={() => setNumpadFor('cause')}
+                className={`flex h-10 flex-1 items-center justify-center gap-1 rounded-xl px-2 text-sm font-extrabold transition ${
+                  selectedCause && selectedCause.points_mode !== 'fixed'
+                    ? 'bg-gold-400 text-white shadow ring-2 ring-gold-200 active:scale-95'
+                    : 'bg-gold-100 text-gold-600'
+                }`}
+              >
+                <Star className="h-4 w-4" />
+                {!selectedCause ? '—' : effectiveCausePoints === null ? '؟' : effectiveCausePoints}
+              </button>
             </>
           )}
 
@@ -1136,6 +1135,7 @@ export default function ScannerPage() {
           enrollment={manualTarget}
           causes={visibleCauses.filter((ca) => scopeApplies(ca, manualTarget))}
           defaultCauseId={causeId}
+          defaultAmount={effectiveCausePoints ?? 0}
           recorderId={profile?.id ?? null}
           onApplied={(delta, cause) => {
             // Modal STAYS OPEN — the balance updates live (optimistic patch,
@@ -1204,11 +1204,12 @@ export default function ScannerPage() {
 // enrollment row.
 // =====================================================================
 function ManualPointsModal({
-  enrollment, causes, defaultCauseId, recorderId, onApplied, onBalance, onClose,
+  enrollment, causes, defaultCauseId, defaultAmount, recorderId, onApplied, onBalance, onClose,
 }: {
   enrollment: EnrollmentWithPerson;
   causes: Cause[];
   defaultCauseId: string;
+  defaultAmount: number;
   recorderId: string | null;
   onApplied: (delta: number, cause: Cause) => void;
   onBalance: (points: number) => void;
@@ -1218,8 +1219,10 @@ function ManualPointsModal({
   const initialCause = causes.find((c) => c.id === defaultCauseId) ?? causes[0] ?? null;
   const [causeId, setCauseId] = useState<string>(initialCause?.id ?? '');
   const cause = causes.find((c) => c.id === causeId) ?? null;
+  // Start from the number shown on the points badge in the control row
+  // (fixed causes always use their bound number)
   const [amount, setAmount] = useState<number>(
-    initialCause && initialCause.points_mode !== 'open' ? initialCause.points : 0
+    initialCause && initialCause.points_mode === 'fixed' ? initialCause.points : defaultAmount
   );
   const [numpadOpen, setNumpadOpen] = useState(false);
   const [busy, setBusy] = useState<'add' | 'subtract' | null>(null);
