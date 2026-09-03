@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { LogIn, Loader2, User, Lock } from 'lucide-react';
+import { LogIn, Loader2, User, Lock, QrCode } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { userIdToEmail } from '@/lib/types';
 
@@ -104,6 +104,26 @@ export default function LoginPage() {
             تسجيل الدخول
           </button>
         </form>
+
+        {/* Child portal entry — scan the card QR instead of a password */}
+        <div className="my-5 flex items-center gap-3 text-xs font-bold text-slate-400">
+          <span className="h-px flex-1 bg-slate-200" />
+          أو
+          <span className="h-px flex-1 bg-slate-200" />
+        </div>
+        <Link
+          id="child-login-btn"
+          href="/child/login"
+          className="card flex items-center gap-3 !py-3.5 hover:bg-gold-50 transition active:scale-[0.98]"
+        >
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-gold-400 to-gold-600 text-white shadow">
+            <QrCode className="h-6 w-6" />
+          </span>
+          <span className="flex-1 min-w-0">
+            <span className="block font-extrabold">دخول المخدوم</span>
+            <span className="block text-xs text-slate-400">امسح كود الكارت أو اختر صورته من المعرض</span>
+          </span>
+        </Link>
 
         <p className="mt-6 text-center text-sm text-slate-500">
           خادم جديد؟{' '}

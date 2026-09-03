@@ -1,7 +1,9 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
-const PUBLIC_PATHS = ['/login', '/signup', '/pending'];
+// /child/* is the child portal — no Supabase auth account, the scanned QR
+// (national id) is the token, checked client-side + inside the RPCs.
+const PUBLIC_PATHS = ['/login', '/signup', '/pending', '/child'];
 
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request });
