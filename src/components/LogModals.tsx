@@ -226,6 +226,7 @@ type PointsEntry = {
   id: string;
   kind: 'cause' | 'attendance';
   label: string;
+  event: string | null;   // the event the points were given IN (4th scope level)
   delta: number;
   created_at: string;
   recorded_by: string | null;
@@ -257,6 +258,10 @@ export function PointsLogModal({
         label: r.cause_id
           ? causes.find((c) => c.id === r.cause_id)?.name ?? 'سبب محذوف'
           : 'نقاط يدوية (بدون سبب)',
+        // points_log.event_id exists since migration 0022 (older rows: null)
+        event: r.event_id
+          ? events.find((ev) => ev.id === r.event_id)?.name ?? 'مناسبة محذوفة'
+          : null,
         delta: r.delta,
         created_at: r.created_at,
         recorded_by: r.recorded_by,
@@ -269,6 +274,7 @@ export function PointsLogModal({
           label: r.event_id
             ? `حضور «${events.find((ev) => ev.id === r.event_id)?.name ?? 'مناسبة محذوفة'}»`
             : 'حضور (بدون مناسبة)',
+          event: null, // already part of the label
           delta: r.points_delta,
           created_at: r.created_at,
           recorded_by: r.recorded_by,
@@ -359,6 +365,12 @@ export function PointsLogModal({
                   )}
                   {e.label}
                 </p>
+                {e.event && (
+                  <p className="mt-0.5 flex items-center gap-1 truncate text-[11px] font-bold text-violet-600">
+                    <CalendarDays className="h-3 w-3 shrink-0" />
+                    في مناسبة «{e.event}»
+                  </p>
+                )}
                 <p className="mt-0.5 text-[11px] text-slate-400">
                   {fmtDateTime(e.created_at)}
                   {e.recorded_by && recorders[e.recorded_by] ? ` — بواسطة ${recorders[e.recorded_by]}` : ''}

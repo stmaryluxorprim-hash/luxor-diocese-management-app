@@ -205,7 +205,30 @@ export interface PointsLog {
   id: string;
   enrollment_id: string;
   cause_id: string | null; // why the points changed (null on legacy rows)
+  event_id: string | null; // the EVENT the points were given in (migration 0022; null on legacy rows)
   delta: number; // positive = add, negative = subtract
+  recorded_by: string | null;
+  created_at: string;
+}
+
+// contact_log (migration 0022) — a call or message made for a child AS A
+// FOLLOW-UP FOR AN EVENT (e.g. calling the absent children of Friday's mass).
+export type ContactKind = 'call' | 'whatsapp' | 'sms' | 'internal';
+
+export const CONTACT_KIND_LABELS: Record<ContactKind, string> = {
+  call: 'اتصال',
+  whatsapp: 'واتساب',
+  sms: 'رسالة SMS',
+  internal: 'رسالة داخلية',
+};
+
+export interface ContactLog {
+  id: string;
+  enrollment_id: string;
+  event_id: string | null;
+  kind: ContactKind;
+  message: string | null; // the sent text (variables substituted); null for calls
+  contacted_on: string; // 'YYYY-MM-DD' Africa/Cairo
   recorded_by: string | null;
   created_at: string;
 }

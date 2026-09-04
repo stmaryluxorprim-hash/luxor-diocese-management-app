@@ -6,7 +6,7 @@ import {
   Users, Search, Plus, Phone, MapPin, Star, CalendarCheck, X, Loader2,
   SlidersHorizontal, ChevronDown, School, Check, Minus,
   MessageSquare, Inbox, PenSquare, ArrowUpDown, ArrowUp, ArrowDown,
-  Eye, Pencil, Trash2, Database, Printer, IdCard,
+  Eye, Pencil, Trash2, Database, Printer, IdCard, CalendarDays, UserCheck, UserX, CircleDashed,
 } from 'lucide-react';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
@@ -16,7 +16,10 @@ import {
   type Job, type EnrollmentWithPerson, type ClassRoom, type Church, type Service,
   type AppEvent, type Cause,
 } from '@/lib/types';
-import { eventAvailability, eventPhase, describeEventSchedule, cairoToday } from '@/lib/time';
+import {
+  eventAvailability, describeEventSchedule, cairoToday,
+  childEventStatus, CHILD_STATUS_LABELS, type ChildEventStatus,
+} from '@/lib/time';
 import { useAppDate } from '@/lib/app-date-context';
 import NumPadModal from '@/components/NumPadModal';
 import {
@@ -29,6 +32,21 @@ import { fetchEnrollmentsPage, cachedLookup, ALL, PAGE_SIZE } from '@/lib/querie
 type AttendanceMode = 'add' | 'remove';
 type PointsMode = 'add' | 'subtract';
 type MessageChannel = 'whatsapp' | 'sms' | 'internal';
+// Status filter (الفلاتر) — by the child's status in the selected event
+type StatusFilter = 'all' | ChildEventStatus;
+const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
+  { value: 'all', label: 'الكل' },
+  { value: 'present', label: CHILD_STATUS_LABELS.present },
+  { value: 'not_registered', label: CHILD_STATUS_LABELS.not_registered },
+  { value: 'absent', label: CHILD_STATUS_LABELS.absent },
+];
+
+// Visual style of the status badge (present / not registered / absent)
+const STATUS_STYLE: Record<ChildEventStatus, { cls: string; icon: React.ReactNode }> = {
+  present:        { cls: 'bg-emerald-500 text-white ring-emerald-600/20', icon: <UserCheck className="h-3.5 w-3.5" /> },
+  not_registered: { cls: 'bg-slate-100 text-slate-500 ring-slate-200',    icon: <CircleDashed className="h-3.5 w-3.5" /> },
+  absent:         { cls: 'bg-red-500 text-white ring-red-600/20',         icon: <UserX className="h-3.5 w-3.5" /> },
+};
 // البيانات job — view / edit / delete a person's data
 type DataMode = 'view' | 'edit' | 'delete';
 
@@ -48,14 +66,16 @@ const MSG_VARS = [
   { token: '[الاسم الكامل]', label: 'الاسم الكامل' },
   { token: '[تاريخ الميلاد]', label: 'تاريخ الميلاد' },
   { token: '[رقم الهاتف]', label: 'رقم الهاتف' },
+  { token: '[اسم المناسبة]', label: 'اسم المناسبة' },
 ];
 
-const fillTemplate = (template: string, e: EnrollmentWithPerson) =>
+const fillTemplate = (template: string, e: EnrollmentWithPerson, ev?: AppEvent | null) =>
   template
     .replaceAll('[الاسم الأول]', e.person.name.trim().split(/\s+/)[0] ?? '')
     .replaceAll('[الاسم الكامل]', e.person.name)
     .replaceAll('[تاريخ الميلاد]', e.person.birthdate ?? '')
-    .replaceAll('[رقم الهاتف]', e.person.phone ?? '');
+    .replaceAll('[رقم الهاتف]', e.person.phone ?? '')
+    .replaceAll('[اسم المناسبة]', ev?.name ?? '');
 
 // WhatsApp brand icon (lucide has no official one)
 function WhatsAppIcon({ className }: { className?: string }) {
@@ -92,7 +112,10 @@ export default function ChildrenPage() {
   const [job, setJob] = useState<Job>('attendance');
   const [attendanceMode, setAttendanceMode] = useState<AttendanceMode>('add');
   const [pointsMode, setPointsMode] = useState<PointsMode>('add');
-  // Attendance is registered against an EVENT; points against a CAUSE
+  // ---------- 4th scope level: EVENT ----------
+  // church → service → class → EVENT. Every job runs INSIDE the selected
+  // event: attendance is registered on it, points are given in it, calls
+  // and messages are follow-ups for it. Points additionally carry a CAUSE.
   const [eventId, setEventId] = useState<string>('');
   const [causeId, setCauseId] = useState<string>('');
   const [messageChannel, setMessageChannel] = useState<MessageChannel>('whatsapp');
@@ -107,6 +130,7 @@ export default function ChildrenPage() {
   const [addressFilter, setAddressFilter] = useState('');
   const [minPoints, setMinPoints] = useState('');
   const [minAttendance, setMinAttendance] = useState('');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
 
   // ---------- Sort accordion ----------
   const [sortOpen, setSortOpen] = useState(false);
@@ -326,20 +350,18 @@ export default function ChildrenPage() {
     () => (selectedEvent ? eventAvailability(selectedEvent, nowDate) : null),
     [selectedEvent, nowDate]
   );
-  const phase = useMemo(
-    () => (selectedEvent ? eventPhase(selectedEvent, nowDate) : null),
-    [selectedEvent, nowDate]
-  );
 
   // Attendance of the SELECTED EVENT — one fetch gives us both:
-  //   attendedSet  → who attended it on the working day (card coloring)
+  //   attendedDays → the Cairo days each enrollment attended it (→ status
+  //                  badge: present / not registered / absent for the
+  //                  CURRENT occurrence at the working date-time)
   //   eventCounts  → how many times each enrollment attended it (badge)
   // With no event selected the badge falls back to the enrollment's total
   // attendance_count across all events.
-  const [attendedSet, setAttendedSet] = useState<Set<string>>(new Set());
+  const [attendedDays, setAttendedDays] = useState<Record<string, Set<string>>>({});
   const [eventCounts, setEventCounts] = useState<Record<string, number>>({});
   useEffect(() => {
-    if (!selectedEvent) { setAttendedSet(new Set()); setEventCounts({}); return; }
+    if (!selectedEvent) { setAttendedDays({}); setEventCounts({}); return; }
     let cancelled = false;
     (async () => {
       // Only the enrollments ON SCREEN — not the event's whole history for
@@ -355,22 +377,56 @@ export default function ChildrenPage() {
         if (cancelled) return;
         rows.push(...((data ?? []) as { enrollment_id: string; attended_on: string }[]));
       }
-      const today = cairoToday(nowDate);
-      const present = new Set<string>();
+      const days: Record<string, Set<string>> = {};
       const counts: Record<string, number> = {};
       rows.forEach((r) => {
         counts[r.enrollment_id] = (counts[r.enrollment_id] ?? 0) + 1;
-        if (r.attended_on === today) present.add(r.enrollment_id);
+        (days[r.enrollment_id] ??= new Set()).add(r.attended_on);
       });
-      setAttendedSet(present);
+      setAttendedDays(days);
       setEventCounts(counts);
     })();
     return () => { cancelled = true; };
-  }, [selectedEvent, supabase, nowDate, enrollments]);
+  }, [selectedEvent, supabase, enrollments]);
 
   // Attendance number shown on a person's badge
   const attendanceShown = (e: EnrollmentWithPerson): number =>
     selectedEvent ? (eventCounts[e.id] ?? 0) : e.attendance_count;
+
+  // ---------- Status of a child in the selected event at the working
+  // date-time (present / not registered / absent). null when no event is
+  // selected or the event doesn't cover this child. ----------
+  const statusOf = useCallback(
+    (e: EnrollmentWithPerson): ChildEventStatus | null => {
+      if (!selectedEvent || !scopeApplies(selectedEvent, e)) return null;
+      return childEventStatus(selectedEvent, attendedDays[e.id], nowDate).status;
+    },
+    [selectedEvent, attendedDays, nowDate]
+  );
+
+  // Mark / unmark a day as attended for one enrollment (optimistic)
+  const markAttended = (id: string, day: string, on: boolean) =>
+    setAttendedDays((prev) => {
+      const next = new Set(prev[id] ?? []);
+      if (on) next.add(day); else next.delete(day);
+      return { ...prev, [id]: next };
+    });
+
+  // Fire-and-forget: record a call / message as a follow-up for the event
+  // (contact_log, migration 0022). Never blocks the dialer / WhatsApp.
+  const logContact = (e: EnrollmentWithPerson, kind: MessageChannel | 'call', message: string | null) => {
+    supabase
+      .from('contact_log')
+      .insert({
+        enrollment_id: e.id,
+        event_id: eventId || null,
+        kind,
+        message,
+        contacted_on: cairoToday(now()),
+        recorded_by: profile?.id,
+      })
+      .then(({ error }) => { if (error) console.warn('contact_log insert failed', error.message); });
+  };
 
   // Log modals opened from the badges (سجل الحضور / سجل النقاط)
   const [logTarget, setLogTarget] = useState<{ kind: 'attendance' | 'points'; e: EnrollmentWithPerson } | null>(null);
@@ -459,7 +515,7 @@ export default function ChildrenPage() {
         if (error) { alert('تعذر تسجيل الحضور، حاول مجدداً'); return; }
         // Optimistic local patch — no refetch; realtime reconciles later.
         patchEnrollment(e.id, { attendance_count: e.attendance_count + 1, points: e.points + effectiveEventPoints });
-        setAttendedSet((s) => new Set(s).add(e.id));
+        markAttended(e.id, cairoToday(now()), true);
         setEventCounts((c) => ({ ...c, [e.id]: (c[e.id] ?? 0) + 1 }));
       } else {
         // Removal DELETES the attendance entry for the WORKING DATE only
@@ -499,12 +555,21 @@ export default function ChildrenPage() {
           attendance_count: Math.max(0, e.attendance_count - 1),
           points: e.points - delta,
         });
-        setAttendedSet((s) => { const n = new Set(s); n.delete(e.id); return n; });
+        markAttended(e.id, workingDay, false);
         setEventCounts((c) => ({ ...c, [e.id]: Math.max(0, (c[e.id] ?? 1) - 1) }));
       }
     } else if (job === 'points') {
-      // Points are registered with a CAUSE whose scope covers this enrollment;
-      // the amount is BOUND to the cause itself
+      // Points are given INSIDE the selected event, with a CAUSE whose scope
+      // covers this enrollment; the amount is BOUND to the cause itself
+      const ev = events.find((x) => x.id === eventId);
+      if (!ev) {
+        alert('اختر المناسبة أولاً — النقاط تُسجَّل داخل مناسبة');
+        return;
+      }
+      if (!scopeApplies(ev, e)) {
+        alert('المناسبة المختارة لا تشمل هذا المخدوم');
+        return;
+      }
       const ca = causes.find((x) => x.id === causeId);
       if (!ca) {
         alert('اختر سبب النقاط أولاً');
@@ -525,25 +590,37 @@ export default function ChildrenPage() {
       const { error } = await supabase.from('points_log').insert({
         enrollment_id: e.id,
         cause_id: ca.id,
+        event_id: ev.id,
         delta,
         recorded_by: profile?.id,
       });
       setBusyChild(null);
-      if (error) { alert('تعذر تسجيل النقاط، حاول مجدداً'); return; }
+      if (error) {
+        alert('تعذر تسجيل النقاط — تأكد من تشغيل تحديث قاعدة البيانات (0022)');
+        return;
+      }
       patchEnrollment(e.id, { points: e.points + delta });
     } else if (job === 'call') {
-      if (e.person.phone) window.location.href = `tel:${e.person.phone}`;
+      // A call is a FOLLOW-UP for the selected event (e.g. calling the
+      // absent children of today's mass) — logged in contact_log
+      if (!eventId) { alert('اختر المناسبة أولاً — الاتصال متابعة لمناسبة'); return; }
+      if (!e.person.phone) return;
+      logContact(e, 'call', null);
+      window.location.href = `tel:${e.person.phone}`;
     } else if (job === 'message') {
+      if (!eventId) { alert('اختر المناسبة أولاً — الرسالة متابعة لمناسبة'); return; }
       if (!e.person.phone) return;
       const digits = e.person.phone.replace(/\D/g, '');
       const waNumber = digits.startsWith('0') ? `2${digits}` : digits;
-      const text = messageTemplate.trim() ? fillTemplate(messageTemplate, e) : '';
+      const text = messageTemplate.trim() ? fillTemplate(messageTemplate, e, selectedEvent) : '';
       if (messageChannel === 'whatsapp') {
+        logContact(e, 'whatsapp', text || null);
         const url = text
           ? `https://wa.me/${waNumber}?text=${encodeURIComponent(text)}`
           : `https://wa.me/${waNumber}`;
         window.open(url, '_blank', 'noopener,noreferrer');
       } else if (messageChannel === 'sms') {
+        logContact(e, 'sms', text || null);
         window.location.href = text
           ? `sms:${e.person.phone}?body=${encodeURIComponent(text)}`
           : `sms:${e.person.phone}`;
@@ -587,9 +664,11 @@ export default function ChildrenPage() {
         if (addressFilter && !(e.person.address ?? '').includes(addressFilter)) return false;
         if (minPoints && e.points < Number(minPoints)) return false;
         if (minAttendance && e.attendance_count < Number(minAttendance)) return false;
+        // Status in the selected event (only meaningful when an event is chosen)
+        if (statusFilter !== 'all' && selectedEvent && statusOf(e) !== statusFilter) return false;
         return true;
       }),
-    [enrollments, addressFilter, minPoints, minAttendance]
+    [enrollments, addressFilter, minPoints, minAttendance, statusFilter, selectedEvent, statusOf]
   );
 
   // ---------- Sorting (name / age / points / attendance) ----------
@@ -632,22 +711,24 @@ export default function ChildrenPage() {
   }, [sorted, classes]);
 
   const activeFilterCount =
-    (addressFilter ? 1 : 0) + (minPoints ? 1 : 0) + (minAttendance ? 1 : 0);
+    (addressFilter ? 1 : 0) + (minPoints ? 1 : 0) + (minAttendance ? 1 : 0) +
+    (statusFilter !== 'all' ? 1 : 0);
 
   const resetFilters = () => {
     setAddressFilter('');
     setMinPoints('');
     setMinAttendance('');
+    setStatusFilter('all');
   };
 
-  // ---------- Card tone (attendance job) ----------
-  // pale green = present on the working day; white = event running & not yet
-  // present (or not event day); pale red = event over & absent — anyone not
-  // present by the end of the event's window is considered absent
+  // ---------- Card tone — follows the child's status in the selected event
+  // (every job, since calls / messages / points all happen inside it):
+  // pale green = present; white = not registered (occurrence still open);
+  // pale red = absent (occurrence over and he never attended) ----------
   const cardTone = (child: EnrollmentWithPerson): string => {
-    if (job !== 'attendance' || !selectedEvent || !scopeApplies(selectedEvent, child)) return 'bg-white';
-    if (attendedSet.has(child.id)) return 'bg-emerald-50';
-    if (phase === 'after') return 'bg-red-50';
+    const s = statusOf(child);
+    if (s === 'present') return 'bg-emerald-50';
+    if (s === 'absent') return 'bg-red-50';
     return 'bg-white';
   };
 
@@ -658,11 +739,10 @@ export default function ChildrenPage() {
     }
     if (job === 'attendance') {
       const add = attendanceMode === 'add';
-      // Per-child presence on the working day, for the selected event.
+      // Per-child presence in the CURRENT occurrence of the selected event.
       // With no event selected presence can't be determined per child —
       // fall back to the neutral look so the button still shows/works.
-      const present =
-        !!selectedEvent && scopeApplies(selectedEvent, child) && attendedSet.has(child.id);
+      const present = statusOf(child) === 'present';
 
       if (add) {
         // ADD button: PALE while not present yet, APPARENT (vivid) green
@@ -859,9 +939,10 @@ export default function ChildrenPage() {
         }`}
       >
       <div className={`min-h-0 overflow-hidden ${selectorsCollapsed ? 'pointer-events-none' : ''}`}>
-      {/* ---------- Row 2: Scope selectors (church / service / class) ---------- */}
+      {/* ---------- Row 2: Scope selectors (church / service / class / event) ---------- */}
       {/* Each dropdown only contains what the current user can see (RLS-scoped). */}
-      <div className="mb-3 grid grid-cols-3 gap-2">
+      {/* Event is the 4th level of the hierarchy: attendance, points, calls and messages are all bound to it. */}
+      <div className="mb-3 grid grid-cols-4 gap-2">
         <div className="relative">
           <select
             id="church-selector"
@@ -912,6 +993,27 @@ export default function ChildrenPage() {
               ))}
           </select>
         </div>
+
+        <div className="relative">
+          <select
+            id="event-selector"
+            aria-label="اختيار المناسبة"
+            className={`input-field appearance-none !px-2 text-xs font-bold ${
+              !eventId && job !== 'print_card' ? '!border-violet-300 !bg-violet-50 text-violet-700' : ''
+            }`}
+            value={eventId}
+            onChange={(e) => setEventId(e.target.value)}
+          >
+            <option value="">
+              {job === 'attendance' && attendanceMode === 'remove' ? 'كل المناسبات' : 'اختر المناسبة *'}
+            </option>
+            {visibleEvents.map((ev) => (
+              <option key={ev.id} value={ev.id}>
+                {ev.name} — {describeEventSchedule(ev)}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {/* ---------- Row 3: Job selector (full width) ---------- */}
@@ -929,28 +1031,12 @@ export default function ChildrenPage() {
         </select>
       </div>
 
-      {/* ---------- Row 4: Event/cause selector (50%) + mode buttons (50%) ---------- */}
+      {/* ---------- Row 4: Mode buttons (attendance) / cause selector + mode buttons (points) ---------- */}
       {job !== 'call' && job !== 'print_card' && (
       <div className="mb-3 flex items-stretch gap-2">
-        {/* Attendance: event dropdown + register / remove / points buttons */}
+        {/* Attendance: register / remove / event points buttons (event chosen in Row 2) */}
         {job === 'attendance' && (
           <>
-            <select
-              id="event-selector"
-              aria-label="اختيار المناسبة"
-              className="input-field !w-1/2 min-w-0 shrink-0 appearance-none !px-2 text-xs font-bold"
-              value={eventId}
-              onChange={(e) => setEventId(e.target.value)}
-            >
-              <option value="">
-                {attendanceMode === 'add' ? 'اختر المناسبة *' : 'كل المناسبات (آخر حضور)'}
-              </option>
-              {visibleEvents.map((ev) => (
-                <option key={ev.id} value={ev.id}>
-                  {ev.name} — {describeEventSchedule(ev)}
-                </option>
-              ))}
-            </select>
             <button
               id="att-mode-add"
               aria-label="وضع تسجيل الحضور"
@@ -1278,6 +1364,35 @@ export default function ChildrenPage() {
                 />
               </div>
             </div>
+            {/* Status filter — the child's status in the selected event right now */}
+            <div>
+              <label className="mb-1 block text-xs font-bold text-slate-500">
+                الحالة في المناسبة {selectedEvent ? `«${selectedEvent.name}»` : '(اختر مناسبة أولاً)'}
+              </label>
+              <div id="status-filter" className="grid grid-cols-4 gap-1.5" role="group" aria-label="فلترة بالحالة">
+                {STATUS_FILTERS.map((f) => {
+                  const active = statusFilter === f.value;
+                  const st = f.value !== 'all' ? STATUS_STYLE[f.value] : null;
+                  return (
+                    <button
+                      key={f.value}
+                      type="button"
+                      aria-pressed={active}
+                      disabled={!selectedEvent && f.value !== 'all'}
+                      onClick={() => setStatusFilter(f.value)}
+                      className={`flex h-9 items-center justify-center gap-1 rounded-xl text-xs font-bold transition disabled:opacity-40 ${
+                        active
+                          ? st ? `${st.cls} shadow ring-2` : 'bg-primary-600 text-white shadow ring-2 ring-primary-300'
+                          : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
+                      }`}
+                    >
+                      {st?.icon}
+                      {f.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
             {activeFilterCount > 0 && (
               <button
                 id="reset-filters"
@@ -1426,13 +1541,33 @@ export default function ChildrenPage() {
                     {kids.map((child) => (
                       <li key={child.id} className={`px-4 py-3 transition-colors duration-300 ${cardTone(child)}`}>
                         <div className="flex items-center justify-between gap-3">
-                          {/* Name + attendance/points badge BUTTONS below it.
-                              Attendance first (per selected event, or total
-                              when no event is chosen), then points. Tapping
-                              a badge opens its log. */}
+                          {/* Name + status/attendance/points badge BUTTONS below it.
+                              1) Status in the selected event for the current
+                                 day/time (حاضر / لم يُسجَّل / غائب) — only when
+                                 an event is selected.
+                              2) Attendance count (per selected event, or total
+                                 when no event is chosen).
+                              3) Points.
+                              Tapping attendance/points opens its log. */}
                           <div className="min-w-0 flex-1">
                             <p className="font-extrabold truncate">{child.person.name}</p>
                             <div className="mt-1.5 flex gap-2">
+                              {(() => {
+                                const s = statusOf(child);
+                                if (!s) return null;
+                                const st = STATUS_STYLE[s];
+                                return (
+                                  <span
+                                    id={`status-badge-${child.id}`}
+                                    role="status"
+                                    aria-label={`الحالة: ${CHILD_STATUS_LABELS[s]}`}
+                                    title={`الحالة في «${selectedEvent?.name ?? ''}» الآن`}
+                                    className={`badge ring-1 ${st.cls}`}
+                                  >
+                                    {st.icon} {CHILD_STATUS_LABELS[s]}
+                                  </span>
+                                );
+                              })()}
                               <button
                                 id={`att-badge-${child.id}`}
                                 type="button"

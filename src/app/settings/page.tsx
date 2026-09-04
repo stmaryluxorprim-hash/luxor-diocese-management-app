@@ -120,6 +120,14 @@ export default function SettingsPage() {
               label="إدارة الفصول"
               desc="فصول كل خدمة"
             />
+            {/* Event = 4th level of the hierarchy (church → service → class → event),
+                so its management sits right after classes. */}
+            <SettingsLink
+              href="/settings/events"
+              icon={<CalendarDays className="h-5 w-5 text-violet-600" />}
+              label="إدارة المناسبات"
+              desc="المستوى الرابع: قداسات واجتماعات ورحلات — الحضور والنقاط والمتابعة تُسجّل عليها"
+            />
           </div>
         </section>
       )}
@@ -129,18 +137,22 @@ export default function SettingsPage() {
         <section id="activity-links" className="mb-5">
           <h3 className="mb-2 text-sm font-extrabold text-slate-500">النشاط</h3>
           <div className="card !p-0 divide-y divide-indigo-50 overflow-hidden">
+            {/* Class servants have no management section — give them the
+                events link here so the hierarchy order still holds. */}
+            {!isManager && (
+              <SettingsLink
+                href="/settings/events"
+                icon={<CalendarDays className="h-5 w-5 text-violet-600" />}
+                label="إدارة المناسبات"
+                desc="المستوى الرابع: قداسات واجتماعات ورحلات — الحضور والنقاط والمتابعة تُسجّل عليها"
+              />
+            )}
             <SettingsLink
               href="/settings/data-requests"
               icon={<Inbox className="h-5 w-5 text-primary-600" />}
               label="طلبات تعديل البيانات"
               desc="طلبات المخدومين من بوابة المخدوم — موافقة أو رفض"
               badge={pendingRequests ?? undefined}
-            />
-            <SettingsLink
-              href="/settings/events"
-              icon={<CalendarDays className="h-5 w-5 text-violet-600" />}
-              label="إدارة المناسبات"
-              desc="قداسات واجتماعات ورحلات يُسجَّل عليها الحضور"
             />
             <SettingsLink
               href="/settings/causes"
