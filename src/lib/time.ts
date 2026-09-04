@@ -255,6 +255,23 @@ export function currentOccurrence(ev: AppEvent, now: Date = new Date()): EventOc
   return null;
 }
 
+/** The occurrence that came BEFORE the one on `date` (exclusive) — for
+ *  weekly events the latest event day strictly before `date` (walks back
+ *  ≤ 7 days); once-events have no previous occurrence. Used by the call
+ *  follow-up cycle (a cycle runs from one occurrence start to the next). */
+export function previousOccurrenceDate(ev: AppEvent, date: string): string | null {
+  if (ev.recurrence === 'once') return null;
+  const [y, m, d] = date.split('-').map(Number);
+  if (!y || !m || !d) return null;
+  const days = ev.weekdays ?? [];
+  const isEventDay = (wd: number) => days.length === 0 || days.includes(wd);
+  for (let k = 1; k <= 7; k++) {
+    const t = new Date(Date.UTC(y, m - 1, d - k));
+    if (isEventDay(t.getUTCDay())) return ymd(t.getUTCFullYear(), t.getUTCMonth() + 1, t.getUTCDate());
+  }
+  return null;
+}
+
 /** Status of one child for `ev` at `now`, given the Cairo days on which he
  *  attended this event. */
 export function childEventStatus(

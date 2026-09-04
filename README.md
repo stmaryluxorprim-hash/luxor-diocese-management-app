@@ -87,6 +87,7 @@ In the settings hub **إدارة المناسبات** sits directly after **إد
 - ✅ Null scope = "كل الـ...": manager with empty service/class scope covers everything under his parent scope (migration 0006)
 - ✅ **بوابة المخدوم / Child Portal (0021)**: "دخول المخدوم" button on `/login` → `/child/login` scans the child's QR (camera, **gallery image**, or typed code) → portal with the **same header style** (church logo / service · class) and a **bottom bar**: الرئيسية، الحضور، النقاط، البيانات، الخيارات. Main page shows name, picture, attendance & points; الحضور lists every attendance by day with event, registration date & time and points; النقاط shows balance + every addition/deduction by cause or attendance; البيانات shows the child's data, QR (downloadable) and picture — the child can **upload a new picture** or **request data changes** (name / birthdate / gender / phone / address) which go to the managers as *change requests* to be **approved or denied**; الخيارات: profile, refresh, install hint, logout
 - ✅ **المناسبة = المستوى الرابع (0022)**: 4th scope selector (كنيسة → خدمة → فصل → مناسبة) on the children page & scanner; attendance / points / calls / messages are all bound to the selected event (`points_log.event_id`, new `contact_log`); **status badge** (حاضر / لم يُسجّل / غائب) placed **before** the attendance & points badges, computed for the working day/time and recurring-event windows; status filter in الفلاتر; إدارة المناسبات moved right after إدارة الفصول in الإعدادات
+- ✅ **نتيجة الاتصال (0023)**: a **call-feedback badge right after the status badge** on every child card (children page + scanner). Default **لم يُتصل به بعد**; once the next occurrence of the event has started with no call recorded for the previous one it becomes **لم يُتصل به**. Clicking it opens a modal with the **colored feedback buttons** (+ اتصال, history, undo); picking one makes it the badge. Feedbacks are managed in **إدارة نتائج الاتصال** (`/settings/call-feedbacks`) with a **name, color and icon**, bound to **church → service → class → event** (null = all). A **نتيجة الاتصال filter** (الكل / لم يُتصل به بعد / لم يُتصل به / each feedback) lives in الفلاتر
 - ✅ **طلبات تعديل البيانات** (`/settings/data-requests`): class servant, service manager, church manager or owner of the child's scope reviews pending requests (photo before/after or field diff), approves (applied to `persons`) or rejects with a note — realtime, with a pending-count badge on الإعدادات and in the side menu
 
 ## Functional Entry Points
@@ -112,6 +113,7 @@ In the settings hub **إدارة المناسبات** sits directly after **إد
 | `/child/data` | child data + QR + picture; upload picture / request data change; request history & cancel |
 | `/child/options` | child options: profile, refresh, install, logout |
 | `/settings/data-requests` | managers: approve / reject children's photo & data change requests |
+| `/settings/call-feedbacks` | **إدارة نتائج الاتصال** — call-feedback presets (name, color, icon) scoped church → service → class → event, reorderable |
 
 ## Data Models & Storage
 - **Tables**: `churches`, `services`, `classes`, `profiles`, `children`, `attendance` — all with RLS + realtime
@@ -123,12 +125,13 @@ In the settings hub **إدارة المناسبات** sits directly after **إد
 
 ### 1. Supabase
 1. Create a project at supabase.com
-2. SQL Editor → run **all** migrations in `supabase/migrations/` in numeric order (`0001` → `0022`); `0002_bootstrap_owner.sql` runs after step 5
+2. SQL Editor → run **all** migrations in `supabase/migrations/` in numeric order (`0001` → `0023`); `0002_bootstrap_owner.sql` runs after step 5
    ⚠️ In `0005` the `alter type ... add value 'suspended'` must run in its own query before the rest of the file
    ⚠️ `0019_performance_rls_indexes_rpc.sql` is **required** by the current frontend (home / scanner call its RPCs). It is safe to re-run (idempotent).
    ⚠️ `0020_statistics_rpcs.sql` is **required** by the الإحصائيات tab (all `stats_*` RPCs). Idempotent; depends on 0019 (`my_scope()`, `enrollment_visible()`).
    ⚠️ `0021_child_portal.sql` is **required** by بوابة المخدوم (`/child/*`) and `/settings/data-requests`. Creates `data_change_requests`, the `child_portal_*` RPCs (SECURITY DEFINER, granted to `anon`, keyed by the scanned national id), `review_data_change_request` / `pending_data_requests_count` (authenticated) and a storage policy letting the portal upload into `photos/child-requests/`. Idempotent; run after 0020.
    ⚠️ `0022_event_bound_operations.sql` is **required** by the current children page & scanner (points inserts send `event_id`; calls / messages insert into `contact_log`). Adds `points_log.event_id`, the `contact_log` table (RLS + realtime), scope-check triggers and an `event_name` column on `child_portal_points`. Idempotent; run after 0021.
+   ⚠️ `0023_call_feedbacks.sql` is **required** for the call-feedback badge / modal / filter and `/settings/call-feedbacks`. Adds the `call_feedbacks` table (scope church/service/class/event, `color`, `icon`, `sort_order`, RLS, realtime) and `contact_log.feedback_id` + `contact_log.occurrence_on`. Idempotent; run after 0022. Without it the badge stays on «لم يُتصل به بعد» and the modal shows a migration hint.
 3. **Authentication → Providers → Email**: disable "Confirm email"
 4. Authentication → Users → Add user: `owner@diocese.app` + password
 5. Copy that user's UUID into `supabase/migrations/0002_bootstrap_owner.sql` and run it
@@ -305,6 +308,31 @@ qualifies but check Vercel's fair-use policy.
   `ContactLog`), children page, scanner (incl. manual points modal), settings
   hub order, `PointsLogModal` shows the event of each entry.
 
+## Call feedback — migration 0023 (نتيجة الاتصال)
+- `call_feedbacks (church_id, service_id?, class_id?, event_id?, name, color hex,
+  icon lucide-key, sort_order, audit)` — null service / class / event = "all".
+  Trigger `check_call_feedback_event_scope` rejects an event outside the row's
+  church / service / class. RLS: select via `scope_overlaps`, write via
+  `scope_contains` (InitPlan pattern from 0019). Realtime enabled.
+- `contact_log.feedback_id → call_feedbacks (on delete set null)` and
+  `contact_log.occurrence_on date` (the occurrence the call is about); partial
+  index `idx_contact_log_feedback_lookup`. `check_contact_event_scope()` also
+  verifies the feedback applies to the enrollment + event.
+- **Follow-up cycle** (`src/lib/call-feedback.ts` → `followUpCycle`): runs from
+  an occurrence's start until the next occurrence starts. `target` = occurrence
+  whose follow-up is open; `previous` = the one before (null for once-events or
+  if older than the event's `created_at`). `callFeedbackState` → `feedback`
+  (latest row for target) | `wasnt_called` (previous occurrence has no feedback
+  and target has none either) | `not_called_yet`.
+- Frontend: `src/components/CallFeedback.tsx` (`CallFeedbackBadge`,
+  `CallFeedbackModal`, `useCallFeedbackStates` — chunked fetch of on-screen
+  enrollments for `[target, previous]` only), `src/lib/call-feedback.ts`
+  (icons, color presets, `feedbackStyle`, `matchesCallFilter`),
+  `src/lib/types.ts` (`CallFeedback`, `feedbackApplies`), `src/lib/time.ts`
+  (`previousOccurrenceDate`), `cachedLookup('call_feedbacks')`, children page
+  (badge + filter chips + realtime), scanner (badge + modal),
+  `/settings/call-feedbacks` + hub link after إدارة أسباب النقاط.
+
 ## Features Not Yet Implemented
 - Push notifications
 - Attendance history per date (per-person list view for servants)
@@ -312,11 +340,11 @@ qualifies but check Vercel's fair-use policy.
 - Points store / rewards module
 
 ## Recommended Next Steps
-1. Run migrations `0017` → `0022` (`0022_event_bound_operations.sql` powers event-bound points / calls / messages) in Supabase SQL editor
+1. Run migrations `0017` → `0023` (`0022` powers event-bound points / calls / messages; `0023_call_feedbacks.sql` powers the call-feedback badge & إدارة نتائج الاتصال) in Supabase SQL editor
 2. Deploy to Vercel and test the full approval flow
 3. Per-person attendance history view
 
 ## Deployment
 - **Platform**: Vercel + Supabase
-- **Status**: ✅ Code complete for Phase 1 + performance/scale hardening (0019) + statistics tab (0020) + child portal & data change requests (0021) + event as 4th scope level with status badge (0022) — awaiting Supabase project + Vercel connect
+- **Status**: ✅ Code complete for Phase 1 + performance/scale hardening (0019) + statistics tab (0020) + child portal & data change requests (0021) + event as 4th scope level with status badge (0022) + call-feedback badge & إدارة نتائج الاتصال (0023) — awaiting Supabase project + Vercel connect
 - **Last Updated**: 2026-09-04

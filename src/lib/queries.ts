@@ -103,7 +103,7 @@ const LOOKUP_TTL_MS = 60_000;
 
 export async function cachedLookup<T>(
   supabase: SupabaseClient,
-  table: 'churches' | 'services' | 'classes' | 'events' | 'causes',
+  table: 'churches' | 'services' | 'classes' | 'events' | 'causes' | 'call_feedbacks',
   orderBy: { column: string; ascending?: boolean; nullsFirst?: boolean } = { column: 'name' },
   force = false
 ): Promise<T[]> {
