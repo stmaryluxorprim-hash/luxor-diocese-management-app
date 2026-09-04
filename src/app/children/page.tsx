@@ -14,12 +14,18 @@ import { createClient } from '@/lib/supabase/client';
 import {
   JOBS, scopeApplies,
   type Job, type EnrollmentWithPerson, type ClassRoom, type Church, type Service,
-  type AppEvent, type Cause,
+  type AppEvent, type Cause, type CallFeedback,
 } from '@/lib/types';
 import {
   eventAvailability, describeEventSchedule, cairoToday,
   childEventStatus, CHILD_STATUS_LABELS, type ChildEventStatus,
 } from '@/lib/time';
+import {
+  CallFeedbackBadge, CallFeedbackModal, CallFeedbackIcon, useCallFeedbackStates,
+} from '@/components/CallFeedback';
+import {
+  matchesCallFilter, feedbackStyle, CALL_STATE_LABELS, type CallFeedbackFilter,
+} from '@/lib/call-feedback';
 import { useAppDate } from '@/lib/app-date-context';
 import NumPadModal from '@/components/NumPadModal';
 import {
@@ -96,6 +102,7 @@ export default function ChildrenPage() {
   const [classes, setClasses] = useState<ClassRoom[]>([]);
   const [events, setEvents] = useState<AppEvent[]>([]);
   const [causes, setCauses] = useState<Cause[]>([]);
+  const [feedbacks, setFeedbacks] = useState<CallFeedback[]>([]);
   const [loading, setLoading] = useState(true);
 
   // ---------- Search (first row) ----------
@@ -131,6 +138,8 @@ export default function ChildrenPage() {
   const [minPoints, setMinPoints] = useState('');
   const [minAttendance, setMinAttendance] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  // Call-feedback filter — by the badge state / a specific feedback (0023)
+  const [callFilter, setCallFilter] = useState<CallFeedbackFilter>('all');
 
   // ---------- Sort accordion ----------
   const [sortOpen, setSortOpen] = useState(false);
@@ -191,18 +200,20 @@ export default function ChildrenPage() {
 
   // Lookup tables (small, cached 60s across tabs)
   const loadLookups = useCallback(async (force = false) => {
-    const [chs, svs, cls, evs, cas] = await Promise.all([
+    const [chs, svs, cls, evs, cas, fbs] = await Promise.all([
       cachedLookup<Church>(supabase, 'churches', { column: 'name' }, force),
       cachedLookup<Service>(supabase, 'services', { column: 'name' }, force),
       cachedLookup<ClassRoom>(supabase, 'classes', { column: 'name' }, force),
       cachedLookup<AppEvent>(supabase, 'events', { column: 'event_date', ascending: false, nullsFirst: false }, force),
       cachedLookup<Cause>(supabase, 'causes', { column: 'name' }, force),
+      cachedLookup<CallFeedback>(supabase, 'call_feedbacks', { column: 'sort_order' }, force),
     ]);
     setChurches(chs);
     setServices(svs);
     setClasses(cls);
     setEvents(evs);
     setCauses(cas);
+    setFeedbacks(fbs);
   }, [supabase]);
 
   // (Re)load the currently visible pages of the scoped list
@@ -275,6 +286,7 @@ export default function ChildrenPage() {
       { table: 'persons' },
       { table: 'events', filter: profile?.church_id && profile.role !== 'owner' ? `church_id=eq.${profile.church_id}` : undefined },
       { table: 'causes', filter: profile?.church_id && profile.role !== 'owner' ? `church_id=eq.${profile.church_id}` : undefined },
+      { table: 'call_feedbacks', filter: profile?.church_id && profile.role !== 'owner' ? `church_id=eq.${profile.church_id}` : undefined },
     ],
     load,
     { enabled: profile?.status === 'approved' }
@@ -430,6 +442,37 @@ export default function ChildrenPage() {
 
   // Log modals opened from the badges (سجل الحضور / سجل النقاط)
   const [logTarget, setLogTarget] = useState<{ kind: 'attendance' | 'points'; e: EnrollmentWithPerson } | null>(null);
+
+  // ---------- Call feedback (0023) — badge state per child for the selected
+  // event's follow-up cycle at the working date-time; modal target ----------
+  const callFb = useCallFeedbackStates(supabase, enrollments, selectedEvent, feedbacks, nowDate);
+  const [callTarget, setCallTarget] = useState<EnrollmentWithPerson | null>(null);
+  // Feedbacks offered in the filter: those covering the current scope selectors + event
+  const visibleFeedbacks = useMemo(
+    () =>
+      feedbacks
+        .filter(
+          (fb) =>
+            (churchFilter === ALL || fb.church_id === churchFilter) &&
+            (serviceFilter === ALL || fb.service_id === null || fb.service_id === serviceFilter) &&
+            (classFilter === ALL || fb.class_id === null || fb.class_id === classFilter) &&
+            (!eventId || fb.event_id === null || fb.event_id === eventId)
+        )
+        .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name, 'ar')),
+    [feedbacks, churchFilter, serviceFilter, classFilter, eventId]
+  );
+  // Realtime: feedbacks recorded by other servants → refresh badge states
+  useDebouncedRealtime(
+    supabase,
+    'call-feedback-log',
+    [{ table: 'contact_log' }],
+    callFb.reload,
+    { enabled: profile?.status === 'approved' && !!selectedEvent }
+  );
+  // keep the filter valid when the offered feedbacks change
+  useEffect(() => {
+    if (callFilter.startsWith('fb:') && !visibleFeedbacks.some((f) => `fb:${f.id}` === callFilter)) setCallFilter('all');
+  }, [visibleFeedbacks, callFilter]);
 
   // reset numpad overrides when the selection changes
   useEffect(() => { setEventPtsOverride(null); }, [eventId]);
@@ -666,9 +709,11 @@ export default function ChildrenPage() {
         if (minAttendance && e.attendance_count < Number(minAttendance)) return false;
         // Status in the selected event (only meaningful when an event is chosen)
         if (statusFilter !== 'all' && selectedEvent && statusOf(e) !== statusFilter) return false;
+        // Call-feedback state in the selected event's follow-up cycle
+        if (callFilter !== 'all' && selectedEvent && !matchesCallFilter(callFb.stateOf(e), callFilter)) return false;
         return true;
       }),
-    [enrollments, addressFilter, minPoints, minAttendance, statusFilter, selectedEvent, statusOf]
+    [enrollments, addressFilter, minPoints, minAttendance, statusFilter, selectedEvent, statusOf, callFilter, callFb]
   );
 
   // ---------- Sorting (name / age / points / attendance) ----------
@@ -712,13 +757,14 @@ export default function ChildrenPage() {
 
   const activeFilterCount =
     (addressFilter ? 1 : 0) + (minPoints ? 1 : 0) + (minAttendance ? 1 : 0) +
-    (statusFilter !== 'all' ? 1 : 0);
+    (statusFilter !== 'all' ? 1 : 0) + (callFilter !== 'all' ? 1 : 0);
 
   const resetFilters = () => {
     setAddressFilter('');
     setMinPoints('');
     setMinAttendance('');
     setStatusFilter('all');
+    setCallFilter('all');
   };
 
   // ---------- Card tone — follows the child's status in the selected event
@@ -1393,6 +1439,54 @@ export default function ChildrenPage() {
                 })}
               </div>
             </div>
+            {/* Call-feedback filter — badge state / specific feedback (0023) */}
+            <div>
+              <label className="mb-1 block text-xs font-bold text-slate-500">
+                نتيجة الاتصال {selectedEvent ? `في «${selectedEvent.name}»` : '(اختر مناسبة أولاً)'}
+              </label>
+              <div id="call-filter" className="flex flex-wrap gap-1.5" role="group" aria-label="فلترة بنتيجة الاتصال">
+                {([
+                  { value: 'all' as CallFeedbackFilter, label: 'الكل', cls: 'bg-primary-600 text-white ring-primary-300' },
+                  { value: 'not_called_yet' as CallFeedbackFilter, label: CALL_STATE_LABELS.not_called_yet, cls: 'bg-slate-500 text-white ring-slate-300' },
+                  { value: 'wasnt_called' as CallFeedbackFilter, label: CALL_STATE_LABELS.wasnt_called, cls: 'bg-amber-500 text-white ring-amber-300' },
+                ]).map((f) => {
+                  const active = callFilter === f.value;
+                  return (
+                    <button
+                      key={f.value}
+                      type="button"
+                      aria-pressed={active}
+                      disabled={!selectedEvent && f.value !== 'all'}
+                      onClick={() => setCallFilter(f.value)}
+                      className={`flex h-9 items-center justify-center gap-1 rounded-xl px-3 text-xs font-bold transition disabled:opacity-40 ${
+                        active ? `${f.cls} shadow ring-2` : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
+                      }`}
+                    >
+                      {f.label}
+                    </button>
+                  );
+                })}
+                {visibleFeedbacks.map((fb) => {
+                  const active = callFilter === `fb:${fb.id}`;
+                  return (
+                    <button
+                      key={fb.id}
+                      type="button"
+                      aria-pressed={active}
+                      disabled={!selectedEvent}
+                      onClick={() => setCallFilter(`fb:${fb.id}`)}
+                      style={active ? feedbackStyle(fb.color) : undefined}
+                      className={`flex h-9 items-center justify-center gap-1 rounded-xl px-3 text-xs font-bold transition disabled:opacity-40 ${
+                        active ? 'shadow ring-2 ring-black/10' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
+                      }`}
+                    >
+                      <CallFeedbackIcon icon={fb.icon} />
+                      {fb.name}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
             {activeFilterCount > 0 && (
               <button
                 id="reset-filters"
@@ -1551,7 +1645,7 @@ export default function ChildrenPage() {
                               Tapping attendance/points opens its log. */}
                           <div className="min-w-0 flex-1">
                             <p className="font-extrabold truncate">{child.person.name}</p>
-                            <div className="mt-1.5 flex gap-2">
+                            <div className="mt-1.5 flex flex-wrap gap-2">
                               {(() => {
                                 const s = statusOf(child);
                                 if (!s) return null;
@@ -1566,6 +1660,18 @@ export default function ChildrenPage() {
                                   >
                                     {st.icon} {CHILD_STATUS_LABELS[s]}
                                   </span>
+                                );
+                              })()}
+                              {/* Call feedback badge — AFTER the status badge (0023) */}
+                              {(() => {
+                                const cs = callFb.stateOf(child);
+                                if (!cs) return null;
+                                return (
+                                  <CallFeedbackBadge
+                                    id={`call-badge-${child.id}`}
+                                    state={cs}
+                                    onClick={() => setCallTarget(child)}
+                                  />
                                 );
                               })()}
                               <button
@@ -1651,6 +1757,20 @@ export default function ChildrenPage() {
           causes={causes}
           events={events}
           onClose={() => setLogTarget(null)}
+        />
+      )}
+
+      {/* Call feedback modal (from the call-feedback badge) */}
+      {callTarget && selectedEvent && callFb.cycle && (
+        <CallFeedbackModal
+          enrollment={callTarget}
+          event={selectedEvent}
+          cycle={callFb.cycle}
+          feedbacks={feedbacks}
+          current={callFb.stateOf(callTarget) ?? { kind: 'not_called_yet' }}
+          now={now}
+          onRecorded={(day, fbId) => callFb.setRecorded(callTarget.id, day, fbId)}
+          onClose={() => setCallTarget(null)}
         />
       )}
 

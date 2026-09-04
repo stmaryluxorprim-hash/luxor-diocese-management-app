@@ -12,8 +12,9 @@ import { createClient } from '@/lib/supabase/client';
 import {
   scopeApplies,
   type EnrollmentWithPerson, type Person, type ClassRoom, type Church, type Service,
-  type AppEvent, type Cause,
+  type AppEvent, type Cause, type CallFeedback,
 } from '@/lib/types';
+import { CallFeedbackBadge, CallFeedbackModal, useCallFeedbackStates } from '@/components/CallFeedback';
 import {
   eventAvailability, describeEventSchedule, cairoToday, formatCairoTime,
   childEventStatus, CHILD_STATUS_LABELS, type ChildEventStatus,
@@ -85,6 +86,7 @@ export default function ScannerPage() {
   const [classes, setClasses] = useState<ClassRoom[]>([]);
   const [events, setEvents] = useState<AppEvent[]>([]);
   const [causes, setCauses] = useState<Cause[]>([]);
+  const [feedbacks, setFeedbacks] = useState<CallFeedback[]>([]);
 
   // ---------- Scope selectors: church -> service -> class ----------
   const [churchFilter, setChurchFilter] = useState<string>(ALL);
@@ -126,21 +128,24 @@ export default function ScannerPage() {
   const [manualTarget, setManualTarget] = useState<EnrollmentWithPerson | null>(null);
   const [dataTarget, setDataTarget] = useState<EnrollmentWithPerson | null>(null);
   const [logTarget, setLogTarget] = useState<{ kind: 'attendance' | 'points'; e: EnrollmentWithPerson } | null>(null);
+  const [callTarget, setCallTarget] = useState<EnrollmentWithPerson | null>(null);
 
   // ---------- Load lookups (cached 60s) ----------
   const loadLookups = useCallback(async (force = false) => {
-    const [chs, svs, cls, evs, cas] = await Promise.all([
+    const [chs, svs, cls, evs, cas, fbs] = await Promise.all([
       cachedLookup<Church>(supabase, 'churches', { column: 'name' }, force),
       cachedLookup<Service>(supabase, 'services', { column: 'name' }, force),
       cachedLookup<ClassRoom>(supabase, 'classes', { column: 'name' }, force),
       cachedLookup<AppEvent>(supabase, 'events', { column: 'event_date', ascending: false, nullsFirst: false }, force),
       cachedLookup<Cause>(supabase, 'causes', { column: 'name' }, force),
+      cachedLookup<CallFeedback>(supabase, 'call_feedbacks', { column: 'sort_order' }, force),
     ]);
     setChurches(chs);
     setServices(svs);
     setClasses(cls);
     setEvents(evs);
     setCauses(cas);
+    setFeedbacks(fbs);
   }, [supabase]);
 
   useEffect(() => {
@@ -305,6 +310,9 @@ export default function ScannerPage() {
 
   const attendanceShown = (e: EnrollmentWithPerson): number =>
     selectedEvent ? (eventCounts[e.id] ?? 0) : e.attendance_count;
+
+  // Call-feedback badge state (0023) for the rows on screen
+  const callFb = useCallFeedbackStates(supabase, visibleRows, selectedEvent, feedbacks, nowDate);
 
   // Status of a person in the selected event at the working date-time
   // (present / not registered / absent). null when no event is selected
@@ -537,7 +545,7 @@ export default function ScannerPage() {
   // change while the camera is running). While a modal is open the camera
   // keeps running but scans are ignored, so a second QR in frame can never
   // hijack the open modal.
-  const modalOpen = !!manualTarget || !!dataTarget || !!picker || !!logTarget || numpadFor !== null;
+  const modalOpen = !!manualTarget || !!dataTarget || !!picker || !!logTarget || !!callTarget || numpadFor !== null;
   const handleQrRef = useRef<(v: string) => Promise<void>>(handleQr);
   handleQrRef.current = modalOpen ? async () => {} : handleQr;
 
@@ -705,7 +713,7 @@ export default function ScannerPage() {
       <div className="min-w-0 flex-1">
         <p className="font-extrabold truncate">{e.person.name}</p>
         <p className="text-[11px] text-slate-400 truncate">{scopeLabel(e)}</p>
-        <div className="mt-1.5 flex gap-2">
+        <div className="mt-1.5 flex flex-wrap gap-2">
           {/* Status in the selected event right now — BEFORE attendance & points */}
           {(() => {
             const s = statusOf(e);
@@ -722,6 +730,12 @@ export default function ScannerPage() {
                 {st.icon} {CHILD_STATUS_LABELS[s]}
               </span>
             );
+          })()}
+          {/* Call feedback badge — AFTER the status badge (0023) */}
+          {(() => {
+            const cs = callFb.stateOf(e);
+            if (!cs) return null;
+            return <CallFeedbackBadge id={`call-badge-${e.id}`} state={cs} onClick={() => setCallTarget(e)} />;
           })()}
           <button
             id={`att-badge-${e.id}`}
@@ -1217,6 +1231,18 @@ export default function ScannerPage() {
       )}
       {logTarget?.kind === 'points' && (
         <PointsLogModal enrollment={logTarget.e} causes={causes} events={events} onClose={() => setLogTarget(null)} />
+      )}
+      {callTarget && selectedEvent && callFb.cycle && (
+        <CallFeedbackModal
+          enrollment={callTarget}
+          event={selectedEvent}
+          cycle={callFb.cycle}
+          feedbacks={feedbacks}
+          current={callFb.stateOf(callTarget) ?? { kind: 'not_called_yet' }}
+          now={now}
+          onRecorded={(day, fbId) => callFb.setRecorded(callTarget.id, day, fbId)}
+          onClose={() => setCallTarget(null)}
+        />
       )}
 
       {/* ---------- البيانات modals ---------- */}

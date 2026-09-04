@@ -229,9 +229,41 @@ export interface ContactLog {
   kind: ContactKind;
   message: string | null; // the sent text (variables substituted); null for calls
   contacted_on: string; // 'YYYY-MM-DD' Africa/Cairo
+  feedback_id: string | null; // outcome of the call (migration 0023; null = plain call / message)
+  occurrence_on: string | null; // 'YYYY-MM-DD' — the event occurrence this follow-up refers to (0023)
   recorded_by: string | null;
   created_at: string;
 }
+
+// ---------- Call feedbacks (migration 0023) ----------
+// The OUTCOME of a follow-up call (e.g. «سيأتي الأسبوع القادم», «مريض»,
+// «لم يرد»). Defined by the managers with a NAME, a COLOR and an ICON and
+// bound to a scope: church → service (null = all) → class (null = all) →
+// event (null = all events). Chosen from the call-feedback badge on a
+// child's card; stored as a `contact_log` row (kind = 'call') with
+// `feedback_id` + `occurrence_on`.
+export interface CallFeedback {
+  id: string;
+  church_id: string;
+  service_id: string | null;
+  class_id: string | null;
+  event_id: string | null;
+  name: string;
+  color: string; // '#rrggbb'
+  icon: string; // key of CALL_FEEDBACK_ICONS (src/lib/call-feedback.ts)
+  sort_order: number;
+  created_at: string;
+  created_by: string | null;
+  edited_at: string;
+  edited_by: string | null;
+}
+
+// Does a feedback apply to an enrollment inside a given event?
+export const feedbackApplies = (
+  fb: CallFeedback,
+  e: { church_id: string; service_id: string; class_id: string },
+  eventId: string | null
+): boolean => scopeApplies(fb, e) && (fb.event_id === null || fb.event_id === eventId);
 
 // ---------- Jobs (app-code constants, not stored in DB) ----------
 // Jobs are the actions a servant performs on persons from the persons page.

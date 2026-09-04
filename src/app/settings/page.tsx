@@ -5,7 +5,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import {
   Settings, UserCheck, Church, Layers, School, LogOut, ChevronLeft, User, Phone, ShieldCheck,
-  QrCode, Pencil, Users, CalendarDays, Award, IdCard, Inbox,
+  QrCode, Pencil, Users, CalendarDays, Award, IdCard, Inbox, PhoneCall,
 } from 'lucide-react';
 import AppShell from '@/components/AppShell';
 import EditProfileModal from '@/components/EditProfileModal';
@@ -159,6 +159,12 @@ export default function SettingsPage() {
               icon={<Award className="h-5 w-5 text-amber-600" />}
               label="إدارة أسباب النقاط"
               desc="أسباب إضافة أو خصم النقاط (حفظ، سلوك...)"
+            />
+            <SettingsLink
+              href="/settings/call-feedbacks"
+              icon={<PhoneCall className="h-5 w-5 text-teal-600" />}
+              label="إدارة نتائج الاتصال"
+              desc="نتائج مكالمات المتابعة (سيأتي، مريض، لم يرد...) — اسم ولون وأيقونة"
             />
             <SettingsLink
               href="/settings/cards"
