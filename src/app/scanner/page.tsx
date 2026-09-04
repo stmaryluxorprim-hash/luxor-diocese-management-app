@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import {
   ScanLine, Camera, CameraOff, CheckCircle2, AlertCircle, Search, Star, Loader2, School,
   Check, X, Plus, Minus, Eye, Pencil, Trash2, Database, CalendarCheck, Calculator, History,
+  UserCheck, UserX, CircleDashed,
 } from 'lucide-react';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
@@ -13,7 +14,10 @@ import {
   type EnrollmentWithPerson, type Person, type ClassRoom, type Church, type Service,
   type AppEvent, type Cause,
 } from '@/lib/types';
-import { eventAvailability, eventPhase, describeEventSchedule, cairoToday, formatCairoTime } from '@/lib/time';
+import {
+  eventAvailability, describeEventSchedule, cairoToday, formatCairoTime,
+  childEventStatus, CHILD_STATUS_LABELS, type ChildEventStatus,
+} from '@/lib/time';
 import { useAppDate } from '@/lib/app-date-context';
 import NumPadModal from '@/components/NumPadModal';
 import {
@@ -52,6 +56,14 @@ interface HistoryEntry {
   balance?: number;     // points balance after the operation
 }
 const HISTORY_MAX = 100;
+
+// Visual style of the status badge (present / not registered / absent) —
+// same look as the children page
+const STATUS_STYLE: Record<ChildEventStatus, { cls: string; icon: React.ReactNode }> = {
+  present:        { cls: 'bg-emerald-500 text-white ring-emerald-600/20', icon: <UserCheck className="h-3.5 w-3.5" /> },
+  not_registered: { cls: 'bg-slate-100 text-slate-500 ring-slate-200',    icon: <CircleDashed className="h-3.5 w-3.5" /> },
+  absent:         { cls: 'bg-red-500 text-white ring-red-600/20',         icon: <UserX className="h-3.5 w-3.5" /> },
+};
 
 const HISTORY_STYLE: Record<HistoryKind, { label: string; bg: string; icon: React.ReactNode }> = {
   att_add:    { label: 'تسجيل حضور',  bg: 'bg-emerald-100 text-emerald-600', icon: <Check className="h-4 w-4" /> },
@@ -202,10 +214,6 @@ export default function ScannerPage() {
     () => (selectedEvent ? eventAvailability(selectedEvent, nowDate) : null),
     [selectedEvent, nowDate]
   );
-  const phase = useMemo(
-    () => (selectedEvent ? eventPhase(selectedEvent, nowDate) : null),
-    [selectedEvent, nowDate]
-  );
   const attendanceForbidden = job === 'attendance' && attendanceMode === 'add' && !!eventAvail && !eventAvail.ok;
 
   // Effective points respecting points_mode (fixed / editable / open)
@@ -269,11 +277,12 @@ export default function ScannerPage() {
   const visibleRows = searchRows;
 
   // ---------- Attendance of the selected event for the rows on screen ----------
-  const [attendedSet, setAttendedSet] = useState<Set<string>>(new Set());
+  // attendedDays: enrollment id -> set of attended_on days (for the status badge)
+  const [attendedDays, setAttendedDays] = useState<Record<string, Set<string>>>({});
   const [eventCounts, setEventCounts] = useState<Record<string, number>>({});
   const visibleIdsKey = visibleRows.map((e) => e.id).join(',');
   useEffect(() => {
-    if (!selectedEvent || !visibleIdsKey) { setAttendedSet(new Set()); setEventCounts({}); return; }
+    if (!selectedEvent || !visibleIdsKey) { setAttendedDays({}); setEventCounts({}); return; }
     let cancelled = false;
     (async () => {
       const { data } = await supabase
@@ -282,21 +291,39 @@ export default function ScannerPage() {
         .eq('event_id', selectedEvent.id)
         .in('enrollment_id', visibleIdsKey.split(','));
       if (cancelled) return;
-      const today = cairoToday(nowDate);
-      const present = new Set<string>();
+      const days: Record<string, Set<string>> = {};
       const counts: Record<string, number> = {};
       ((data ?? []) as { enrollment_id: string; attended_on: string }[]).forEach((r) => {
         counts[r.enrollment_id] = (counts[r.enrollment_id] ?? 0) + 1;
-        if (r.attended_on === today) present.add(r.enrollment_id);
+        (days[r.enrollment_id] ??= new Set()).add(r.attended_on);
       });
-      setAttendedSet(present);
+      setAttendedDays(days);
       setEventCounts(counts);
     })();
     return () => { cancelled = true; };
-  }, [selectedEvent, supabase, nowDate, visibleIdsKey]);
+  }, [selectedEvent, supabase, visibleIdsKey]);
 
   const attendanceShown = (e: EnrollmentWithPerson): number =>
     selectedEvent ? (eventCounts[e.id] ?? 0) : e.attendance_count;
+
+  // Status of a person in the selected event at the working date-time
+  // (present / not registered / absent). null when no event is selected
+  // or the event doesn't cover this person.
+  const statusOf = useCallback(
+    (e: EnrollmentWithPerson): ChildEventStatus | null => {
+      if (!selectedEvent || !scopeApplies(selectedEvent, e)) return null;
+      return childEventStatus(selectedEvent, attendedDays[e.id], nowDate).status;
+    },
+    [selectedEvent, attendedDays, nowDate]
+  );
+
+  // Mark / unmark a day as attended for one enrollment (optimistic)
+  const markAttended = useCallback((id: string, day: string, on: boolean) =>
+    setAttendedDays((prev) => {
+      const next = new Set(prev[id] ?? []);
+      if (on) next.add(day); else next.delete(day);
+      return { ...prev, [id]: next };
+    }), []);
 
   // Patch one enrollment everywhere it is shown (optimistic update)
   const patchEnrollment = useCallback((id: string, patch: Partial<EnrollmentWithPerson>) => {
@@ -366,7 +393,7 @@ export default function ScannerPage() {
           }
           if (error) { setResult({ type: 'err', message: 'تعذر تسجيل الحضور، حاول مجدداً' }); return; }
           patchEnrollment(e.id, { attendance_count: e.attendance_count + 1, points: e.points + effectiveEventPoints });
-          setAttendedSet((s) => new Set(s).add(e.id));
+          markAttended(e.id, cairoToday(now()), true);
           setEventCounts((c) => ({ ...c, [e.id]: (c[e.id] ?? 0) + 1 }));
           setResult({
             type: 'ok',
@@ -409,7 +436,7 @@ export default function ScannerPage() {
             attendance_count: Math.max(0, e.attendance_count - 1),
             points: e.points - delta,
           });
-          setAttendedSet((s) => { const n = new Set(s); n.delete(e.id); return n; });
+          markAttended(e.id, workingDay, false);
           setEventCounts((c) => ({ ...c, [e.id]: Math.max(0, (c[e.id] ?? 1) - 1) }));
           setResult({ type: 'ok', message: `تمت إزالة حضور ${e.person.name} (${className(e.class_id)})${delta ? ` −${delta} نقطة` : ''}` });
           logOp(e, 'att_remove', selectedEvent?.name ?? 'كل المناسبات', -delta, e.points - delta);
@@ -419,6 +446,13 @@ export default function ScannerPage() {
           // NEW: open the modal — name + points + number + add / subtract + cause
           setResult(null);
           setManualTarget(e);
+          return;
+        }
+        // Points are given IN an event (4th scope level) — event required
+        const ev = events.find((x) => x.id === eventId);
+        if (!ev) { setResult({ type: 'err', message: 'اختر المناسبة أولاً' }); return; }
+        if (!scopeApplies(ev, e)) {
+          setResult({ type: 'err', message: `المناسبة المختارة لا تشمل ${e.person.name}` });
           return;
         }
         const ca = causes.find((x) => x.id === causeId);
@@ -438,17 +472,18 @@ export default function ScannerPage() {
         const { error } = await supabase.from('points_log').insert({
           enrollment_id: e.id,
           cause_id: ca.id,
+          event_id: ev.id,
           delta,
           recorded_by: profile?.id,
         });
         setBusyId(null);
-        if (error) { setResult({ type: 'err', message: 'تعذر تسجيل النقاط، حاول مجدداً' }); return; }
+        if (error) { setResult({ type: 'err', message: 'تعذر تسجيل النقاط، حاول مجدداً (تأكد من تطبيق migration 0022)' }); return; }
         patchEnrollment(e.id, { points: e.points + delta });
         setResult({
           type: 'ok',
-          message: `${e.person.name} — ${delta > 0 ? `+${delta}` : delta} نقطة (${ca.name}) → الرصيد ${e.points + delta}`,
+          message: `${e.person.name} — ${delta > 0 ? `+${delta}` : delta} نقطة (${ca.name} — ${ev.name}) → الرصيد ${e.points + delta}`,
         });
-        logOp(e, delta > 0 ? 'pts_add' : 'pts_sub', ca.name, delta, e.points + delta);
+        logOp(e, delta > 0 ? 'pts_add' : 'pts_sub', `${ca.name} — ${ev.name}`, delta, e.points + delta);
       } else if (job === 'data') {
         setResult(null);
         setDataTarget(e);
@@ -458,7 +493,7 @@ export default function ScannerPage() {
     [
       job, attendanceMode, pointsMode, dataMode, events, eventId, causes, causeId,
       effectiveEventPoints, effectiveCausePoints, supabase, profile, now,
-      className, patchEnrollment, logOp, selectedEvent,
+      className, patchEnrollment, logOp, selectedEvent, markAttended,
     ]
   );
 
@@ -571,16 +606,17 @@ export default function ScannerPage() {
 
   // ---------- Card tone + per-person job button (mirrors the children page) ----------
   const cardTone = (e: EnrollmentWithPerson): string => {
-    if (job !== 'attendance' || !selectedEvent || !scopeApplies(selectedEvent, e)) return 'bg-white';
-    if (attendedSet.has(e.id)) return 'bg-emerald-50';
-    if (phase === 'after') return 'bg-red-50';
+    if (job !== 'attendance') return 'bg-white';
+    const s = statusOf(e);
+    if (s === 'present') return 'bg-emerald-50';
+    if (s === 'absent') return 'bg-red-50';
     return 'bg-white';
   };
 
   const jobButton = (e: EnrollmentWithPerson) => {
     if (busyId === e.id) return <Loader2 className="h-6 w-6 animate-spin text-primary-500" />;
     if (job === 'attendance') {
-      const present = !!selectedEvent && scopeApplies(selectedEvent, e) && attendedSet.has(e.id);
+      const present = statusOf(e) === 'present';
       if (attendanceMode === 'add') {
         const forbidden = !!selectedEvent && !!eventAvail && !eventAvail.ok;
         return (
@@ -670,6 +706,23 @@ export default function ScannerPage() {
         <p className="font-extrabold truncate">{e.person.name}</p>
         <p className="text-[11px] text-slate-400 truncate">{scopeLabel(e)}</p>
         <div className="mt-1.5 flex gap-2">
+          {/* Status in the selected event right now — BEFORE attendance & points */}
+          {(() => {
+            const s = statusOf(e);
+            if (!s) return null;
+            const st = STATUS_STYLE[s];
+            return (
+              <span
+                id={`status-badge-${e.id}`}
+                role="status"
+                aria-label={`الحالة: ${CHILD_STATUS_LABELS[s]}`}
+                title={`الحالة في «${selectedEvent?.name ?? ''}» الآن`}
+                className={`badge ring-1 ${st.cls}`}
+              >
+                {st.icon} {CHILD_STATUS_LABELS[s]}
+              </span>
+            );
+          })()}
           <button
             id={`att-badge-${e.id}`}
             type="button"
@@ -710,8 +763,8 @@ export default function ScannerPage() {
 
       {/* ---------- Control panel — same as the children page ---------- */}
       <div id="control-zone" className="mb-4">
-        {/* Row 1: scope selectors (church / service / class) */}
-        <div className="mb-2 grid grid-cols-3 gap-2">
+        {/* Row 1: scope selectors (church / service / class / event) — event is the 4th level */}
+        <div className="mb-2 grid grid-cols-4 gap-2">
           <select
             id="church-selector"
             aria-label="اختيار الكنيسة"
@@ -745,6 +798,22 @@ export default function ScannerPage() {
             <option value={ALL}>{visibleClasses.length === 1 ? visibleClasses[0].name : 'كل الفصول'}</option>
             {visibleClasses.length > 1 && visibleClasses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
+          <select
+            id="event-selector"
+            aria-label="اختيار المناسبة"
+            className={`input-field appearance-none !px-2 text-xs font-bold ${
+              !eventId && job !== 'data' ? '!border-violet-300 !bg-violet-50 text-violet-700' : ''
+            }`}
+            value={eventId}
+            onChange={(e) => { setEventId(e.target.value); setResult(null); }}
+          >
+            <option value="">
+              {job === 'attendance' && attendanceMode === 'remove' ? 'كل المناسبات' : 'اختر المناسبة *'}
+            </option>
+            {visibleEvents.map((ev) => (
+              <option key={ev.id} value={ev.id}>{ev.name} — {describeEventSchedule(ev)}</option>
+            ))}
+          </select>
         </div>
 
         {/* Row 2: job selector */}
@@ -760,22 +829,10 @@ export default function ScannerPage() {
           </select>
         </div>
 
-        {/* Row 3: event/cause selector + mode buttons */}
+        {/* Row 3: mode buttons (attendance) / cause selector + mode buttons (points) */}
         <div className="mb-2 flex items-stretch gap-2">
           {job === 'attendance' && (
             <>
-              <select
-                id="event-selector"
-                aria-label="اختيار المناسبة"
-                className="input-field !w-1/2 min-w-0 shrink-0 appearance-none !px-2 text-xs font-bold"
-                value={eventId}
-                onChange={(e) => { setEventId(e.target.value); setResult(null); }}
-              >
-                <option value="">{attendanceMode === 'add' ? 'اختر المناسبة *' : 'كل المناسبات (آخر حضور)'}</option>
-                {visibleEvents.map((ev) => (
-                  <option key={ev.id} value={ev.id}>{ev.name} — {describeEventSchedule(ev)}</option>
-                ))}
-              </select>
               <button
                 id="att-mode-add"
                 aria-label="وضع تسجيل الحضور"
@@ -1133,6 +1190,7 @@ export default function ScannerPage() {
       {manualTarget && (
         <ManualPointsModal
           enrollment={manualTarget}
+          event={selectedEvent && scopeApplies(selectedEvent, manualTarget) ? selectedEvent : null}
           causes={visibleCauses.filter((ca) => scopeApplies(ca, manualTarget))}
           defaultCauseId={causeId}
           defaultAmount={effectiveCausePoints ?? 0}
@@ -1204,9 +1262,10 @@ export default function ScannerPage() {
 // enrollment row.
 // =====================================================================
 function ManualPointsModal({
-  enrollment, causes, defaultCauseId, defaultAmount, recorderId, onApplied, onBalance, onClose,
+  enrollment, event, causes, defaultCauseId, defaultAmount, recorderId, onApplied, onBalance, onClose,
 }: {
   enrollment: EnrollmentWithPerson;
+  event: AppEvent | null;   // points are given IN this event (required)
   causes: Cause[];
   defaultCauseId: string;
   defaultAmount: number;
@@ -1273,6 +1332,7 @@ function ManualPointsModal({
   const canSubmit = !!cause && n > 0 && !busy;
 
   const submit = async (mode: 'add' | 'subtract') => {
+    if (!event) { setError('اختر المناسبة أولاً من القائمة (النقاط تُمنح في مناسبة)'); return; }
     if (!cause) { setError('اختر سبب النقاط'); return; }
     if (n <= 0) { setError('اكتب عدد النقاط'); return; }
     setBusy(mode);
@@ -1281,6 +1341,7 @@ function ManualPointsModal({
     const { error: err } = await supabase.from('points_log').insert({
       enrollment_id: enrollment.id,
       cause_id: cause.id,
+      event_id: event.id,
       delta,
       recorded_by: recorderId,
     });
@@ -1300,6 +1361,9 @@ function ManualPointsModal({
           </div>
           <div className="min-w-0 flex-1">
             <p id="manual-points-name" className="truncate text-base font-extrabold">{enrollment.person.name}</p>
+            <p className="truncate text-[11px] font-bold text-violet-600">
+              {event ? `في مناسبة «${event.name}»` : 'لم تُختر مناسبة'}
+            </p>
             <p className="flex items-center gap-1 text-xs font-bold text-slate-500">
               الرصيد الحالي
               <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" title="مباشر" />

@@ -177,6 +177,102 @@ export function eventPhase(ev: AppEvent, now: Date = new Date()): EventPhase {
   return 'during';
 }
 
+// ---------- Event occurrences & per-child status ----------
+// The status of a child for an event is always judged against the event's
+// CURRENT OCCURRENCE — the latest occurrence that has already started (or
+// is about to, on its day):
+//
+//   once   → the single occurrence on event_date
+//   weekly → the most recent weekday in `weekdays` whose start has passed
+//            (or today when today is an event day and we're before start).
+//
+// The occurrence "window" runs from its start_time (or 00:00 when none) to
+// its end_time (or 23:59:59 when none), Cairo time.
+//
+//   present        → attended this occurrence (attended_on = occurrence day)
+//   not_registered → didn't attend and we are still INSIDE the occurrence
+//                    window (or before it on the event day / upcoming)
+//   absent         → didn't attend and the window is over:
+//                      once   → any instant after the event's end
+//                      weekly → any instant after the end of the last
+//                               occurrence until the NEXT occurrence starts
+export type ChildEventStatus = 'present' | 'not_registered' | 'absent';
+
+export const CHILD_STATUS_LABELS: Record<ChildEventStatus, string> = {
+  present: 'حاضر',
+  not_registered: 'لم يُسجَّل',
+  absent: 'غائب',
+};
+
+export interface EventOccurrence {
+  date: string;                          // 'YYYY-MM-DD' Cairo day of the occurrence
+  phase: 'upcoming' | 'during' | 'after'; // relative to `now`
+}
+
+const ymd = (y: number, m: number, d: number) =>
+  `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+
+// Cairo day shifted by `deltaDays` (negative = past), as 'YYYY-MM-DD' + weekday
+function shiftCairoDay(p: CairoParts, deltaDays: number): { date: string; weekday: number } {
+  const t = new Date(Date.UTC(p.year, p.month - 1, p.day + deltaDays));
+  return {
+    date: ymd(t.getUTCFullYear(), t.getUTCMonth() + 1, t.getUTCDate()),
+    weekday: t.getUTCDay(),
+  };
+}
+
+/** The occurrence the child's status refers to at instant `now` (null when
+ *  a once-event has no date at all — legacy rows). */
+export function currentOccurrence(ev: AppEvent, now: Date = new Date()): EventOccurrence | null {
+  const p = cairoParts(now);
+  const today = ymd(p.year, p.month, p.day);
+  const nowHM = `${String(p.hour).padStart(2, '0')}:${String(p.minute).padStart(2, '0')}`;
+  const startHM = ev.start_time ? hm(ev.start_time) : null;
+  const endHM = ev.end_time ? hm(ev.end_time) : null;
+
+  // Phase of an occurrence that happens TODAY
+  const todayPhase = (): EventOccurrence['phase'] => {
+    if (startHM && nowHM < startHM) return 'upcoming';
+    if (endHM && nowHM > endHM) return 'after';
+    return 'during';
+  };
+
+  if (ev.recurrence === 'once') {
+    if (!ev.event_date) return null;
+    if (today < ev.event_date) return { date: ev.event_date, phase: 'upcoming' };
+    if (today > ev.event_date) return { date: ev.event_date, phase: 'after' };
+    return { date: today, phase: todayPhase() };
+  }
+
+  // weekly — walk back day by day (max one week) to the latest event day
+  const days = ev.weekdays ?? [];
+  const isEventDay = (wd: number) => days.length === 0 || days.includes(wd);
+  if (isEventDay(p.weekday)) return { date: today, phase: todayPhase() };
+  for (let k = 1; k <= 7; k++) {
+    const d = shiftCairoDay(p, -k);
+    if (isEventDay(d.weekday)) return { date: d.date, phase: 'after' };
+  }
+  return null;
+}
+
+/** Status of one child for `ev` at `now`, given the Cairo days on which he
+ *  attended this event. */
+export function childEventStatus(
+  ev: AppEvent,
+  attendedDays: Set<string> | undefined,
+  now: Date = new Date()
+): { status: ChildEventStatus; occurrence: EventOccurrence | null } {
+  const occ = currentOccurrence(ev, now);
+  if (!occ) {
+    // Undated legacy event: judge by today's attendance only
+    const today = cairoToday(now);
+    return { status: attendedDays?.has(today) ? 'present' : 'not_registered', occurrence: null };
+  }
+  if (attendedDays?.has(occ.date)) return { status: 'present', occurrence: occ };
+  if (occ.phase === 'after') return { status: 'absent', occurrence: occ };
+  return { status: 'not_registered', occurrence: occ };
+}
+
 // Human description of an event schedule (for lists / selectors)
 export function describeEventSchedule(ev: AppEvent): string {
   const parts: string[] = [];
