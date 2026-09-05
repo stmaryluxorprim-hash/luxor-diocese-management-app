@@ -14,7 +14,7 @@ import {
   type EnrollmentWithPerson, type Person, type ClassRoom, type Church, type Service,
   type AppEvent, type Cause, type CallFeedback,
 } from '@/lib/types';
-import { CallFeedbackBadge, CallFeedbackModal, useCallFeedbackStates } from '@/components/CallFeedback';
+import { CallFeedbackBadge, CallFeedbackModal, PersonAvatar, useCallFeedbackStates } from '@/components/CallFeedback';
 import {
   eventAvailability, describeEventSchedule, cairoToday, formatCairoTime,
   childEventStatus, CHILD_STATUS_LABELS, type ChildEventStatus,
@@ -712,55 +712,59 @@ export default function ScannerPage() {
 
   // One person row — identical layout to the children page card
   const personRow = (e: EnrollmentWithPerson) => (
-    <li key={e.id} className={`card flex items-center justify-between gap-3 !py-3 transition-colors duration-300 ${cardTone(e)}`}>
-      <div className="min-w-0 flex-1">
-        <p className="font-extrabold truncate">{e.person.name}</p>
-        <p className="text-[11px] text-slate-400 truncate">{scopeLabel(e)}</p>
-        <div className="badge-grid">
-          {/* Status in the selected event right now — BEFORE attendance & points */}
-          {(() => {
-            const s = statusOf(e);
-            if (!s) return null;
-            const st = STATUS_STYLE[s];
-            return (
-              <span
-                id={`status-badge-${e.id}`}
-                role="status"
-                aria-label={`الحالة: ${CHILD_STATUS_LABELS[s]}`}
-                title={`الحالة في «${selectedEvent?.name ?? ''}» الآن`}
-                className={`badge-btn ${st.cls}`}
-              >
-                {st.icon} <span className="truncate">{CHILD_STATUS_LABELS[s]}</span>
-              </span>
-            );
-          })()}
-          {/* Call feedback badge — AFTER the status badge (0023) */}
-          {(() => {
-            const cs = callFb.stateOf(e);
-            if (!cs) return null;
-            return <CallFeedbackBadge id={`call-badge-${e.id}`} state={cs} onClick={() => setCallTarget(e)} />;
-          })()}
-          <button
-            id={`att-badge-${e.id}`}
-            type="button"
-            aria-label={selectedEvent ? `سجل الحضور — ${selectedEvent.name}` : 'سجل الحضور — كل المناسبات'}
-            onClick={() => setLogTarget({ kind: 'attendance', e })}
-            className="badge-btn bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
-          >
-            <CalendarCheck className="h-3.5 w-3.5" /> {attendanceShown(e)}
-          </button>
-          <button
-            id={`pts-badge-${e.id}`}
-            type="button"
-            aria-label="سجل النقاط"
-            onClick={() => setLogTarget({ kind: 'points', e })}
-            className="badge-btn bg-gold-100 text-gold-600 hover:bg-gold-200"
-          >
-            <Star className="h-3.5 w-3.5" /> {e.points}
-          </button>
+    <li key={e.id} className={`card !py-3 transition-colors duration-300 ${cardTone(e)}`}>
+      {/* TOP: photo · name + scope · job button — BOTTOM: 4 badges in one row */}
+      <div className="flex items-center gap-3">
+        <PersonAvatar name={e.person.name} imageUrl={e.person.image_url} />
+        <div className="min-w-0 flex-1">
+          <p className="font-extrabold truncate leading-tight">{e.person.name}</p>
+          <p className="mt-0.5 text-[11px] font-bold text-slate-400 truncate">{scopeLabel(e)}</p>
         </div>
+        <div className="shrink-0">{jobButton(e)}</div>
       </div>
-      <div className="shrink-0">{jobButton(e)}</div>
+      <div className="badge-row">
+        {/* Status in the selected event right now — BEFORE attendance & points */}
+        {(() => {
+          const s = statusOf(e);
+          if (!s) return null;
+          const st = STATUS_STYLE[s];
+          return (
+            <span
+              id={`status-badge-${e.id}`}
+              role="status"
+              aria-label={`الحالة: ${CHILD_STATUS_LABELS[s]}`}
+              title={`الحالة في «${selectedEvent?.name ?? ''}» الآن`}
+              className={`badge-btn ${st.cls}`}
+            >
+              {st.icon} <span className="truncate">{CHILD_STATUS_LABELS[s]}</span>
+            </span>
+          );
+        })()}
+        {/* Call feedback badge — AFTER the status badge (0023) */}
+        {(() => {
+          const cs = callFb.stateOf(e);
+          if (!cs) return null;
+          return <CallFeedbackBadge id={`call-badge-${e.id}`} state={cs} onClick={() => setCallTarget(e)} />;
+        })()}
+        <button
+          id={`att-badge-${e.id}`}
+          type="button"
+          aria-label={selectedEvent ? `سجل الحضور — ${selectedEvent.name}` : 'سجل الحضور — كل المناسبات'}
+          onClick={() => setLogTarget({ kind: 'attendance', e })}
+          className="badge-btn bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
+        >
+          <CalendarCheck className="h-3.5 w-3.5" /> <span className="truncate">{attendanceShown(e)}</span>
+        </button>
+        <button
+          id={`pts-badge-${e.id}`}
+          type="button"
+          aria-label="سجل النقاط"
+          onClick={() => setLogTarget({ kind: 'points', e })}
+          className="badge-btn bg-gold-100 text-gold-600 hover:bg-gold-200"
+        >
+          <Star className="h-3.5 w-3.5" /> <span className="truncate">{e.points}</span>
+        </button>
+      </div>
     </li>
   );
 

@@ -15,6 +15,7 @@
 //                      REAL date decides whether its cycle is still open.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Image from 'next/image';
 import type { LucideIcon } from 'lucide-react';
 import {
   Phone, PhoneCall, PhoneMissed, PhoneOff, Voicemail,
@@ -24,7 +25,7 @@ import {
   Plane, Car, Bus, MapPin, House, Moon,
   GraduationCap, BookOpen, Briefcase, Users, Baby,
   Church, Gift, PartyPopper, Sparkles, MessageCircle,
-  Loader2, PhoneForwarded, Trash2, CalendarDays,
+  Loader2, PhoneForwarded, Trash2, CalendarDays, User,
 } from 'lucide-react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/client';
@@ -34,7 +35,7 @@ import { feedbackApplies, type AppEvent, type CallFeedback, type EnrollmentWithP
 import { cairoToday, APP_TZ } from '@/lib/time';
 import {
   followUpCycle, callFeedbackState, indexFeedbackRows, feedbackStyle, feedbackTintStyle,
-  canRecordFeedback, CALL_STATE_LABELS,
+  canRecordFeedback, CALL_STATE_LABELS, CALL_STATE_SHORT_LABELS,
   type CallFeedbackIconKey, type CallFeedbackState, type EnrollmentFeedbackDays, type FollowUpCycle,
 } from '@/lib/call-feedback';
 
@@ -55,16 +56,35 @@ export function CallFeedbackIcon({ icon, className }: { icon: string; className?
   return <Cmp className={className ?? 'h-3.5 w-3.5'} />;
 }
 
+// ---------- Card avatar (children page + scanner card header) ----------
+export function PersonAvatar({ name, imageUrl, size = 44 }: { name: string; imageUrl: string | null; size?: number }) {
+  return (
+    <div
+      className="relative shrink-0 overflow-hidden rounded-xl bg-gradient-to-br from-primary-500 to-accent-500 text-white ring-2 ring-white shadow-sm"
+      style={{ width: size, height: size }}
+    >
+      {imageUrl ? (
+        <Image src={imageUrl} alt={name} fill sizes={`${size}px`} className="object-cover" />
+      ) : (
+        <User className="absolute inset-0 m-auto" style={{ width: size * 0.5, height: size * 0.5 }} />
+      )}
+    </div>
+  );
+}
+
 // ---------- Badge ----------
 export function CallFeedbackBadge({
-  id, state, onClick, disabled,
+  id, state, onClick, disabled, full,
 }: {
   id?: string;
   state: CallFeedbackState;
   onClick?: () => void;
   disabled?: boolean;
+  /** show the full label (modal header); the card badge uses the compact one */
+  full?: boolean;
 }) {
   const label = state.kind === 'feedback' ? state.feedback.name : CALL_STATE_LABELS[state.kind];
+  const shown = state.kind === 'feedback' || full ? label : CALL_STATE_SHORT_LABELS[state.kind];
   const cls =
     state.kind === 'feedback'
       ? '!ring-black/10'
@@ -77,7 +97,7 @@ export function CallFeedbackBadge({
       id={id}
       type="button"
       aria-label={`نتيجة الافتقاد: ${label}`}
-      title="نتيجة الافتقاد — اضغط لتسجيل نتيجة المكالمة"
+      title={`نتيجة الافتقاد: ${label} — اضغط للتفاصيل`}
       onClick={onClick}
       disabled={disabled}
       style={style}
@@ -90,7 +110,7 @@ export function CallFeedbackBadge({
       ) : (
         <PhoneForwarded className="h-3.5 w-3.5" />
       )}
-      <span className="truncate">{label}</span>
+      <span className="truncate">{shown}</span>
     </button>
   );
 }
@@ -297,7 +317,7 @@ export function CallFeedbackModal({
         </p>
         <div className="mt-2 flex items-center gap-2">
           <span className="text-[11px] font-bold text-slate-400">الحالة الآن:</span>
-          <CallFeedbackBadge state={current} disabled />
+          <CallFeedbackBadge state={current} disabled full />
         </div>
       </div>
 

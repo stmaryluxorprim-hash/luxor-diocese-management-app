@@ -40,6 +40,13 @@ export const CALL_STATE_LABELS: Record<Exclude<CallFeedbackStateKind, 'feedback'
   not_called_yet: 'لم يُفتقد بعد',
   wasnt_called: 'لم يُفتقد',
 };
+/** Compact labels for the card badge — 4 badges share one row on a phone, so
+ *  «لم يُفتقد بعد» would be clipped; the full label stays in the tooltip,
+ *  aria-label, filter chips and the modal. */
+export const CALL_STATE_SHORT_LABELS: Record<Exclude<CallFeedbackStateKind, 'feedback'>, string> = {
+  not_called_yet: 'بالانتظار',
+  wasnt_called: 'لم يُفتقد',
+};
 
 /** Lifecycle of the occurrence's follow-up cycle, judged by the REAL clock. */
 export type FollowUpStatus =
