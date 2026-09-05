@@ -21,7 +21,7 @@ import {
   childEventStatus, CHILD_STATUS_LABELS, type ChildEventStatus,
 } from '@/lib/time';
 import {
-  CallFeedbackBadge, CallFeedbackModal, CallFeedbackIcon, useCallFeedbackStates,
+  CallFeedbackBadge, CallFeedbackModal, CallFeedbackIcon, PersonAvatar, useCallFeedbackStates,
 } from '@/components/CallFeedback';
 import {
   matchesCallFilter, feedbackStyle, CALL_STATE_LABELS, type CallFeedbackFilter,
@@ -1638,71 +1638,74 @@ export default function ChildrenPage() {
                   <ul className="divide-y divide-indigo-50 overflow-hidden rounded-b-2xl border border-t-0 border-indigo-50 bg-white">
                     {kids.map((child) => (
                       <li key={child.id} className={`px-4 py-3 transition-colors duration-300 ${cardTone(child)}`}>
-                        <div className="flex items-center justify-between gap-3">
-                          {/* Name + status/attendance/points badge BUTTONS below it.
-                              1) Status in the selected event for the current
-                                 day/time (حاضر / لم يُسجَّل / غائب) — only when
-                                 an event is selected.
-                              2) Attendance count (per selected event, or total
-                                 when no event is chosen).
-                              3) Points.
-                              Tapping attendance/points opens its log. */}
+                        {/* Card layout:
+                            TOP    — photo · name (+ phone) · job button
+                            BOTTOM — the 4 badges in ONE row, evenly distributed:
+                                     status (حاضر / لم يُسجَّل / غائب) · call
+                                     feedback (0023) · attendance · points.
+                            Tapping a badge opens its modal / log. */}
+                        <div className="flex items-center gap-3">
+                          <PersonAvatar name={child.person.name} imageUrl={child.person.image_url} />
                           <div className="min-w-0 flex-1">
-                            <p className="font-extrabold truncate">{child.person.name}</p>
-                            <div className="badge-grid">
-                              {(() => {
-                                const s = statusOf(child);
-                                if (!s) return null;
-                                const st = STATUS_STYLE[s];
-                                return (
-                                  <span
-                                    id={`status-badge-${child.id}`}
-                                    role="status"
-                                    aria-label={`الحالة: ${CHILD_STATUS_LABELS[s]}`}
-                                    title={`الحالة في «${selectedEvent?.name ?? ''}» الآن`}
-                                    className={`badge-btn ${st.cls}`}
-                                  >
-                                    {st.icon} <span className="truncate">{CHILD_STATUS_LABELS[s]}</span>
-                                  </span>
-                                );
-                              })()}
-                              {/* Call feedback badge — AFTER the status badge (0023) */}
-                              {(() => {
-                                const cs = callFb.stateOf(child);
-                                if (!cs) return null;
-                                return (
-                                  <CallFeedbackBadge
-                                    id={`call-badge-${child.id}`}
-                                    state={cs}
-                                    onClick={() => setCallTarget(child)}
-                                  />
-                                );
-                              })()}
-                              <button
-                                id={`att-badge-${child.id}`}
-                                type="button"
-                                aria-label={selectedEvent ? `سجل الحضور — ${selectedEvent.name}` : 'سجل الحضور — كل المناسبات'}
-                                title={selectedEvent ? `مرات الحضور في «${selectedEvent.name}»` : 'إجمالي الحضور في كل المناسبات'}
-                                onClick={() => setLogTarget({ kind: 'attendance', e: child })}
-                                className="badge-btn bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
-                              >
-                                <CalendarCheck className="h-3.5 w-3.5" /> {attendanceShown(child)}
-                              </button>
-                              <button
-                                id={`pts-badge-${child.id}`}
-                                type="button"
-                                aria-label="سجل النقاط"
-                                title="سجل النقاط"
-                                onClick={() => setLogTarget({ kind: 'points', e: child })}
-                                className="badge-btn bg-gold-100 text-gold-600 hover:bg-gold-200"
-                              >
-                                <Star className="h-3.5 w-3.5" /> {child.points}
-                              </button>
-                            </div>
+                            <p className="font-extrabold truncate leading-tight">{child.person.name}</p>
+                            {child.person.phone && (
+                              <p className="mt-0.5 flex items-center gap-1 text-[11px] font-bold text-slate-400" dir="ltr">
+                                <Phone className="h-3 w-3" /> {child.person.phone}
+                              </p>
+                            )}
                           </div>
-
                           {/* Single job button */}
                           <div className="shrink-0">{childButton(child)}</div>
+                        </div>
+                        <div className="badge-row">
+                          {(() => {
+                            const s = statusOf(child);
+                            if (!s) return null;
+                            const st = STATUS_STYLE[s];
+                            return (
+                              <span
+                                id={`status-badge-${child.id}`}
+                                role="status"
+                                aria-label={`الحالة: ${CHILD_STATUS_LABELS[s]}`}
+                                title={`الحالة في «${selectedEvent?.name ?? ''}» الآن`}
+                                className={`badge-btn ${st.cls}`}
+                              >
+                                {st.icon} <span className="truncate">{CHILD_STATUS_LABELS[s]}</span>
+                              </span>
+                            );
+                          })()}
+                          {/* Call feedback badge — AFTER the status badge (0023) */}
+                          {(() => {
+                            const cs = callFb.stateOf(child);
+                            if (!cs) return null;
+                            return (
+                              <CallFeedbackBadge
+                                id={`call-badge-${child.id}`}
+                                state={cs}
+                                onClick={() => setCallTarget(child)}
+                              />
+                            );
+                          })()}
+                          <button
+                            id={`att-badge-${child.id}`}
+                            type="button"
+                            aria-label={selectedEvent ? `سجل الحضور — ${selectedEvent.name}` : 'سجل الحضور — كل المناسبات'}
+                            title={selectedEvent ? `مرات الحضور في «${selectedEvent.name}»` : 'إجمالي الحضور في كل المناسبات'}
+                            onClick={() => setLogTarget({ kind: 'attendance', e: child })}
+                            className="badge-btn bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
+                          >
+                            <CalendarCheck className="h-3.5 w-3.5" /> <span className="truncate">{attendanceShown(child)}</span>
+                          </button>
+                          <button
+                            id={`pts-badge-${child.id}`}
+                            type="button"
+                            aria-label="سجل النقاط"
+                            title="سجل النقاط"
+                            onClick={() => setLogTarget({ kind: 'points', e: child })}
+                            className="badge-btn bg-gold-100 text-gold-600 hover:bg-gold-200"
+                          >
+                            <Star className="h-3.5 w-3.5" /> <span className="truncate">{child.points}</span>
+                          </button>
                         </div>
                       </li>
                     ))}
