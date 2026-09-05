@@ -88,6 +88,7 @@ In the settings hub **إدارة المناسبات** sits directly after **إد
 - ✅ **بوابة المخدوم / Child Portal (0021)**: "دخول المخدوم" button on `/login` → `/child/login` scans the child's QR (camera, **gallery image**, or typed code) → portal with the **same header style** (church logo / service · class) and a **bottom bar**: الرئيسية، الحضور، النقاط، البيانات، الخيارات. Main page shows name, picture, attendance & points; الحضور lists every attendance by day with event, registration date & time and points; النقاط shows balance + every addition/deduction by cause or attendance; البيانات shows the child's data, QR (downloadable) and picture — the child can **upload a new picture** or **request data changes** (name / birthdate / gender / phone / address) which go to the managers as *change requests* to be **approved or denied**; الخيارات: profile, refresh, install hint, logout
 - ✅ **المناسبة = المستوى الرابع (0022)**: 4th scope selector (كنيسة → خدمة → فصل → مناسبة) on the children page & scanner; attendance / points / calls / messages are all bound to the selected event (`points_log.event_id`, new `contact_log`); **status badge** (حاضر / لم يُسجّل / غائب) placed **before** the attendance & points badges, computed for the working day/time and recurring-event windows; status filter in الفلاتر; إدارة المناسبات moved right after إدارة الفصول in الإعدادات
 - ✅ **نتيجة الافتقاد (0023)**: a **call-feedback badge right after the status badge** on every child card (children page + scanner). Two clocks: the **working (frozen) date picks the occurrence**, the **real date decides whether its follow-up cycle is still open**. Default **لم يُفتقد بعد** while the cycle is open (real time between the occurrence start and the next occurrence start); if the cycle has **closed in real time** (e.g. the working date is frozen before the last occurrence) and no feedback was recorded it shows **لم يُفتقد** and is read-only. Clicking it opens a modal with the **colored feedback buttons** (+ اتصال, history, undo); picking one makes it the badge. Feedbacks are managed in **إدارة نتائج الافتقاد** (`/settings/call-feedbacks`) with a **name, color and icon**, bound to **church → service → class → event** (null = all). A **نتيجة الافتقاد filter** (الكل / لم يُفتقد بعد / لم يُفتقد / each feedback) lives in الفلاتر
+- ✅ **وحدة المالك + صلاحيات الوحدات (0024)**: modules registry (`src/lib/modules.ts`) — the side menu section under the 5 main pages shows **modules only**, the settings hub has a separate **الوحدات** group; the **owner module** (`/owner`, owner-only) hosts owner controls built step by step, starting with **صلاحيات الوحدات** (`/owner/modules`): per module, grant visibility to church → service → class (any level «الكل»), show for everyone / hide from everyone — enforced by RLS (`module_visible`) on the card tables and realtime everywhere
 - ✅ **طلبات تعديل البيانات** (`/settings/data-requests`): class servant, service manager, church manager or owner of the child's scope reviews pending requests (photo before/after or field diff), approves (applied to `persons`) or rejects with a note — realtime, with a pending-count badge on الإعدادات and in the side menu
 
 ## Functional Entry Points
@@ -114,6 +115,8 @@ In the settings hub **إدارة المناسبات** sits directly after **إد
 | `/child/options` | child options: profile, refresh, install, logout |
 | `/settings/data-requests` | managers: approve / reject children's photo & data change requests |
 | `/settings/call-feedbacks` | **إدارة نتائج الافتقاد** — call-feedback presets (name, color, icon) scoped church → service → class → event, reorderable |
+| `/owner` | **وحدة المالك (Owner module)** — hub of owner-only controls, visible to `role = owner` only |
+| `/owner/modules` | **صلاحيات الوحدات** — per module: which church → service → class can see it (grants, "all" at any level, show/hide for everyone) |
 
 ## Data Models & Storage
 - **Tables**: `churches`, `services`, `classes`, `profiles`, `children`, `attendance` — all with RLS + realtime
@@ -132,6 +135,7 @@ In the settings hub **إدارة المناسبات** sits directly after **إد
    ⚠️ `0021_child_portal.sql` is **required** by بوابة المخدوم (`/child/*`) and `/settings/data-requests`. Creates `data_change_requests`, the `child_portal_*` RPCs (SECURITY DEFINER, granted to `anon`, keyed by the scanned national id), `review_data_change_request` / `pending_data_requests_count` (authenticated) and a storage policy letting the portal upload into `photos/child-requests/`. Idempotent; run after 0020.
    ⚠️ `0022_event_bound_operations.sql` is **required** by the current children page & scanner (points inserts send `event_id`; calls / messages insert into `contact_log`). Adds `points_log.event_id`, the `contact_log` table (RLS + realtime), scope-check triggers and an `event_name` column on `child_portal_points`. Idempotent; run after 0021.
    ⚠️ `0023_call_feedbacks.sql` is **required** for the call-feedback badge / modal / filter and `/settings/call-feedbacks`. Adds the `call_feedbacks` table (scope church/service/class/event, `color`, `icon`, `sort_order`, RLS, realtime) and `contact_log.feedback_id` + `contact_log.occurrence_on`. Idempotent; run after 0022. Without it the badge stays on «لم يُفتقد بعد» and the modal shows a migration hint.
+   ⚠️ `0024_owner_module_access.sql` is **required** by وحدة المالك (`/owner/*`) and by the module sections of the side menu / settings. Adds `module_access` (owner-written grants: module → church/service/class, null = all), `module_visible(key)`, re-creates the card-module policies so `card_templates` / `card_print_requests` require `module_visible('cards')`, and **seeds one global grant for `cards`** so nothing disappears for existing users. Idempotent; run after 0023. Without it non-owners see no modules.
 3. **Authentication → Providers → Email**: disable "Confirm email"
 4. Authentication → Users → Add user: `owner@diocese.app` + password
 5. Copy that user's UUID into `supabase/migrations/0002_bootstrap_owner.sql` and run it
@@ -340,6 +344,43 @@ qualifies but check Vercel's fair-use policy.
   (badge + filter chips + realtime), scanner (badge + modal),
   `/settings/call-feedbacks` + hub link after إدارة أسباب النقاط.
 
+## Modules & the Owner module — migration 0024 (الوحدات · وحدة المالك)
+The app = a fixed **core** (the 5 main pages: الرئيسية · المخدومين · الماسح ·
+الإحصائيات · الإعدادات) + optional **modules** (الوحدات). Today the only
+module is the **card designer / print module** (`cards`).
+
+- **Registry** — `src/lib/modules.ts`: every module is declared once (`key`,
+  label, desc, entry `href`, icon, color, path prefixes). To add a module
+  later: add one entry there and wrap its pages with `<ModuleGate module="key">`
+  (or a route `layout.tsx` like `src/app/settings/cards/layout.tsx`).
+- **Side menu** (`SideMenu.tsx`) — the section under the 5 main-page buttons
+  shows **modules only**: the owner module (owner) + the modules granted to the
+  caller's scope. Nothing else lives there.
+- **Settings hub** — modules sit in their own group **الوحدات**, separate from
+  الإدارة and النشاط (the owner module is listed first, gold-tinted, for the owner).
+- **Owner module** (`/owner`) — a unique module for `role = owner` only
+  (`<OwnerGate>`); owner-only controls are added here step by step. First tool:
+  **صلاحيات الوحدات** (`/owner/modules`) — for each module the owner lists its
+  **grants** (كنيسة ← خدمة ← فصل, any level may be «الكل»), adds a scope,
+  deletes one, **إظهار للجميع** (one global grant) or **إخفاء عن الجميع** (no
+  grants → only the owner sees the module).
+- **Visibility rule** — a servant sees a module when at least one grant
+  *overlaps* his scope (same `scope_overlaps` semantics as events / causes);
+  the owner always sees everything. Computed in SQL (`module_visible(key)`)
+  and mirrored in the client (`visibleModuleKeys` in `src/lib/modules.ts`).
+- **Database** (`0024_owner_module_access.sql`) — table `module_access`
+  (`module_key`, `church_id?`, `service_id?`, `class_id?`, unique per scope,
+  chain check + trigger validating service ∈ church, class ∈ service). RLS: read
+  what concerns you, **only the owner writes**. The card tables
+  (`card_templates`, `card_print_requests`) now also require
+  `module_visible('cards')` in every policy, so hiding the module in the UI is
+  enforced by the database. Realtime enabled → grants propagate instantly.
+- **Frontend plumbing** — `ModulesProvider` / `useModules` / `useModuleVisible`
+  (`src/lib/modules-context.tsx`, mounted in the root layout, realtime on
+  `module_access`), `ModuleGate` + `OwnerGate` (`src/components/ModuleGate.tsx`).
+  The children page hides the **طباعة كارت** job when the card module is not
+  granted; `/settings/cards/*` is gated by a route layout.
+
 ## Features Not Yet Implemented
 - Push notifications
 - Attendance history per date (per-person list view for servants)
@@ -347,11 +388,11 @@ qualifies but check Vercel's fair-use policy.
 - Points store / rewards module
 
 ## Recommended Next Steps
-1. Run migrations `0017` → `0023` (`0022` powers event-bound points / calls / messages; `0023_call_feedbacks.sql` powers the call-feedback badge & إدارة نتائج الافتقاد) in Supabase SQL editor
+1. Run migrations `0017` → `0024` (`0022` powers event-bound points / calls / messages; `0023_call_feedbacks.sql` powers the call-feedback badge & إدارة نتائج الافتقاد; `0024_owner_module_access.sql` powers وحدة المالك & module visibility) in Supabase SQL editor
 2. Deploy to Vercel and test the full approval flow
 3. Per-person attendance history view
 
 ## Deployment
 - **Platform**: Vercel + Supabase
-- **Status**: ✅ Code complete for Phase 1 + performance/scale hardening (0019) + statistics tab (0020) + child portal & data change requests (0021) + event as 4th scope level with status badge (0022) + call-feedback badge & إدارة نتائج الافتقاد (0023) — awaiting Supabase project + Vercel connect
-- **Last Updated**: 2026-09-04
+- **Status**: ✅ Code complete for Phase 1 + performance/scale hardening (0019) + statistics tab (0020) + child portal & data change requests (0021) + event as 4th scope level with status badge (0022) + call-feedback badge & إدارة نتائج الافتقاد (0023) + owner module & per-scope module visibility (0024) — awaiting Supabase project + Vercel connect
+- **Last Updated**: 2026-09-05

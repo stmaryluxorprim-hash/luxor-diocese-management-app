@@ -27,6 +27,7 @@ import {
   matchesCallFilter, feedbackStyle, CALL_STATE_LABELS, type CallFeedbackFilter,
 } from '@/lib/call-feedback';
 import { useAppDate } from '@/lib/app-date-context';
+import { useModules } from '@/lib/modules-context';
 import NumPadModal from '@/components/NumPadModal';
 import {
   ViewPersonModal, EditPersonModal, DeletePersonModal,
@@ -117,6 +118,17 @@ export default function ChildrenPage() {
 
   // ---------- Job selector + activated modes ----------
   const [job, setJob] = useState<Job>('attendance');
+  // The "طباعة كارت" job belongs to the CARD MODULE — it exists only when the
+  // owner granted that module to my scope (see /owner/modules).
+  const { isVisible: moduleVisible } = useModules();
+  const cardsModuleOn = moduleVisible('cards');
+  const availableJobs = useMemo(
+    () => JOBS.filter((j) => j.value !== 'print_card' || cardsModuleOn),
+    [cardsModuleOn]
+  );
+  useEffect(() => {
+    if (job === 'print_card' && !cardsModuleOn) setJob('attendance');
+  }, [job, cardsModuleOn]);
   const [attendanceMode, setAttendanceMode] = useState<AttendanceMode>('add');
   const [pointsMode, setPointsMode] = useState<PointsMode>('add');
   // ---------- 4th scope level: EVENT ----------
@@ -1081,7 +1093,7 @@ export default function ChildrenPage() {
           value={job}
           onChange={(e) => setJob(e.target.value as Job)}
         >
-          {JOBS.map((j) => (
+          {availableJobs.map((j) => (
             <option key={j.value} value={j.value}>{j.label}</option>
           ))}
         </select>
