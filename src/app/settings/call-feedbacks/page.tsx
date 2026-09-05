@@ -1,6 +1,6 @@
 'use client';
 
-// ---------- إدارة نتائج الاتصال (migration 0023) ----------
+// ---------- إدارة نتائج الافتقاد (migration 0023) ----------
 // Managers define the outcomes a servant can pick after calling a child:
 // name + color + icon, bound to church → service → class → event (each of
 // service / class / event may be "all"). They appear as colored buttons in
@@ -76,7 +76,7 @@ export default function CallFeedbacksPage() {
   };
 
   const remove = async (fb: CallFeedback) => {
-    if (!confirm(`حذف نتيجة الاتصال «${fb.name}»؟ المكالمات المسجلة بها ستبقى بدون نتيجة.`)) return;
+    if (!confirm(`حذف نتيجة الافتقاد «${fb.name}»؟ المكالمات المسجلة بها ستبقى بدون نتيجة.`)) return;
     await supabase.from('call_feedbacks').delete().eq('id', fb.id);
     load();
   };
@@ -103,7 +103,7 @@ export default function CallFeedbacksPage() {
           </Link>
           <h2 className="flex items-center gap-2 text-lg font-extrabold">
             <PhoneCall className="h-5 w-5 text-teal-600" />
-            نتائج الاتصال
+            نتائج الافتقاد
             <span className="badge bg-teal-100 text-teal-700">{feedbacks.length}</span>
           </h2>
         </div>
@@ -113,7 +113,7 @@ export default function CallFeedbacksPage() {
       </section>
 
       <p className="mb-4 rounded-2xl bg-teal-50 px-4 py-3 text-xs font-bold text-teal-700">
-        بعد الاتصال بالمخدوم للمتابعة يختار الخادم نتيجة المكالمة (مثال: سيأتي، مريض، لم يرد، مسافر...).
+        بعد الاتصال بالمخدوم للافتقاد يختار الخادم نتيجة الافتقاد (مثال: سيأتي، مريض، لم يرد، مسافر...).
         لكل نتيجة اسم ولون وأيقونة، ونطاقها كنيسة ← خدمة ← فصل ← مناسبة (أو «الكل»). تظهر كشارة بعد شارة الحالة في بطاقة المخدوم.
       </p>
 
@@ -280,7 +280,7 @@ function FeedbackModal({
 
     if (err) {
       setError(err.code === '42P01'
-        ? 'جدول نتائج الاتصال غير موجود — شغّل تحديث قاعدة البيانات (0023)'
+        ? 'جدول نتائج الافتقاد غير موجود — شغّل تحديث قاعدة البيانات (0023)'
         : 'تعذر الحفظ، تأكد من الصلاحيات');
       setSaving(false);
       return;
@@ -293,7 +293,7 @@ function FeedbackModal({
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-6">
       <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-white p-5 sm:rounded-3xl">
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-lg font-extrabold">{mode === 'add' ? 'إضافة نتيجة اتصال' : 'تعديل نتيجة الاتصال'}</h3>
+          <h3 className="text-lg font-extrabold">{mode === 'add' ? 'إضافة نتيجة افتقاد' : 'تعديل نتيجة الافتقاد'}</h3>
           <button onClick={onClose} aria-label="إغلاق" className="rounded-full p-1.5 hover:bg-slate-100">
             <X className="h-5 w-5" />
           </button>

@@ -215,6 +215,9 @@ export default function ScannerPage() {
   }, []);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const nowDate = useMemo(() => now(), [now, tick]);
+  // REAL clock — decides whether the call follow-up cycle is still open (0023)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const realNow = useMemo(() => new Date(), [tick, now]);
   const eventAvail = useMemo(
     () => (selectedEvent ? eventAvailability(selectedEvent, nowDate) : null),
     [selectedEvent, nowDate]
@@ -312,7 +315,7 @@ export default function ScannerPage() {
     selectedEvent ? (eventCounts[e.id] ?? 0) : e.attendance_count;
 
   // Call-feedback badge state (0023) for the rows on screen
-  const callFb = useCallFeedbackStates(supabase, visibleRows, selectedEvent, feedbacks, nowDate);
+  const callFb = useCallFeedbackStates(supabase, visibleRows, selectedEvent, feedbacks, nowDate, realNow);
 
   // Status of a person in the selected event at the working date-time
   // (present / not registered / absent). null when no event is selected

@@ -358,6 +358,10 @@ export default function ChildrenPage() {
   }, []);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const nowDate = useMemo(() => now(), [now, tick]);
+  // The REAL clock (ignores the frozen working date) — decides whether a
+  // follow-up cycle is still open (call feedback, 0023)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const realNow = useMemo(() => new Date(), [tick, now]);
   const eventAvail = useMemo(
     () => (selectedEvent ? eventAvailability(selectedEvent, nowDate) : null),
     [selectedEvent, nowDate]
@@ -445,7 +449,7 @@ export default function ChildrenPage() {
 
   // ---------- Call feedback (0023) — badge state per child for the selected
   // event's follow-up cycle at the working date-time; modal target ----------
-  const callFb = useCallFeedbackStates(supabase, enrollments, selectedEvent, feedbacks, nowDate);
+  const callFb = useCallFeedbackStates(supabase, enrollments, selectedEvent, feedbacks, nowDate, realNow);
   const [callTarget, setCallTarget] = useState<EnrollmentWithPerson | null>(null);
   // Feedbacks offered in the filter: those covering the current scope selectors + event
   const visibleFeedbacks = useMemo(
@@ -1442,9 +1446,9 @@ export default function ChildrenPage() {
             {/* Call-feedback filter — badge state / specific feedback (0023) */}
             <div>
               <label className="mb-1 block text-xs font-bold text-slate-500">
-                نتيجة الاتصال {selectedEvent ? `في «${selectedEvent.name}»` : '(اختر مناسبة أولاً)'}
+                نتيجة الافتقاد {selectedEvent ? `في «${selectedEvent.name}»` : '(اختر مناسبة أولاً)'}
               </label>
-              <div id="call-filter" className="flex flex-wrap gap-1.5" role="group" aria-label="فلترة بنتيجة الاتصال">
+              <div id="call-filter" className="flex flex-wrap gap-1.5" role="group" aria-label="فلترة بنتيجة الافتقاد">
                 {([
                   { value: 'all' as CallFeedbackFilter, label: 'الكل', cls: 'bg-primary-600 text-white ring-primary-300' },
                   { value: 'not_called_yet' as CallFeedbackFilter, label: CALL_STATE_LABELS.not_called_yet, cls: 'bg-slate-500 text-white ring-slate-300' },
