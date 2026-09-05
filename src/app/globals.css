@@ -63,4 +63,9 @@ body {
   .badge-row > * > svg {
     @apply shrink-0;
   }
+  /* Running number in the card's top corner — follows the CURRENT view
+     (filters + sort): 1 = first card on screen */
+  .card-num {
+    @apply absolute top-0 start-0 z-[1] flex h-[1.375rem] min-w-[1.75rem] items-center justify-center rounded-ee-xl bg-slate-800 px-2 text-[11px] font-extrabold tabular-nums text-white shadow-sm;
+  }
 }

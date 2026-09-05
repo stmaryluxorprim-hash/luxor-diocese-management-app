@@ -711,8 +711,10 @@ export default function ScannerPage() {
   };
 
   // One person row — identical layout to the children page card
-  const personRow = (e: EnrollmentWithPerson) => (
-    <li key={e.id} className={`card !py-3 transition-colors duration-300 ${cardTone(e)}`}>
+  const personRow = (e: EnrollmentWithPerson, i: number) => (
+    <li key={e.id} className={`card relative overflow-hidden !py-3 !border-2 !border-indigo-200 transition-colors duration-300 ${cardTone(e)}`}>
+      {/* running number in the corner — follows the current result list */}
+      <span className="card-num" aria-label={`رقم ${i + 1}`}>{i + 1}</span>
       {/* TOP: photo · name + scope · job button — BOTTOM: 4 badges in one row */}
       <div className="flex items-center gap-3">
         <PersonAvatar name={e.person.name} imageUrl={e.person.image_url} />
@@ -1137,7 +1139,7 @@ export default function ScannerPage() {
         {search.trim() && !searching && searchRows.length === 0 && (
           <p className="card py-6 text-center text-sm font-bold text-slate-400">لا توجد نتائج في النطاق المختار</p>
         )}
-        <ul className="space-y-2">{searchRows.map(personRow)}</ul>
+        <ul className="space-y-2.5">{searchRows.map((e, i) => personRow(e, i))}</ul>
       </section>
 
       {/* ---------- Archive of scan operations ---------- */}

@@ -750,13 +750,19 @@ export default function ChildrenPage() {
       arr.push(e);
       byClass.set(e.class_id, arr);
     });
-    return Array.from(byClass.entries())
+    const list = Array.from(byClass.entries())
       .map(([classId, kids]) => ({
         classId,
         className: classes.find((c) => c.id === classId)?.name ?? 'فصل غير معروف',
         kids,
+        offset: 0, // running number of the first child in this group (filled below)
       }))
       .sort((a, b) => a.className.localeCompare(b.className, 'ar'));
+    // Card numbering runs across the whole visible list (current filters +
+    // sort), group after group: 1 = first card on screen.
+    let n = 0;
+    list.forEach((g) => { g.offset = n; n += g.kids.length; });
+    return list;
   }, [sorted, classes]);
 
   const activeFilterCount =
@@ -1600,7 +1606,7 @@ export default function ChildrenPage() {
         </div>
       ) : (
         <div id="children-groups" className="space-y-3">
-          {groups.map(({ classId, className, kids }) => {
+          {groups.map(({ classId, className, kids, offset }) => {
             const open = openGroups[classId] ?? false;
             return (
               <div key={classId}>
@@ -1635,11 +1641,12 @@ export default function ChildrenPage() {
                 </div>
 
                 {open && (
-                  <ul className="divide-y divide-indigo-50 overflow-hidden rounded-b-2xl border border-t-0 border-indigo-50 bg-white">
-                    {kids.map((child) => (
-                      <li key={child.id} className={`px-4 py-3 transition-colors duration-300 ${cardTone(child)}`}>
+                  <ul className="divide-y-[3px] divide-indigo-200 overflow-hidden rounded-b-2xl border border-t-0 border-indigo-200 bg-white">
+                    {kids.map((child, i) => (
+                      <li key={child.id} className={`relative px-4 py-3 transition-colors duration-300 ${cardTone(child)}`}>
+                        <span className="card-num" aria-label={`رقم ${offset + i + 1}`}>{offset + i + 1}</span>
                         {/* Card layout:
-                            TOP    — photo · name (+ phone) · job button
+                            TOP    — running number (corner) · photo · name · job button
                             BOTTOM — the 4 badges in ONE row, evenly distributed:
                                      status (حاضر / لم يُسجَّل / غائب) · call
                                      feedback (0023) · attendance · points.
@@ -1647,12 +1654,7 @@ export default function ChildrenPage() {
                         <div className="flex items-center gap-3">
                           <PersonAvatar name={child.person.name} imageUrl={child.person.image_url} />
                           <div className="min-w-0 flex-1">
-                            <p className="font-extrabold truncate leading-tight">{child.person.name}</p>
-                            {child.person.phone && (
-                              <p className="mt-0.5 flex items-center gap-1 text-[11px] font-bold text-slate-400" dir="ltr">
-                                <Phone className="h-3 w-3" /> {child.person.phone}
-                              </p>
-                            )}
+                            <p className="font-extrabold truncate">{child.person.name}</p>
                           </div>
                           {/* Single job button */}
                           <div className="shrink-0">{childButton(child)}</div>
