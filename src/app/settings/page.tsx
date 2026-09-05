@@ -163,8 +163,8 @@ export default function SettingsPage() {
             <SettingsLink
               href="/settings/call-feedbacks"
               icon={<PhoneCall className="h-5 w-5 text-teal-600" />}
-              label="إدارة نتائج الاتصال"
-              desc="نتائج مكالمات المتابعة (سيأتي، مريض، لم يرد...) — اسم ولون وأيقونة"
+              label="إدارة نتائج الافتقاد"
+              desc="نتائج افتقاد المخدومين (سيأتي، مريض، لم يرد...) — اسم ولون وأيقونة"
             />
             <SettingsLink
               href="/settings/cards"

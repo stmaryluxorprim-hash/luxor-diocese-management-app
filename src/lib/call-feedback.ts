@@ -5,15 +5,25 @@
 // CALL FEEDBACK (migration 0023) stored in `contact_log` with
 // `feedback_id` + `occurrence_on`.
 //
-// The follow-up CYCLE of an occurrence runs from that occurrence's start
-// until the NEXT occurrence starts. The badge on a child's card shows:
+// The follow-up CYCLE (فترة الافتقاد) of an occurrence runs from that
+// occurrence's start until the NEXT occurrence starts.
 //
-//   feedback        → the latest feedback recorded for the cycle's occurrence
-//   wasnt_called    → «لم يُتصل به» — the PREVIOUS cycle closed (the next
-//                     occurrence has started) and nobody ever recorded a
-//                     feedback for it. A warning carried into the new cycle
-//                     until a feedback is recorded for the current occurrence.
-//   not_called_yet  → «لم يُتصل به بعد» — the normal open state.
+// TWO CLOCKS decide the badge:
+//   • the WORKING date (the frozen/override date the servant may set from the
+//     header) is the SECONDARY player — it only chooses WHICH occurrence the
+//     badge is about (the occurrence whose cycle contains the working time);
+//   • the REAL date is the MAIN player — it decides whether that occurrence's
+//     cycle is still OPEN (real time is inside it) or has CLOSED (the next
+//     occurrence has already started in real time). A closed cycle is final:
+//     its feedback can no longer be recorded or changed.
+//
+// The badge on a child's card shows:
+//   feedback        → the latest feedback recorded for the occurrence
+//   not_called_yet  → «لم يُفتقد بعد» — no feedback and the cycle is open
+//                     (or hasn't started yet — working date in the future)
+//   wasnt_called    → «لم يُفتقد» — no feedback and the cycle is CLOSED in
+//                     real time (e.g. the working date is frozen before the
+//                     last occurrence): the child was never followed up.
 
 import type { CSSProperties } from 'react';
 import type { AppEvent, CallFeedback } from './types';
@@ -27,46 +37,59 @@ export type CallFeedbackState =
   | { kind: 'feedback'; feedback: CallFeedback };
 
 export const CALL_STATE_LABELS: Record<Exclude<CallFeedbackStateKind, 'feedback'>, string> = {
-  not_called_yet: 'لم يُتصل به بعد',
-  wasnt_called: 'لم يُتصل به',
+  not_called_yet: 'لم يُفتقد بعد',
+  wasnt_called: 'لم يُفتقد',
 };
 
-/** Which occurrences the badge refers to right now. */
+/** Lifecycle of the occurrence's follow-up cycle, judged by the REAL clock. */
+export type FollowUpStatus =
+  | 'open'     // real time is inside this occurrence's cycle → feedback can be recorded / changed
+  | 'closed'   // the next occurrence already started in real time → final, read-only
+  | 'future';  // the occurrence hasn't started yet in real time → nothing to record yet
+
+/** Which occurrence the badge refers to, and whether its cycle is still open. */
 export interface FollowUpCycle {
-  /** Cairo day of the occurrence whose follow-up is OPEN (feedbacks are recorded on it) */
+  /** Cairo day of the occurrence the WORKING date falls in (feedbacks are read/recorded on it) */
   target: string;
-  /** Cairo day of the previous occurrence — a missing feedback there = «wasn't called».
-   *  null for one-time events or when that occurrence predates the event itself. */
-  previous: string | null;
+  /** Cairo day of the occurrence whose cycle is open in REAL time */
+  realTarget: string;
+  /** open / closed / future — see FollowUpStatus */
+  status: FollowUpStatus;
+  /** true when `target` predates the event's creation day (the event didn't exist → no badge) */
+  beforeCreation: boolean;
 }
 
 /**
- * Compute the follow-up cycle of `ev` at instant `now`.
+ * The occurrence whose follow-up cycle contains instant `at`.
  *
- *  once   → the single occurrence is the target for its whole life
- *           (before, during and after the event); no previous.
- *  weekly → the latest occurrence that has STARTED is the target. On an
- *           event day before start_time the previous week's occurrence is
- *           still the target ("we haven't started the next event yet").
- *           `previous` is the occurrence before the target, ignored when it
- *           is older than the event's creation day (the event didn't exist
- *           → nobody could have been called).
+ *  once   → the single occurrence, for its whole life (before, during, after).
+ *  weekly → the latest occurrence that has STARTED. On an event day before
+ *           start_time the previous week's occurrence is still the one
+ *           ("the next event hasn't started yet").
  */
-export function followUpCycle(ev: AppEvent, now: Date = new Date()): FollowUpCycle {
-  const occ = currentOccurrence(ev, now);
-  if (!occ) return { target: cairoToday(now), previous: null }; // undated legacy event
-  if (ev.recurrence === 'once') return { target: occ.date, previous: null };
+export function cycleOccurrence(ev: AppEvent, at: Date): string {
+  const occ = currentOccurrence(ev, at);
+  if (!occ) return cairoToday(at); // undated legacy event
+  if (ev.recurrence === 'once') return occ.date;
+  if (occ.phase === 'upcoming') return previousOccurrenceDate(ev, occ.date) ?? occ.date;
+  return occ.date;
+}
 
-  let target = occ.date;
-  if (occ.phase === 'upcoming') {
-    target = previousOccurrenceDate(ev, occ.date) ?? occ.date;
-  }
-  let previous = previousOccurrenceDate(ev, target);
-  if (previous && ev.created_at) {
-    const createdDay = cairoToday(new Date(ev.created_at));
-    if (previous < createdDay) previous = null;
-  }
-  return { target, previous };
+/**
+ * Compute the follow-up cycle of `ev`:
+ *  - `working` (the app's working / frozen date) picks the occurrence,
+ *  - `real`    (the live clock) decides whether that cycle is open, closed
+ *              or not started yet.
+ * When the servant hasn't frozen the date both are the same instant and the
+ * cycle is simply the open one.
+ */
+export function followUpCycle(ev: AppEvent, working: Date = new Date(), real: Date = new Date()): FollowUpCycle {
+  const target = cycleOccurrence(ev, working);
+  const realTarget = cycleOccurrence(ev, real);
+  const status: FollowUpStatus =
+    target === realTarget ? 'open' : target < realTarget ? 'closed' : 'future';
+  const beforeCreation = !!ev.created_at && target < cairoToday(new Date(ev.created_at));
+  return { target, realTarget, status, beforeCreation };
 }
 
 /** Feedbacks recorded for one enrollment: occurrence day → feedback id (latest) */
@@ -84,9 +107,14 @@ export function callFeedbackState(
     if (fb) return { kind: 'feedback', feedback: fb };
     // feedback deleted from settings → fall through as if not recorded
   }
-  if (cycle.previous && !recorded?.[cycle.previous]) return { kind: 'wasnt_called' };
+  // No feedback: the REAL clock decides — a closed cycle means the child was
+  // never followed up for that occurrence; open / future = still pending.
+  if (cycle.status === 'closed') return { kind: 'wasnt_called' };
   return { kind: 'not_called_yet' };
 }
+
+/** Can a feedback be recorded / changed for this cycle? Only while it is open in real time. */
+export const canRecordFeedback = (cycle: FollowUpCycle) => cycle.status === 'open' && !cycle.beforeCreation;
 
 /** Build the per-enrollment map from contact_log rows (newest first wins). */
 export function indexFeedbackRows(

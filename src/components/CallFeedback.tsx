@@ -3,14 +3,16 @@
 // ---------- Call feedback UI (migration 0023) ----------
 // CallFeedbackIcon   — maps a stored icon key → lucide icon
 // CallFeedbackBadge  — the badge shown AFTER the status badge on a child's
-//                      card: «لم يُتصل به بعد» / «لم يُتصل به» / the recorded
+//                      card: «لم يُفتقد بعد» / «لم يُفتقد» / the recorded
 //                      feedback (its color + icon + name). Tapping opens…
 // CallFeedbackModal  — colored feedback buttons (scoped to the child's
 //                      church / service / class and the selected event);
 //                      choosing one inserts a contact_log row (kind 'call',
 //                      feedback_id, occurrence_on) and the badge updates.
+//                      Read-only once the cycle has CLOSED in real time.
 // useCallFeedbackStates — per-enrollment badge state for the rows on
-//                      screen, for the selected event at the working date.
+//                      screen: the WORKING date picks the occurrence, the
+//                      REAL date decides whether its cycle is still open.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
@@ -32,7 +34,7 @@ import { feedbackApplies, type AppEvent, type CallFeedback, type EnrollmentWithP
 import { cairoToday, APP_TZ } from '@/lib/time';
 import {
   followUpCycle, callFeedbackState, indexFeedbackRows, feedbackStyle, feedbackTintStyle,
-  CALL_STATE_LABELS,
+  canRecordFeedback, CALL_STATE_LABELS,
   type CallFeedbackIconKey, type CallFeedbackState, type EnrollmentFeedbackDays, type FollowUpCycle,
 } from '@/lib/call-feedback';
 
@@ -74,8 +76,8 @@ export function CallFeedbackBadge({
     <button
       id={id}
       type="button"
-      aria-label={`نتيجة الاتصال: ${label}`}
-      title="نتيجة الاتصال — اضغط لتسجيل نتيجة المكالمة"
+      aria-label={`نتيجة الافتقاد: ${label}`}
+      title="نتيجة الافتقاد — اضغط لتسجيل نتيجة المكالمة"
       onClick={onClick}
       disabled={disabled}
       style={style}
@@ -107,21 +109,23 @@ export function useCallFeedbackStates(
   rows: EnrollmentWithPerson[],
   selectedEvent: AppEvent | null,
   feedbacks: CallFeedback[],
-  now: Date
+  /** the app's working date (frozen override or live) — picks the occurrence */
+  working: Date,
+  /** the REAL clock — decides whether that occurrence's cycle is open or closed */
+  real: Date
 ): CallFeedbackStates {
-  const cycle = useMemo(() => (selectedEvent ? followUpCycle(selectedEvent, now) : null), [selectedEvent, now]);
+  const cycle = useMemo(
+    () => (selectedEvent ? followUpCycle(selectedEvent, working, real) : null),
+    [selectedEvent, working, real]
+  );
   const feedbacksById = useMemo(() => new Map(feedbacks.map((f) => [f.id, f])), [feedbacks]);
   const [recorded, setRecordedMap] = useState<Record<string, EnrollmentFeedbackDays>>({});
 
   const idsKey = rows.map((e) => e.id).join(',');
-  const days = useMemo(() => {
-    if (!cycle) return [];
-    return cycle.previous ? [cycle.target, cycle.previous] : [cycle.target];
-  }, [cycle]);
-  const daysKey = days.join(',');
+  const targetDay = cycle?.target ?? '';
 
   const load = useCallback(async () => {
-    if (!selectedEvent || !idsKey || !daysKey) { setRecordedMap({}); return; }
+    if (!selectedEvent || !idsKey || !targetDay) { setRecordedMap({}); return; }
     const ids = idsKey.split(',');
     const all: { enrollment_id: string; occurrence_on: string | null; feedback_id: string | null; created_at: string }[] = [];
     for (let i = 0; i < ids.length; i += 100) {
@@ -129,13 +133,13 @@ export function useCallFeedbackStates(
         .from('contact_log')
         .select('enrollment_id, occurrence_on, feedback_id, created_at')
         .eq('event_id', selectedEvent.id)
-        .in('occurrence_on', daysKey.split(','))
+        .eq('occurrence_on', targetDay)
         .not('feedback_id', 'is', null)
         .in('enrollment_id', ids.slice(i, i + 100));
       all.push(...((data ?? []) as typeof all));
     }
     setRecordedMap(indexFeedbackRows(all));
-  }, [supabase, selectedEvent, idsKey, daysKey]);
+  }, [supabase, selectedEvent, idsKey, targetDay]);
 
   useEffect(() => {
     let cancelled = false;
@@ -146,6 +150,7 @@ export function useCallFeedbackStates(
   const stateOf = useCallback(
     (e: EnrollmentWithPerson): CallFeedbackState | null => {
       if (!cycle || !selectedEvent) return null;
+      if (cycle.beforeCreation) return null; // the event didn't exist on that day
       if (selectedEvent.church_id !== e.church_id) return null;
       if (selectedEvent.service_id !== null && selectedEvent.service_id !== e.service_id) return null;
       if (selectedEvent.class_id !== null && selectedEvent.class_id !== e.class_id) return null;
@@ -236,7 +241,11 @@ export function CallFeedbackModal({
   }, [supabase, enrollment.id, event.id]);
   useEffect(() => { loadHistory(); }, [loadHistory]);
 
+  // Recording is allowed only while the cycle is OPEN in real time
+  const editable = canRecordFeedback(cycle);
+
   const record = async (fb: CallFeedback) => {
+    if (!editable) return;
     setError('');
     setSaving(fb.id);
     const { error: err } = await supabase.from('contact_log').insert({
@@ -260,9 +269,10 @@ export function CallFeedbackModal({
 
   // Remove the latest feedback of the current occurrence (undo)
   const undo = async () => {
+    if (!editable) return;
     const latest = history?.find((h) => h.occurrence_on === cycle.target);
     if (!latest) return;
-    if (!confirm('حذف نتيجة الاتصال المسجلة لهذه المناسبة؟')) return;
+    if (!confirm('حذف نتيجة الافتقاد المسجلة لهذه المناسبة؟')) return;
     setSaving('undo');
     const { error: err } = await supabase.from('contact_log').delete().eq('id', latest.id);
     setSaving(null);
@@ -276,7 +286,7 @@ export function CallFeedbackModal({
   const hasCurrent = current.kind === 'feedback';
 
   return (
-    <ModalFrame title="نتيجة الاتصال" icon={<PhoneCall className="h-5 w-5 text-primary-600" />} onClose={onClose}>
+    <ModalFrame title="نتيجة الافتقاد" icon={<PhoneCall className="h-5 w-5 text-primary-600" />} onClose={onClose}>
       {/* Child + event + occurrence */}
       <div className="mb-3 rounded-2xl bg-slate-50 px-3 py-2.5">
         <p className="truncate font-extrabold">{enrollment.person.name}</p>
@@ -290,17 +300,23 @@ export function CallFeedbackModal({
         </div>
       </div>
 
-      {current.kind === 'wasnt_called' && cycle.previous && (
-        <p className="mb-3 rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">
-          ⚠️ لم تُسجَّل أي نتيجة اتصال لمناسبة {fmtDay(cycle.previous)} — سجّل نتيجة المكالمة الحالية لإزالة التنبيه
+      {cycle.status === 'closed' && (
+        <p id="call-cycle-closed" className={`mb-3 rounded-xl px-3 py-2 text-xs font-bold ${current.kind === 'wasnt_called' ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>
+          {current.kind === 'wasnt_called' ? '⚠️ لم يُفتقد هذا المخدوم لمناسبة ' : '🔒 نتيجة الافتقاد لمناسبة '}
+          {fmtDay(cycle.target)} — انتهت فترة الافتقاد ببداية مناسبة {fmtDay(cycle.realTarget)} في الوقت الفعلي، ولا يمكن تسجيل أو تعديل النتيجة
+        </p>
+      )}
+      {cycle.status === 'future' && (
+        <p id="call-cycle-future" className="mb-3 rounded-xl bg-sky-50 px-3 py-2 text-xs font-bold text-sky-700">
+          ⏳ مناسبة {fmtDay(cycle.target)} لم تبدأ بعد في الوقت الفعلي — يمكن تسجيل نتيجة الافتقاد بعد بدايتها
         </p>
       )}
 
       {/* Feedback buttons */}
-      <p className="mb-1.5 text-xs font-bold text-slate-500">اختر نتيجة المكالمة</p>
+      <p className="mb-1.5 text-xs font-bold text-slate-500">{editable ? 'اختر نتيجة الافتقاد' : 'نتائج الافتقاد (للعرض فقط)'}</p>
       {options.length === 0 ? (
         <p className="rounded-xl bg-violet-50 px-3 py-2 text-xs font-bold text-violet-600">
-          لا توجد نتائج اتصال معرّفة لهذا النطاق — أضفها من الإعدادات ← إدارة نتائج الاتصال
+          لا توجد نتائج افتقاد معرّفة لهذا النطاق — أضفها من الإعدادات ← إدارة نتائج الافتقاد
         </p>
       ) : (
         <div id="call-feedback-options" className="grid grid-cols-2 gap-2">
@@ -311,13 +327,13 @@ export function CallFeedbackModal({
                 key={fb.id}
                 id={`call-fb-${fb.id}`}
                 type="button"
-                disabled={saving !== null}
+                disabled={saving !== null || !editable}
                 aria-pressed={active}
                 onClick={() => record(fb)}
                 style={active ? feedbackStyle(fb.color) : feedbackTintStyle(fb.color)}
-                className={`flex min-h-[3rem] items-center gap-2 rounded-xl border-2 px-3 py-2 text-sm font-extrabold transition active:scale-95 disabled:opacity-60 ${
+                className={`flex min-h-[3rem] items-center gap-2 rounded-xl border-2 px-3 py-2 text-sm font-extrabold transition active:scale-95 ${
                   active ? 'shadow ring-2 ring-offset-1' : ''
-                }`}
+                } ${editable ? 'disabled:opacity-60' : active ? 'cursor-not-allowed' : 'cursor-not-allowed opacity-40'}`}
               >
                 <span
                   className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
@@ -343,7 +359,7 @@ export function CallFeedbackModal({
             <Phone className="h-4 w-4" /> اتصال
           </a>
         )}
-        {hasCurrent && (
+        {hasCurrent && editable && (
           <button
             type="button"
             onClick={undo}
@@ -358,7 +374,7 @@ export function CallFeedbackModal({
 
       {/* History */}
       <div className="mt-4">
-        <p className="mb-1.5 text-xs font-bold text-slate-500">سجل نتائج الاتصال — {event.name}</p>
+        <p className="mb-1.5 text-xs font-bold text-slate-500">سجل نتائج الافتقاد — {event.name}</p>
         {history === null ? (
           <div className="flex justify-center py-4"><Loader2 className="h-5 w-5 animate-spin text-primary-500" /></div>
         ) : history.length === 0 ? (
