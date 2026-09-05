@@ -90,6 +90,7 @@ In the settings hub **إدارة المناسبات** sits directly after **إد
 - ✅ **نتيجة الافتقاد (0023)**: a **call-feedback badge right after the status badge** on every child card (children page + scanner). Two clocks: the **working (frozen) date picks the occurrence**, the **real date decides whether its follow-up cycle is still open**. Default **لم يُفتقد بعد** while the cycle is open (real time between the occurrence start and the next occurrence start); if the cycle has **closed in real time** (e.g. the working date is frozen before the last occurrence) and no feedback was recorded it shows **لم يُفتقد** and is read-only. Clicking it opens a modal with the **colored feedback buttons** (+ اتصال, history, undo); picking one makes it the badge. Feedbacks are managed in **إدارة نتائج الافتقاد** (`/settings/call-feedbacks`) with a **name, color and icon**, bound to **church → service → class → event** (null = all). A **نتيجة الافتقاد filter** (الكل / لم يُفتقد بعد / لم يُفتقد / each feedback) lives in الفلاتر
 - ✅ **وحدة المالك + صلاحيات الوحدات (0024)**: modules registry (`src/lib/modules.ts`) — the side menu section under the 5 main pages shows **modules only**, the settings hub has a separate **الوحدات** group; the **owner module** (`/owner`, owner-only) hosts owner controls built step by step, starting with **صلاحيات الوحدات** (`/owner/modules`): per module, grant visibility to church → service → class (any level «الكل»), show for everyone / hide from everyone — enforced by RLS (`module_visible`) on the card tables and realtime everywhere
 - ✅ **وحدة الأشابين (0025)**: every servant (أشبين) is bound to **his own group of children** — in `/shepherds` he picks children from his scope (مجموعتي / اختيار tabs, search + church → service → class selectors); **a child can be in one group only** (children already chosen by another servant show «في مجموعة فلان» and are locked; managers can free them). On the children page a **«مجموعتي» button under the church / service / class selectors** narrows the list to the group — attendance, calls, messages, points, data, badges, filters and sort all work exactly the same. Visible only where the owner granted the `shepherds` module; realtime
+- ✅ **وحدة إستبدال النقاط (0026)**: نقطة بيع بالنقاط (`/store`) — **المخزون** (`/store/inventory`: كود = ملصق QR، اسم، صورة، السعر بالنقاط، الكمية، متاح/غير متاح، نطاق كنيسة → خدمة → فصل، +/− كمية سريع، **طباعة ملصقات QR** بثلاث مقاسات وعدد نسخ), **الكاشير** (`/store/pos`: مسح كارت المخدوم أو البحث عنه → سلة باسمه وصورته و**رصيده الحي** → مسح ملصقات الأصناف أو اختيارها من الشبكة مع الكمية → مجموع لحظي والمتبقي بعد الشراء — **لا يمكن إضافة صنف يتجاوز الرصيد أو الكمية المتاحة** → «إتمام العملية» مع تأكيد → الفاتورة تُحفظ ويُخصم الرصيد), **الأرشيف** (`/store/archive`: كل الفواتير مع البنود والرصيد قبل/بعد والكاشير؛ المسؤولون يلغون فاتورة فتُستردّ النقاط والكمية). العملية تظهر للمخدوم في **صفحة النقاط ببوابة المخدوم** (مصدر «إستبدال النقاط» + فاتورة قابلة للفتح). مُقيَّدة بصلاحيات الوحدات (`module_visible('store')`) وواقعية
 - ✅ **طلبات تعديل البيانات** (`/settings/data-requests`): class servant, service manager, church manager or owner of the child's scope reviews pending requests (photo before/after or field diff), approves (applied to `persons`) or rejects with a note — realtime, with a pending-count badge on الإعدادات and in the side menu
 
 ## Functional Entry Points
@@ -119,6 +120,10 @@ In the settings hub **إدارة المناسبات** sits directly after **إد
 | `/owner` | **وحدة المالك (Owner module)** — hub of owner-only controls, visible to `role = owner` only |
 | `/owner/modules` | **صلاحيات الوحدات** — per module: which church → service → class can see it (grants, "all" at any level, show/hide for everyone) |
 | `/shepherds` | **وحدة الأشابين** — my group: pick / remove children (only unclaimed children are pickable), managers' overview of all groups in scope; module-gated |
+| `/store` | **وحدة إستبدال النقاط** — hub (stats + links); module-gated (`store`) |
+| `/store/inventory` | المخزون — items CRUD (code / name / picture / price in points / stock / active / scope), quick ± stock, select → **print QR labels** |
+| `/store/pos` | الكاشير — scan or search child → basket with live balance → scan / pick items with qty → live total & remaining, balance + stock guard → confirm → `store_checkout` → receipt |
+| `/store/archive` | أرشيف الفواتير — bills by day, search, scope & status filters, bill detail, managers cancel (`store_cancel_order` refunds points + restocks) |
 
 ## Data Models & Storage
 - **Tables**: `churches`, `services`, `classes`, `profiles`, `children`, `attendance` — all with RLS + realtime
@@ -130,7 +135,7 @@ In the settings hub **إدارة المناسبات** sits directly after **إد
 
 ### 1. Supabase
 1. Create a project at supabase.com
-2. SQL Editor → run **all** migrations in `supabase/migrations/` in numeric order (`0001` → `0023`); `0002_bootstrap_owner.sql` runs after step 5
+2. SQL Editor → run **all** migrations in `supabase/migrations/` in numeric order (`0001` → `0026`); `0002_bootstrap_owner.sql` runs after step 5
    ⚠️ In `0005` the `alter type ... add value 'suspended'` must run in its own query before the rest of the file
    ⚠️ `0019_performance_rls_indexes_rpc.sql` is **required** by the current frontend (home / scanner call its RPCs). It is safe to re-run (idempotent).
    ⚠️ `0020_statistics_rpcs.sql` is **required** by the الإحصائيات tab (all `stats_*` RPCs). Idempotent; depends on 0019 (`my_scope()`, `enrollment_visible()`).
@@ -139,6 +144,7 @@ In the settings hub **إدارة المناسبات** sits directly after **إد
    ⚠️ `0023_call_feedbacks.sql` is **required** for the call-feedback badge / modal / filter and `/settings/call-feedbacks`. Adds the `call_feedbacks` table (scope church/service/class/event, `color`, `icon`, `sort_order`, RLS, realtime) and `contact_log.feedback_id` + `contact_log.occurrence_on`. Idempotent; run after 0022. Without it the badge stays on «لم يُفتقد بعد» and the modal shows a migration hint.
    ⚠️ `0024_owner_module_access.sql` is **required** by وحدة المالك (`/owner/*`) and by the module sections of the side menu / settings. Adds `module_access` (owner-written grants: module → church/service/class, null = all), `module_visible(key)`, re-creates the card-module policies so `card_templates` / `card_print_requests` require `module_visible('cards')`, and **seeds one global grant for `cards`** so nothing disappears for existing users. Idempotent; run after 0023. Without it non-owners see no modules.
    ⚠️ `0025_shepherd_groups.sql` is **required** by وحدة الأشابين (`/shepherds`) and the «مجموعتي» button on the children page. Adds `shepherd_groups` (servant ↔ enrollment, **unique per enrollment**, scope filled by trigger), RLS gated by `module_visible('shepherds')`, the `shepherd_claims` / `shepherd_group_summary` RPCs and realtime. **No grant is seeded** — the owner enables the module per scope in وحدة المالك → صلاحيات الوحدات. Idempotent; run after 0024.
+   ⚠️ `0026_points_store.sql` is **required** by وحدة إستبدال النقاط (`/store/*`) and by the store rows in the child portal points page. Adds `store_items`, `store_orders`, `store_order_items` (RLS gated by `module_visible('store')`), the `store_checkout` / `store_cancel_order` / `store_lookup_item` RPCs, replaces `child_portal_points` (new `source = 'store'` + `order_id` columns) and adds `child_portal_store_orders`. **No grant is seeded** — enable the module per scope in وحدة المالك → صلاحيات الوحدات. Idempotent; run after 0025.
 3. **Authentication → Providers → Email**: disable "Confirm email"
 4. Authentication → Users → Add user: `owner@diocese.app` + password
 5. Copy that user's UUID into `supabase/migrations/0002_bootstrap_owner.sql` and run it
@@ -426,18 +432,71 @@ it (`/owner/modules` → الأشابين).
   (`src/lib/types.ts`), `fetchMyGroupIds` / `fetchMyGroupEnrollments`
   (`src/lib/queries.ts`).
 
+## Points store module — migration 0026 (وحدة إستبدال النقاط)
+A small **POS where children spend their points**. Optional module, visible
+only where the owner grants it (`/owner/modules` → إستبدال النقاط).
+
+- **Inventory** (`store_items`) — `code` (unique per church, case-insensitive;
+  printed as the QR label), `name`, `description`, `image_url` (compressed
+  ≤ 640 px webp in `photos/store/`), `price` (points), `stock`, `is_active`,
+  scope `church_id → service_id? → class_id?` (null = all, same semantics as
+  causes / events; chain validated by trigger). RLS: read `scope_overlaps`,
+  write `scope_contains`, everything behind `module_visible('store')`.
+- **Sale** (`store_checkout(p_enrollment, p_lines jsonb, p_note)`) — ONE
+  SECURITY DEFINER transaction: module granted → caller can see the
+  enrollment (`enrollment_visible`) → `for update` lock on the enrollment and
+  on every item → item active + applies to the child's scope + stock ≥ qty →
+  **total ≤ balance** → writes `store_orders` + `store_order_items`
+  (snapshot of code / name / picture / price), decrements stock, inserts one
+  `points_log` row (`delta = −total`, no cause / event) so the existing
+  counter trigger updates `enrollments.points`; returns
+  `{order_id, total_points, items_count, balance_before, balance_after}`.
+  Duplicate lines of the same item are merged. Any failure rolls everything
+  back (verified: failed attempts leave no order, no stock or balance change).
+- **Archive** (`store_orders`) — read-only through the API (no insert /
+  update / delete policies), `status = completed | cancelled`, balance
+  before / after, `recorded_by`, note. **Cancel** (`store_cancel_order`,
+  owner / church / service managers only): refund via a `+total` points_log
+  row (`refund_points_log_id`), restock every line whose item still exists,
+  `status = cancelled` + who / when. Double cancel → `not_completed`.
+- **Child portal** — `child_portal_points` now returns `source = 'store'`
+  rows (reason «إستبدال نقاط — N صنف» / «إلغاء عملية إستبدال — استرداد
+  النقاط», plus `order_id`); `child_portal_store_orders(nid)` returns the
+  bills with their lines. The points page shows a **إستبدال النقاط filter**,
+  a «استبدلتها بأصناف» total, and tapping a store row opens the bill.
+  The servant-side `PointsLogModal` labels the same rows (filter «إستبدال»).
+- **Frontend** — registry entry `store` (`src/lib/modules.ts`), route gate
+  `src/app/store/layout.tsx`, data layer `src/lib/store.ts` (basket helpers,
+  Arabic error mapping incl. `insufficient_stock:<name>`, fetchers, label
+  sizes), shared bits `src/components/store/StoreBits.tsx` (tabs header,
+  scope selectors, thumbs), `ItemFormModal`, `LabelsPrintModal` (A4 grid,
+  38×25 / 50×30 / 70×40 mm, copies = 1 / stock / custom, same hidden print
+  portal as the card module), `QrScanner` (native BarcodeDetector → jsQR
+  fallback, gallery image, pause while a confirm sheet is open). The POS uses
+  **one camera for both**: a scanned code is tried as an item first, then as
+  a child card; the child's balance is a realtime subscription on his
+  enrollment row while the basket is open.
+- **Tests** — `supabase/tests/local_shim.sql` + `run_migrations.sh` rebuild
+  the whole schema on a plain Postgres (emulates `auth.uid()`, storage,
+  realtime publication); `store_module_test.sql` asserts: module gate, RLS
+  per scope, duplicate code, class servant can't write church-wide items,
+  empty basket / over balance / over stock / out-of-scope rejections with
+  no side effects, valid checkout (merge, totals, stock, points_log), servant
+  can't cancel, archive read-only, cross-class isolation, anon portal RPCs,
+  manager cancel (refund + restock), double cancel, realtime publication.
+  Validated on PostgreSQL 17 with all 26 migrations → «STORE TESTS PASSED».
+
 ## Features Not Yet Implemented
 - Push notifications
 - Attendance history per date (per-person list view for servants)
 - PDF report export (Excel is done in الإحصائيات)
-- Points store / rewards module
 
 ## Recommended Next Steps
-1. Run migrations `0017` → `0025` (`0022` powers event-bound points / calls / messages; `0023_call_feedbacks.sql` powers the call-feedback badge & إدارة نتائج الافتقاد; `0024_owner_module_access.sql` powers وحدة المالك & module visibility; `0025_shepherd_groups.sql` powers وحدة الأشابين) in Supabase SQL editor, then grant الأشابين from وحدة المالك → صلاحيات الوحدات
+1. Run migrations `0017` → `0026` (`0026_points_store.sql` powers وحدة إستبدال النقاط; `0022` powers event-bound points / calls / messages; `0023_call_feedbacks.sql` powers the call-feedback badge & إدارة نتائج الافتقاد; `0024_owner_module_access.sql` powers وحدة المالك & module visibility; `0025_shepherd_groups.sql` powers وحدة الأشابين) in Supabase SQL editor, then grant الأشابين from وحدة المالك → صلاحيات الوحدات
 2. Deploy to Vercel and test the full approval flow
 3. Per-person attendance history view
 
 ## Deployment
 - **Platform**: Vercel + Supabase
-- **Status**: ✅ Code complete for Phase 1 + performance/scale hardening (0019) + statistics tab (0020) + child portal & data change requests (0021) + event as 4th scope level with status badge (0022) + call-feedback badge & إدارة نتائج الافتقاد (0023) + owner module & per-scope module visibility (0024) + shepherds module الأشابين & «مجموعتي» (0025) — awaiting Supabase project + Vercel connect
+- **Status**: ✅ Code complete for Phase 1 + performance/scale hardening (0019) + statistics tab (0020) + child portal & data change requests (0021) + event as 4th scope level with status badge (0022) + call-feedback badge & إدارة نتائج الافتقاد (0023) + owner module & per-scope module visibility (0024) + shepherds module الأشابين & «مجموعتي» (0025) + points store module إستبدال النقاط (0026) — awaiting Supabase project + Vercel connect
 - **Last Updated**: 2026-09-05

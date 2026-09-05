@@ -12,7 +12,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import {
-  CalendarCheck, Star, Loader2, User, CalendarDays, Layers, ListChecks,
+  CalendarCheck, Star, Loader2, User, CalendarDays, Layers, ListChecks, ShoppingBag,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { ModalFrame } from '@/components/PersonDataModals';
@@ -224,7 +224,7 @@ export function AttendanceLogModal({
 // =====================================================================
 type PointsEntry = {
   id: string;
-  kind: 'cause' | 'attendance';
+  kind: 'cause' | 'attendance' | 'store';   // store = إستبدال النقاط (migration 0026)
   label: string;
   event: string | null;   // the event the points were given IN (4th scope level)
   delta: number;
@@ -242,22 +242,32 @@ export function PointsLogModal({
 }) {
   const supabase = createClient();
   const [entries, setEntries] = useState<PointsEntry[] | null>(null);
-  const [filter, setFilter] = useState<'all' | 'cause' | 'attendance'>('all');
+  const [filter, setFilter] = useState<'all' | 'cause' | 'attendance' | 'store'>('all');
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [{ data: pl }, { data: al }] = await Promise.all([
+      const [{ data: pl }, { data: al }, so] = await Promise.all([
         supabase.from('points_log').select('*').eq('enrollment_id', enrollment.id),
         supabase.from('attendance_log').select('*').eq('enrollment_id', enrollment.id),
+        // store bills (migration 0026) — tolerate a missing table / module
+        supabase.from('store_orders').select('id, items_count, points_log_id, refund_points_log_id').eq('enrollment_id', enrollment.id),
       ]);
       if (cancelled) return;
+      type OrderRef = { id: string; items_count: number; points_log_id: string | null; refund_points_log_id: string | null };
+      const orders = (so.error ? [] : (so.data ?? [])) as OrderRef[];
+      const saleByLog = new Map(orders.filter((o) => o.points_log_id).map((o) => [o.points_log_id as string, o]));
+      const refundByLog = new Map(orders.filter((o) => o.refund_points_log_id).map((o) => [o.refund_points_log_id as string, o]));
       const fromCauses: PointsEntry[] = ((pl ?? []) as PointsLog[]).map((r) => ({
         id: `p-${r.id}`,
-        kind: 'cause',
-        label: r.cause_id
-          ? causes.find((c) => c.id === r.cause_id)?.name ?? 'سبب محذوف'
-          : 'نقاط يدوية (بدون سبب)',
+        kind: saleByLog.has(r.id) || refundByLog.has(r.id) ? 'store' : 'cause',
+        label: saleByLog.has(r.id)
+          ? `إستبدال نقاط — ${saleByLog.get(r.id)!.items_count} صنف`
+          : refundByLog.has(r.id)
+            ? 'إلغاء عملية إستبدال — استرداد النقاط'
+            : r.cause_id
+              ? causes.find((c) => c.id === r.cause_id)?.name ?? 'سبب محذوف'
+              : 'نقاط يدوية (بدون سبب)',
         // points_log.event_id exists since migration 0022 (older rows: null)
         event: r.event_id
           ? events.find((ev) => ev.id === r.event_id)?.name ?? 'مناسبة محذوفة'
@@ -298,10 +308,12 @@ export function PointsLogModal({
   const added = (visible ?? []).filter((e) => e.delta > 0).reduce((s, e) => s + e.delta, 0);
   const removed = (visible ?? []).filter((e) => e.delta < 0).reduce((s, e) => s + e.delta, 0);
 
+  const hasStore = (entries ?? []).some((e) => e.kind === 'store');
   const FILTERS: { value: typeof filter; label: string }[] = [
     { value: 'all', label: 'الكل' },
     { value: 'cause', label: 'أسباب النقاط' },
     { value: 'attendance', label: 'نقاط الحضور' },
+    ...(hasStore ? [{ value: 'store' as const, label: 'إستبدال' }] : []),
   ];
 
   return (
@@ -312,7 +324,7 @@ export function PointsLogModal({
     >
       <PersonHeader enrollment={enrollment} subtitle={`الرصيد الحالي: ${enrollment.points} نقطة`} />
 
-      <div className="mb-3 grid grid-cols-3 gap-2">
+      <div className={`mb-3 grid gap-2 ${hasStore ? 'grid-cols-4' : 'grid-cols-3'}`}>
         {FILTERS.map((f) => (
           <button
             key={f.value}
@@ -360,6 +372,8 @@ export function PointsLogModal({
                 <p className="flex items-center gap-1.5 truncate text-sm font-extrabold text-slate-700">
                   {e.kind === 'attendance' ? (
                     <CalendarCheck className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+                  ) : e.kind === 'store' ? (
+                    <ShoppingBag className="h-3.5 w-3.5 shrink-0 text-orange-500" />
                   ) : (
                     <Star className="h-3.5 w-3.5 shrink-0 text-gold-500" />
                   )}
