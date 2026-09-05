@@ -14,14 +14,14 @@ import {
   Layers,
   CalendarDays,
   Clock,
-  IdCard,
-  Inbox,
   type LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { ROLE_LABELS } from '@/lib/types';
 import { formatCairoDate, formatCairoTime } from '@/lib/time';
 import { useAppDate } from '@/lib/app-date-context';
+import { useModules } from '@/lib/modules-context';
+import { OWNER_MODULE } from '@/lib/modules';
 
 // ---------- Main pages (same 5 as bottom nav) ----------
 const MAIN_PAGES: { href: string; label: string; icon: LucideIcon; id: string }[] = [
@@ -32,13 +32,10 @@ const MAIN_PAGES: { href: string; label: string; icon: LucideIcon; id: string }[
   { href: '/settings', label: 'الإعدادات', icon: Settings, id: 'menu-settings' },
 ];
 
-// ---------- Future modules ----------
-// Add new modules here as they are built, e.g.:
-// { href: '/library', label: 'المكتبة', icon: BookOpen, id: 'menu-library' },
-const MODULES: { href: string; label: string; icon: LucideIcon; id: string }[] = [
-  { href: '/settings/cards', label: 'تصميم الكروت', icon: IdCard, id: 'menu-cards' },
-  { href: '/settings/data-requests', label: 'طلبات تعديل البيانات', icon: Inbox, id: 'menu-data-requests' },
-];
+// ---------- Modules ----------
+// The section under the 5 main pages shows ONLY modules: the ones granted
+// to the caller's scope (registry in `src/lib/modules.ts`, grants decided by
+// the owner in /owner/modules) + the owner module for role = owner.
 
 interface SideMenuProps {
   open: boolean;
@@ -81,6 +78,15 @@ function CairoDateTime({ active }: { active: boolean }) {
 export default function SideMenu({ open, onClose }: SideMenuProps) {
   const pathname = usePathname();
   const { profile, signOut } = useAuth();
+  const { visibleModules, loading: modulesLoading } = useModules();
+  const isOwner = profile?.role === 'owner';
+
+  const menuModules: { href: string; label: string; icon: LucideIcon; id: string; owner?: boolean }[] = [
+    ...(isOwner
+      ? [{ href: OWNER_MODULE.href, label: OWNER_MODULE.label, icon: OWNER_MODULE.icon, id: 'menu-owner', owner: true }]
+      : []),
+    ...visibleModules.map((m) => ({ href: m.href, label: m.label, icon: m.icon, id: `menu-${m.key}` })),
+  ];
 
   // Lock body scroll while the menu is open
   useEffect(() => {
@@ -174,18 +180,18 @@ export default function SideMenu({ open, onClose }: SideMenuProps) {
           {/* Horizontal divider */}
           <hr id="side-menu-divider" className="my-4 border-indigo-100" />
 
-          {/* Future modules section */}
+          {/* Modules section — modules only */}
           <p className="mb-2 flex items-center gap-2 px-3 text-[11px] font-bold text-slate-400">
             <Layers className="h-3.5 w-3.5" />
             الوحدات
           </p>
-          {MODULES.length === 0 ? (
+          {menuModules.length === 0 ? (
             <p id="side-menu-no-modules" className="px-3 text-xs text-slate-400">
-              لا توجد وحدات إضافية بعد — قريبًا
+              {modulesLoading ? '…' : 'لا توجد وحدات مفعّلة لنطاقك'}
             </p>
           ) : (
             <ul className="space-y-1">
-              {MODULES.map(({ href, label, icon: Icon, id }) => (
+              {menuModules.map(({ href, label, icon: Icon, id, owner }) => (
                 <li key={href}>
                   <Link
                     id={id}
@@ -193,8 +199,8 @@ export default function SideMenu({ open, onClose }: SideMenuProps) {
                     onClick={onClose}
                     className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-bold transition ${
                       isActive(href)
-                        ? 'bg-primary-100 text-primary-700'
-                        : 'text-slate-600 hover:bg-slate-100'
+                        ? owner ? 'bg-gold-100 text-gold-700' : 'bg-primary-100 text-primary-700'
+                        : owner ? 'text-gold-700 hover:bg-gold-50' : 'text-slate-600 hover:bg-slate-100'
                     }`}
                   >
                     <Icon className="h-5 w-5 shrink-0" />

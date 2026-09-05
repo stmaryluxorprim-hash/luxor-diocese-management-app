@@ -5,7 +5,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import {
   Settings, UserCheck, Church, Layers, School, LogOut, ChevronLeft, User, Phone, ShieldCheck,
-  QrCode, Pencil, Users, CalendarDays, Award, IdCard, Inbox, PhoneCall,
+  QrCode, Pencil, Users, CalendarDays, Award, Inbox, PhoneCall, Crown,
 } from 'lucide-react';
 import AppShell from '@/components/AppShell';
 import EditProfileModal from '@/components/EditProfileModal';
@@ -13,6 +13,8 @@ import { useAuth } from '@/lib/auth-context';
 import { createClient } from '@/lib/supabase/client';
 import { useDebouncedRealtime } from '@/lib/realtime';
 import { ROLE_LABELS } from '@/lib/types';
+import { useModules } from '@/lib/modules-context';
+import { OWNER_MODULE } from '@/lib/modules';
 
 export default function SettingsPage() {
   const { profile, signOut } = useAuth();
@@ -31,6 +33,7 @@ export default function SettingsPage() {
   }, [profile?.status]);
   useDebouncedRealtime(supabase, 'settings-dcr-badge', [{ table: 'data_change_requests' }], loadPending, { enabled: !!profile });
 
+  const { visibleModules, loading: modulesLoading } = useModules();
   const isOwner = profile?.role === 'owner';
   const isManager =
     profile && ['owner', 'church_manager', 'service_manager'].includes(profile.role);
@@ -166,12 +169,43 @@ export default function SettingsPage() {
               label="إدارة نتائج الافتقاد"
               desc="نتائج افتقاد المخدومين (سيأتي، مريض، لم يرد...) — اسم ولون وأيقونة"
             />
-            <SettingsLink
-              href="/settings/cards"
-              icon={<IdCard className="h-5 w-5 text-rose-600" />}
-              label="تصميم الكروت"
-              desc="تصميم وطباعة كروت المخدومين"
-            />
+          </div>
+        </section>
+      )}
+
+      {/* Modules — a separate group: only the modules granted to my scope
+          (owner decides in /owner/modules). The owner module comes first for
+          the owner and is never part of the grants. */}
+      {profile?.status === 'approved' && (
+        <section id="modules-links" className="mb-5">
+          <h3 className="mb-2 text-sm font-extrabold text-slate-500">الوحدات</h3>
+          <div className="card !p-0 divide-y divide-indigo-50 overflow-hidden">
+            {isOwner && (
+              <SettingsLink
+                href={OWNER_MODULE.href}
+                icon={<Crown className="h-5 w-5 text-gold-500" />}
+                label={OWNER_MODULE.label}
+                desc={OWNER_MODULE.desc}
+                accent
+              />
+            )}
+            {visibleModules.map((m) => {
+              const Icon = m.icon;
+              return (
+                <SettingsLink
+                  key={m.key}
+                  href={m.href}
+                  icon={<Icon className={`h-5 w-5 ${m.color}`} />}
+                  label={m.label}
+                  desc={m.desc}
+                />
+              );
+            })}
+            {!isOwner && visibleModules.length === 0 && (
+              <p id="settings-no-modules" className="px-4 py-4 text-center text-xs font-bold text-slate-400">
+                {modulesLoading ? '…' : 'لا توجد وحدات مفعّلة لنطاقك'}
+              </p>
+            )}
           </div>
         </section>
       )}
@@ -195,13 +229,18 @@ export default function SettingsPage() {
 }
 
 function SettingsLink({
-  href, icon, label, desc, badge,
+  href, icon, label, desc, badge, accent,
 }: {
-  href: string; icon: React.ReactNode; label: string; desc: string; badge?: number;
+  href: string; icon: React.ReactNode; label: string; desc: string; badge?: number; accent?: boolean;
 }) {
   return (
-    <Link href={href} className="flex items-center gap-3 px-4 py-3.5 hover:bg-indigo-50/50 transition">
-      <span className="rounded-xl bg-slate-50 p-2">{icon}</span>
+    <Link
+      href={href}
+      className={`flex items-center gap-3 px-4 py-3.5 transition ${
+        accent ? 'bg-gold-50/60 hover:bg-gold-50' : 'hover:bg-indigo-50/50'
+      }`}
+    >
+      <span className={`rounded-xl p-2 ${accent ? 'bg-gold-100' : 'bg-slate-50'}`}>{icon}</span>
       <span className="flex-1 min-w-0">
         <span className="block font-bold text-sm">{label}</span>
         <span className="block text-xs text-slate-400 truncate">{desc}</span>
