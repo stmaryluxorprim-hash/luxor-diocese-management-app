@@ -89,6 +89,7 @@ In the settings hub **إدارة المناسبات** sits directly after **إد
 - ✅ **المناسبة = المستوى الرابع (0022)**: 4th scope selector (كنيسة → خدمة → فصل → مناسبة) on the children page & scanner; attendance / points / calls / messages are all bound to the selected event (`points_log.event_id`, new `contact_log`); **status badge** (حاضر / لم يُسجّل / غائب) placed **before** the attendance & points badges, computed for the working day/time and recurring-event windows; status filter in الفلاتر; إدارة المناسبات moved right after إدارة الفصول in الإعدادات
 - ✅ **نتيجة الافتقاد (0023)**: a **call-feedback badge right after the status badge** on every child card (children page + scanner). Two clocks: the **working (frozen) date picks the occurrence**, the **real date decides whether its follow-up cycle is still open**. Default **لم يُفتقد بعد** while the cycle is open (real time between the occurrence start and the next occurrence start); if the cycle has **closed in real time** (e.g. the working date is frozen before the last occurrence) and no feedback was recorded it shows **لم يُفتقد** and is read-only. Clicking it opens a modal with the **colored feedback buttons** (+ اتصال, history, undo); picking one makes it the badge. Feedbacks are managed in **إدارة نتائج الافتقاد** (`/settings/call-feedbacks`) with a **name, color and icon**, bound to **church → service → class → event** (null = all). A **نتيجة الافتقاد filter** (الكل / لم يُفتقد بعد / لم يُفتقد / each feedback) lives in الفلاتر
 - ✅ **وحدة المالك + صلاحيات الوحدات (0024)**: modules registry (`src/lib/modules.ts`) — the side menu section under the 5 main pages shows **modules only**, the settings hub has a separate **الوحدات** group; the **owner module** (`/owner`, owner-only) hosts owner controls built step by step, starting with **صلاحيات الوحدات** (`/owner/modules`): per module, grant visibility to church → service → class (any level «الكل»), show for everyone / hide from everyone — enforced by RLS (`module_visible`) on the card tables and realtime everywhere
+- ✅ **وحدة الأشابين (0025)**: every servant (أشبين) is bound to **his own group of children** — in `/shepherds` he picks children from his scope (مجموعتي / اختيار tabs, search + church → service → class selectors); **a child can be in one group only** (children already chosen by another servant show «في مجموعة فلان» and are locked; managers can free them). On the children page a **«مجموعتي» button under the church / service / class selectors** narrows the list to the group — attendance, calls, messages, points, data, badges, filters and sort all work exactly the same. Visible only where the owner granted the `shepherds` module; realtime
 - ✅ **طلبات تعديل البيانات** (`/settings/data-requests`): class servant, service manager, church manager or owner of the child's scope reviews pending requests (photo before/after or field diff), approves (applied to `persons`) or rejects with a note — realtime, with a pending-count badge on الإعدادات and in the side menu
 
 ## Functional Entry Points
@@ -117,6 +118,7 @@ In the settings hub **إدارة المناسبات** sits directly after **إد
 | `/settings/call-feedbacks` | **إدارة نتائج الافتقاد** — call-feedback presets (name, color, icon) scoped church → service → class → event, reorderable |
 | `/owner` | **وحدة المالك (Owner module)** — hub of owner-only controls, visible to `role = owner` only |
 | `/owner/modules` | **صلاحيات الوحدات** — per module: which church → service → class can see it (grants, "all" at any level, show/hide for everyone) |
+| `/shepherds` | **وحدة الأشابين** — my group: pick / remove children (only unclaimed children are pickable), managers' overview of all groups in scope; module-gated |
 
 ## Data Models & Storage
 - **Tables**: `churches`, `services`, `classes`, `profiles`, `children`, `attendance` — all with RLS + realtime
@@ -136,6 +138,7 @@ In the settings hub **إدارة المناسبات** sits directly after **إد
    ⚠️ `0022_event_bound_operations.sql` is **required** by the current children page & scanner (points inserts send `event_id`; calls / messages insert into `contact_log`). Adds `points_log.event_id`, the `contact_log` table (RLS + realtime), scope-check triggers and an `event_name` column on `child_portal_points`. Idempotent; run after 0021.
    ⚠️ `0023_call_feedbacks.sql` is **required** for the call-feedback badge / modal / filter and `/settings/call-feedbacks`. Adds the `call_feedbacks` table (scope church/service/class/event, `color`, `icon`, `sort_order`, RLS, realtime) and `contact_log.feedback_id` + `contact_log.occurrence_on`. Idempotent; run after 0022. Without it the badge stays on «لم يُفتقد بعد» and the modal shows a migration hint.
    ⚠️ `0024_owner_module_access.sql` is **required** by وحدة المالك (`/owner/*`) and by the module sections of the side menu / settings. Adds `module_access` (owner-written grants: module → church/service/class, null = all), `module_visible(key)`, re-creates the card-module policies so `card_templates` / `card_print_requests` require `module_visible('cards')`, and **seeds one global grant for `cards`** so nothing disappears for existing users. Idempotent; run after 0023. Without it non-owners see no modules.
+   ⚠️ `0025_shepherd_groups.sql` is **required** by وحدة الأشابين (`/shepherds`) and the «مجموعتي» button on the children page. Adds `shepherd_groups` (servant ↔ enrollment, **unique per enrollment**, scope filled by trigger), RLS gated by `module_visible('shepherds')`, the `shepherd_claims` / `shepherd_group_summary` RPCs and realtime. **No grant is seeded** — the owner enables the module per scope in وحدة المالك → صلاحيات الوحدات. Idempotent; run after 0024.
 3. **Authentication → Providers → Email**: disable "Confirm email"
 4. Authentication → Users → Add user: `owner@diocese.app` + password
 5. Copy that user's UUID into `supabase/migrations/0002_bootstrap_owner.sql` and run it
@@ -381,6 +384,48 @@ module is the **card designer / print module** (`cards`).
   The children page hides the **طباعة كارت** job when the card module is not
   granted; `/settings/cards/*` is gated by a route layout.
 
+## Shepherds module — migration 0025 (وحدة الأشابين)
+Every servant (الأشبين) is bound to a **group of children** he personally
+follows up. The module is optional and only appears where the owner grants
+it (`/owner/modules` → الأشابين).
+
+- **Rule** — a child (enrollment) belongs to **at most one group**. Any child
+  not yet chosen by another servant can be chosen; children already taken
+  are shown locked with the holder's name («في مجموعة فلان»). Enforced by
+  `uq_shepherd_groups_enrollment` (a race between two servants ends in
+  `23505` → friendly «اختاره خادم آخر بالفعل»).
+- **`/shepherds`** (`src/app/shepherds/page.tsx`, gated by
+  `src/app/shepherds/layout.tsx`): tabs **مجموعتي** (my children, grouped by
+  class, ✕ removes) and **اختيار مخدومين** (server-paged scoped list with
+  search + church → service → class selectors; ＋ adds a free child, ✓ marks
+  mine, 🔒 marks taken). Owner / church manager / service manager also get
+  a **free** button on taken children and a **مجموعات الخدام** overview
+  (`shepherd_group_summary`). Realtime on `shepherd_groups`.
+- **Children page** — a **«مجموعتي» toggle** (with the group size) sits
+  directly **below the church / service / class / event selectors** and
+  above the job selector. ON → the list is the group only (still narrowed
+  by the selectors + search, no paging — the group is small); everything
+  else — jobs, badges, status / call-feedback filters, sort, modals — is
+  untouched. The header shows a teal «مجموعتي» badge while active; an empty
+  group offers a shortcut to `/shepherds`. Hidden entirely when the module
+  isn't granted.
+- **Database** — `shepherd_groups (servant_id → profiles, enrollment_id →
+  enrollments unique, church_id / service_id / class_id denormalized by
+  trigger)`. RLS (InitPlan pattern from 0019) + `module_visible('shepherds')`
+  on every policy: **select** rows of enrollments I can see (so the picker
+  knows what's taken), **insert** only `servant_id = auth.uid()` within my
+  scope, **delete** my own rows, or any row in scope for owner / church /
+  service managers. `shepherd_claims(p_church, p_service, p_class)` (SECURITY
+  DEFINER, module + visibility checked inside) returns holder name / photo
+  for visible children — needed because a class servant can't read other
+  servants' profiles. Validated on local Postgres: module gate, own-group
+  only, 23505 on double claim, cross-servant delete blocked, manager free,
+  trigger scope fill, realtime publication.
+- **Frontend plumbing** — registry entry `shepherds` (`src/lib/modules.ts`),
+  types `ShepherdGroupRow / ShepherdClaim / ShepherdGroupSummary`
+  (`src/lib/types.ts`), `fetchMyGroupIds` / `fetchMyGroupEnrollments`
+  (`src/lib/queries.ts`).
+
 ## Features Not Yet Implemented
 - Push notifications
 - Attendance history per date (per-person list view for servants)
@@ -388,11 +433,11 @@ module is the **card designer / print module** (`cards`).
 - Points store / rewards module
 
 ## Recommended Next Steps
-1. Run migrations `0017` → `0024` (`0022` powers event-bound points / calls / messages; `0023_call_feedbacks.sql` powers the call-feedback badge & إدارة نتائج الافتقاد; `0024_owner_module_access.sql` powers وحدة المالك & module visibility) in Supabase SQL editor
+1. Run migrations `0017` → `0025` (`0022` powers event-bound points / calls / messages; `0023_call_feedbacks.sql` powers the call-feedback badge & إدارة نتائج الافتقاد; `0024_owner_module_access.sql` powers وحدة المالك & module visibility; `0025_shepherd_groups.sql` powers وحدة الأشابين) in Supabase SQL editor, then grant الأشابين from وحدة المالك → صلاحيات الوحدات
 2. Deploy to Vercel and test the full approval flow
 3. Per-person attendance history view
 
 ## Deployment
 - **Platform**: Vercel + Supabase
-- **Status**: ✅ Code complete for Phase 1 + performance/scale hardening (0019) + statistics tab (0020) + child portal & data change requests (0021) + event as 4th scope level with status badge (0022) + call-feedback badge & إدارة نتائج الافتقاد (0023) + owner module & per-scope module visibility (0024) — awaiting Supabase project + Vercel connect
+- **Status**: ✅ Code complete for Phase 1 + performance/scale hardening (0019) + statistics tab (0020) + child portal & data change requests (0021) + event as 4th scope level with status badge (0022) + call-feedback badge & إدارة نتائج الافتقاد (0023) + owner module & per-scope module visibility (0024) + shepherds module الأشابين & «مجموعتي» (0025) — awaiting Supabase project + Vercel connect
 - **Last Updated**: 2026-09-05
