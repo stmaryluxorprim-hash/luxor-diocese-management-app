@@ -49,9 +49,9 @@ const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
 
 // Visual style of the status badge (present / not registered / absent)
 const STATUS_STYLE: Record<ChildEventStatus, { cls: string; icon: React.ReactNode }> = {
-  present:        { cls: 'bg-emerald-500 text-white ring-emerald-600/20', icon: <UserCheck className="h-3.5 w-3.5" /> },
-  not_registered: { cls: 'bg-slate-100 text-slate-500 ring-slate-200',    icon: <CircleDashed className="h-3.5 w-3.5" /> },
-  absent:         { cls: 'bg-red-500 text-white ring-red-600/20',         icon: <UserX className="h-3.5 w-3.5" /> },
+  present:        { cls: 'bg-emerald-500 text-white !ring-emerald-600/20', icon: <UserCheck className="h-3.5 w-3.5" /> },
+  not_registered: { cls: 'bg-slate-100 text-slate-500 !ring-slate-200',    icon: <CircleDashed className="h-3.5 w-3.5" /> },
+  absent:         { cls: 'bg-red-500 text-white !ring-red-600/20',         icon: <UserX className="h-3.5 w-3.5" /> },
 };
 // البيانات job — view / edit / delete a person's data
 type DataMode = 'view' | 'edit' | 'delete';
@@ -1649,7 +1649,7 @@ export default function ChildrenPage() {
                               Tapping attendance/points opens its log. */}
                           <div className="min-w-0 flex-1">
                             <p className="font-extrabold truncate">{child.person.name}</p>
-                            <div className="mt-1.5 flex flex-wrap gap-2">
+                            <div className="badge-grid">
                               {(() => {
                                 const s = statusOf(child);
                                 if (!s) return null;
@@ -1660,9 +1660,9 @@ export default function ChildrenPage() {
                                     role="status"
                                     aria-label={`الحالة: ${CHILD_STATUS_LABELS[s]}`}
                                     title={`الحالة في «${selectedEvent?.name ?? ''}» الآن`}
-                                    className={`badge ring-1 ${st.cls}`}
+                                    className={`badge-btn ${st.cls}`}
                                   >
-                                    {st.icon} {CHILD_STATUS_LABELS[s]}
+                                    {st.icon} <span className="truncate">{CHILD_STATUS_LABELS[s]}</span>
                                   </span>
                                 );
                               })()}

@@ -67,10 +67,10 @@ export function CallFeedbackBadge({
   const label = state.kind === 'feedback' ? state.feedback.name : CALL_STATE_LABELS[state.kind];
   const cls =
     state.kind === 'feedback'
-      ? 'ring-black/10'
+      ? '!ring-black/10'
       : state.kind === 'wasnt_called'
-        ? 'bg-amber-100 text-amber-700 ring-amber-300'
-        : 'bg-slate-100 text-slate-500 ring-slate-200';
+        ? 'bg-amber-100 text-amber-700 !ring-amber-300'
+        : 'bg-slate-100 text-slate-500 !ring-slate-200';
   const style = state.kind === 'feedback' ? feedbackStyle(state.feedback.color) : undefined;
   return (
     <button
@@ -81,7 +81,7 @@ export function CallFeedbackBadge({
       onClick={onClick}
       disabled={disabled}
       style={style}
-      className={`badge max-w-[9.5rem] ring-1 transition active:scale-95 disabled:opacity-60 ${cls}`}
+      className={`badge-btn disabled:opacity-60 ${cls}`}
     >
       {state.kind === 'feedback' ? (
         <CallFeedbackIcon icon={state.feedback.icon} />
@@ -284,6 +284,7 @@ export function CallFeedbackModal({
   };
 
   const hasCurrent = current.kind === 'feedback';
+  const closed = cycle.status === 'closed';
 
   return (
     <ModalFrame title="نتيجة الافتقاد" icon={<PhoneCall className="h-5 w-5 text-primary-600" />} onClose={onClose}>
@@ -303,7 +304,7 @@ export function CallFeedbackModal({
       {cycle.status === 'closed' && (
         <p id="call-cycle-closed" className={`mb-3 rounded-xl px-3 py-2 text-xs font-bold ${current.kind === 'wasnt_called' ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>
           {current.kind === 'wasnt_called' ? '⚠️ لم يُفتقد هذا المخدوم لمناسبة ' : '🔒 نتيجة الافتقاد لمناسبة '}
-          {fmtDay(cycle.target)} — انتهت فترة الافتقاد ببداية مناسبة {fmtDay(cycle.realTarget)} في الوقت الفعلي، ولا يمكن تسجيل أو تعديل النتيجة
+          {fmtDay(cycle.target)} — انتهت فترة الافتقاد ببداية مناسبة {fmtDay(cycle.realTarget)} في الوقت الفعلي؛ يُعرض السجل فقط
         </p>
       )}
       {cycle.status === 'future' && (
@@ -312,7 +313,10 @@ export function CallFeedbackModal({
         </p>
       )}
 
-      {/* Feedback buttons */}
+      {/* Feedback buttons + actions — hidden when the period is CLOSED
+          (real time passed the next occurrence): the modal is then a
+          read-only history of this child's feedbacks. */}
+      {!closed && (<>
       <p className="mb-1.5 text-xs font-bold text-slate-500">{editable ? 'اختر نتيجة الافتقاد' : 'نتائج الافتقاد (للعرض فقط)'}</p>
       {options.length === 0 ? (
         <p className="rounded-xl bg-violet-50 px-3 py-2 text-xs font-bold text-violet-600">
@@ -371,6 +375,7 @@ export function CallFeedbackModal({
           </button>
         )}
       </div>
+      </>)}
 
       {/* History */}
       <div className="mt-4">
