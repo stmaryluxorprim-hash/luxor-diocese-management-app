@@ -323,6 +323,80 @@ export interface ShepherdGroupSummary {
   children: number;
 }
 
+// ---------- Points store module (إستبدال النقاط, migration 0026) ----------
+
+// store_items — an inventory item. Scoped church → service → class (null =
+// all) like causes / events; the code is the printed QR label.
+export interface StoreItem {
+  id: string;
+  church_id: string;
+  service_id: string | null;
+  class_id: string | null;
+  code: string;
+  name: string;
+  description: string | null;
+  image_url: string | null;
+  price: number;   // in points
+  stock: number;   // available count
+  is_active: boolean;
+  sort_order: number;
+  created_at: string;
+  created_by: string | null;
+  edited_at: string;
+  edited_by: string | null;
+}
+
+export type StoreOrderStatus = 'completed' | 'cancelled';
+
+// store_orders — one bill (archive row)
+export interface StoreOrder {
+  id: string;
+  enrollment_id: string;
+  person_id: string;
+  church_id: string;
+  service_id: string;
+  class_id: string;
+  status: StoreOrderStatus;
+  items_count: number;
+  total_points: number;
+  balance_before: number;
+  balance_after: number;
+  note: string | null;
+  points_log_id: string | null;
+  refund_points_log_id: string | null;
+  recorded_by: string | null;
+  created_at: string;
+  cancelled_by: string | null;
+  cancelled_at: string | null;
+}
+
+// store_order_items — one line of a bill (snapshot of the item at sale time)
+export interface StoreOrderItem {
+  id: string;
+  order_id: string;
+  item_id: string | null;
+  item_code: string;
+  item_name: string;
+  image_url: string | null;
+  unit_price: number;
+  qty: number;
+  line_total: number;
+}
+
+// store_checkout RPC result
+export interface StoreCheckoutResult {
+  order_id: string;
+  total_points: number;
+  items_count: number;
+  balance_before: number;
+  balance_after: number;
+}
+
+export const STORE_ORDER_STATUS_LABELS: Record<StoreOrderStatus, string> = {
+  completed: 'مكتملة',
+  cancelled: 'ملغاة',
+};
+
 export const ROLE_LABELS: Record<AppRole, string> = {
   owner: 'مالك التطبيق',
   church_manager: 'مدير كنيسة',

@@ -62,7 +62,7 @@ export interface ChildAttendanceRow {
 export interface ChildPointsRow {
   id: string;
   enrollment_id: string;
-  source: 'cause' | 'attendance';
+  source: 'cause' | 'attendance' | 'store';   // 'store' = points redeemed in إستبدال النقاط (migration 0026)
   reason: string | null;
   delta: number;
   created_at: string;
@@ -70,6 +70,36 @@ export interface ChildPointsRow {
   class_name: string;
   service_name: string;
   church_name: string;
+  event_name?: string | null;
+  order_id?: string | null;                   // the store bill behind a 'store' row
+}
+
+// ---------- Points store (إستبدال النقاط) — the child's bills ----------
+export interface ChildStoreOrderLine {
+  id: string;
+  item_name: string;
+  item_code: string;
+  image_url: string | null;
+  unit_price: number;
+  qty: number;
+  line_total: number;
+}
+
+export interface ChildStoreOrder {
+  id: string;
+  enrollment_id: string;
+  status: 'completed' | 'cancelled';
+  items_count: number;
+  total_points: number;
+  balance_before: number;
+  balance_after: number;
+  created_at: string;
+  cancelled_at: string | null;
+  recorded_by_name: string | null;
+  class_name: string;
+  service_name: string;
+  church_name: string;
+  items: ChildStoreOrderLine[];
 }
 
 export type RequestKind = 'data' | 'photo';
@@ -172,6 +202,13 @@ export async function fetchChildPoints(supabase: SupabaseClient, token: string):
   const { data, error } = await supabase.rpc('child_portal_points', { p_national_id: token });
   if (error) throw error;
   return (data ?? []) as ChildPointsRow[];
+}
+
+/** The child's store bills (إستبدال النقاط). Empty when migration 0026 is missing. */
+export async function fetchChildStoreOrders(supabase: SupabaseClient, token: string): Promise<ChildStoreOrder[]> {
+  const { data, error } = await supabase.rpc('child_portal_store_orders', { p_national_id: token });
+  if (error) return [];
+  return (data ?? []) as ChildStoreOrder[];
 }
 
 export async function fetchChildRequests(supabase: SupabaseClient, token: string): Promise<DataChangeRequest[]> {

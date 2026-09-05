@@ -8,10 +8,10 @@
 // To add a module later: add one entry here + guard its pages with
 // `useModuleVisible(key)` (or `<ModuleGate module="key">`).
 
-import { IdCard, Crown, HeartHandshake, type LucideIcon } from 'lucide-react';
+import { IdCard, Crown, HeartHandshake, ShoppingBag, type LucideIcon } from 'lucide-react';
 import type { Profile } from '@/lib/types';
 
-export type ModuleKey = 'cards' | 'shepherds';
+export type ModuleKey = 'cards' | 'shepherds' | 'store';
 
 export interface AppModule {
   key: ModuleKey;
@@ -42,6 +42,15 @@ export const MODULES: AppModule[] = [
     icon: HeartHandshake,
     color: 'text-teal-600',
     paths: ['/shepherds'],
+  },
+  {
+    key: 'store',
+    label: 'إستبدال النقاط',
+    desc: 'نقطة بيع: المخدوم يستبدل نقاطه بأصناف من المخزون — مخزون · كاشير · أرشيف الفواتير',
+    href: '/store',
+    icon: ShoppingBag,
+    color: 'text-orange-600',
+    paths: ['/store'],
   },
 ];
 
