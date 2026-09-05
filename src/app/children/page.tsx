@@ -7,6 +7,7 @@ import {
   SlidersHorizontal, ChevronDown, School, Check, Minus,
   MessageSquare, Inbox, PenSquare, ArrowUpDown, ArrowUp, ArrowDown,
   Eye, Pencil, Trash2, Database, Printer, IdCard, CalendarDays, UserCheck, UserX, CircleDashed,
+  HeartHandshake,
 } from 'lucide-react';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
@@ -34,7 +35,9 @@ import {
 } from '@/components/PersonDataModals';
 import { AttendanceLogModal, PointsLogModal } from '@/components/LogModals';
 import { useDebouncedRealtime, scopeFilter } from '@/lib/realtime';
-import { fetchEnrollmentsPage, cachedLookup, ALL, PAGE_SIZE } from '@/lib/queries';
+import {
+  fetchEnrollmentsPage, fetchMyGroupIds, fetchMyGroupEnrollments, cachedLookup, ALL, PAGE_SIZE,
+} from '@/lib/queries';
 
 type AttendanceMode = 'add' | 'remove';
 type PointsMode = 'add' | 'subtract';
@@ -129,6 +132,32 @@ export default function ChildrenPage() {
   useEffect(() => {
     if (job === 'print_card' && !cardsModuleOn) setJob('attendance');
   }, [job, cardsModuleOn]);
+
+  // ---------- الأشابين (shepherds module, 0025): «مجموعتي» ----------
+  // When the module is granted to my scope a «مجموعتي» button sits under the
+  // scope selectors. ON → the list shows ONLY the children of my group
+  // (still narrowed by the church / service / class selectors + search);
+  // every job / badge / filter / sort works exactly the same.
+  const shepherdsModuleOn = moduleVisible('shepherds');
+  const [myGroupOnly, setMyGroupOnly] = useState(false);
+  const [myGroupIds, setMyGroupIds] = useState<Set<string> | null>(null);
+  useEffect(() => {
+    if (!shepherdsModuleOn && myGroupOnly) setMyGroupOnly(false);
+  }, [shepherdsModuleOn, myGroupOnly]);
+  const loadMyGroupIds = useCallback(async () => {
+    if (!profile || !shepherdsModuleOn) { setMyGroupIds(null); return; }
+    setMyGroupIds(await fetchMyGroupIds(supabase, profile.id));
+  }, [supabase, profile, shepherdsModuleOn]);
+  useEffect(() => {
+    if (profile?.status === 'approved') loadMyGroupIds();
+  }, [profile?.status, loadMyGroupIds]);
+  // My group changes (from /shepherds, possibly on another device) → refresh
+  useDebouncedRealtime(
+    supabase, 'children-my-group',
+    [{ table: 'shepherd_groups', filter: profile ? `servant_id=eq.${profile.id}` : undefined }],
+    loadMyGroupIds,
+    { enabled: profile?.status === 'approved' && !!shepherdsModuleOn, delayMs: 600 }
+  );
   const [attendanceMode, setAttendanceMode] = useState<AttendanceMode>('add');
   const [pointsMode, setPointsMode] = useState<PointsMode>('add');
   // ---------- 4th scope level: EVENT ----------
@@ -229,11 +258,21 @@ export default function ChildrenPage() {
   }, [supabase]);
 
   // (Re)load the currently visible pages of the scoped list
+  const profileId = profile?.id;
   const loadList = useCallback(async () => {
     const seq = ++loadSeq.current;
     const scope = { church: churchFilter, service: serviceFilter, class: classFilter };
     const pages = pagesRef.current;
     try {
+      // «مجموعتي» — the whole group at once (small, bounded set), no paging
+      if (myGroupOnly) {
+        const ids = myGroupIds ?? (profileId ? await fetchMyGroupIds(supabase, profileId) : new Set<string>());
+        const rows = await fetchMyGroupEnrollments(supabase, ids, scope, searchQ);
+        if (seq !== loadSeq.current) return;
+        setEnrollments(rows);
+        setHasMore(false);
+        return;
+      }
       const results = await Promise.all(
         Array.from({ length: pages }, (_, i) =>
           fetchEnrollmentsPage(supabase, scope, { page: i, search: searchQ })
@@ -247,7 +286,7 @@ export default function ChildrenPage() {
     } finally {
       if (seq === loadSeq.current) setLoading(false);
     }
-  }, [supabase, churchFilter, serviceFilter, classFilter, searchQ]);
+  }, [supabase, churchFilter, serviceFilter, classFilter, searchQ, myGroupOnly, myGroupIds, profileId]);
 
   // Full refresh used by realtime + after mutations
   const load = useCallback(async () => {
@@ -952,6 +991,11 @@ export default function ChildrenPage() {
           <Users className="h-5 w-5 text-primary-600" />
           المخدومين
           <span className="badge bg-primary-100 text-primary-700">{filtered.length}</span>
+          {myGroupOnly && (
+            <span id="my-group-active" className="badge bg-teal-100 text-teal-700">
+              <HeartHandshake className="h-3 w-3" /> مجموعتي
+            </span>
+          )}
         </h2>
         <button id="add-child-btn" onClick={() => router.push('/children/add')} className="btn-primary !py-2 !px-3 flex items-center gap-1 text-sm">
           <Plus className="h-4 w-4" />
@@ -1083,6 +1127,31 @@ export default function ChildrenPage() {
           </select>
         </div>
       </div>
+
+      {/* ---------- Row 2b: «مجموعتي» — shepherds module only (0025) ----------
+          Toggles the list to the children of MY group; everything else is
+          unchanged. Hidden entirely when the module isn't granted to me. */}
+      {shepherdsModuleOn && (
+        <button
+          id="my-group-toggle"
+          type="button"
+          aria-pressed={myGroupOnly}
+          aria-label={myGroupOnly ? 'عرض كل المخدومين' : 'عرض مجموعتي فقط'}
+          onClick={() => setMyGroupOnly((v) => !v)}
+          className={`mb-3 flex h-10 w-full items-center justify-center gap-2 rounded-xl text-sm font-extrabold transition active:scale-[0.98] ${
+            myGroupOnly
+              ? 'bg-teal-600 text-white shadow ring-2 ring-teal-300'
+              : 'border border-teal-200 bg-teal-50 text-teal-700 hover:bg-teal-100'
+          }`}
+        >
+          <HeartHandshake className="h-4 w-4" />
+          مجموعتي
+          <span className={`badge tabular-nums ${myGroupOnly ? 'bg-white/20 text-white' : 'bg-teal-100 text-teal-700'}`}>
+            {myGroupIds?.size ?? '…'}
+          </span>
+          {myGroupOnly && <Check className="h-4 w-4" />}
+        </button>
+      )}
 
       {/* ---------- Row 3: Job selector (full width) ---------- */}
       <div className="mb-2">
@@ -1612,9 +1681,26 @@ export default function ChildrenPage() {
         </div>
       ) : groups.length === 0 ? (
         <div className="card py-12 text-center text-slate-400">
-          <Users className="mx-auto mb-3 h-10 w-10" />
-          <p className="font-bold">لا يوجد مخدومين</p>
-          <p className="text-sm mt-1">جرّب تغيير الفلاتر أو اضغط &quot;إضافة&quot; لتسجيل مخدوم</p>
+          {myGroupOnly ? (
+            <>
+              <HeartHandshake className="mx-auto mb-3 h-10 w-10 text-teal-300" />
+              <p className="font-bold">{(myGroupIds?.size ?? 0) === 0 ? 'مجموعتك فارغة' : 'لا أحد من مجموعتك بهذه الفلاتر'}</p>
+              <button
+                id="go-shepherds"
+                type="button"
+                onClick={() => router.push('/shepherds')}
+                className="btn-primary mt-4 inline-flex items-center gap-1 !py-2 !px-4 text-sm !bg-teal-600 hover:!bg-teal-700"
+              >
+                <HeartHandshake className="h-4 w-4" /> اختيار مخدومين لمجموعتي
+              </button>
+            </>
+          ) : (
+            <>
+              <Users className="mx-auto mb-3 h-10 w-10" />
+              <p className="font-bold">لا يوجد مخدومين</p>
+              <p className="text-sm mt-1">جرّب تغيير الفلاتر أو اضغط &quot;إضافة&quot; لتسجيل مخدوم</p>
+            </>
+          )}
         </div>
       ) : (
         <div id="children-groups" className="space-y-3">

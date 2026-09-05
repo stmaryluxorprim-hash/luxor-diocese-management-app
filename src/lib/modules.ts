@@ -8,10 +8,10 @@
 // To add a module later: add one entry here + guard its pages with
 // `useModuleVisible(key)` (or `<ModuleGate module="key">`).
 
-import { IdCard, Crown, type LucideIcon } from 'lucide-react';
+import { IdCard, Crown, HeartHandshake, type LucideIcon } from 'lucide-react';
 import type { Profile } from '@/lib/types';
 
-export type ModuleKey = 'cards';
+export type ModuleKey = 'cards' | 'shepherds';
 
 export interface AppModule {
   key: ModuleKey;
@@ -33,6 +33,15 @@ export const MODULES: AppModule[] = [
     icon: IdCard,
     color: 'text-rose-600',
     paths: ['/settings/cards'],
+  },
+  {
+    key: 'shepherds',
+    label: 'الأشابين',
+    desc: 'كل خادم يختار مجموعة مخدومين خاصة به — ويتابعهم من زر «مجموعتي» في المخدومين',
+    href: '/shepherds',
+    icon: HeartHandshake,
+    color: 'text-teal-600',
+    paths: ['/shepherds'],
   },
 ];
 

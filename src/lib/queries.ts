@@ -72,6 +72,60 @@ export async function fetchEnrollmentsPage(
 }
 
 /**
+ * ---------- Shepherds module (الأشابين, migration 0025) ----------
+ * The enrollment ids of MY group. Bounded (a servant's group is small) and
+ * RLS-scoped: only when the module is granted to me. Returns an empty set
+ * when the migration is missing so callers degrade gracefully.
+ */
+export async function fetchMyGroupIds(
+  supabase: SupabaseClient,
+  servantId: string
+): Promise<Set<string>> {
+  const { data, error } = await supabase
+    .from('shepherd_groups')
+    .select('enrollment_id')
+    .eq('servant_id', servantId)
+    .limit(2000);
+  if (error) return new Set();
+  return new Set(((data ?? []) as { enrollment_id: string }[]).map((r) => r.enrollment_id));
+}
+
+/**
+ * Fetch the enrollments (with person) of MY group, optionally narrowed by
+ * the scope selectors + search. Runs in the DB via `in(...)` over the
+ * group's ids (chunked so the URL stays short).
+ */
+export async function fetchMyGroupEnrollments(
+  supabase: SupabaseClient,
+  groupIds: Set<string>,
+  scope: ScopeSelection,
+  search = ''
+): Promise<EnrollmentWithPerson[]> {
+  const ids = Array.from(groupIds);
+  if (ids.length === 0) return [];
+  const s = search.trim().replace(/[,()]/g, ' ');
+  const select = s
+    ? ENROLLMENT_LIST_SELECT.replace('person:persons(', 'person:persons!inner(')
+    : ENROLLMENT_LIST_SELECT;
+  const out: EnrollmentWithPerson[] = [];
+  for (let i = 0; i < ids.length; i += 100) {
+    let q = supabase.from('enrollments').select(select).in('id', ids.slice(i, i + 100));
+    if (scope.church && scope.church !== ALL) q = q.eq('church_id', scope.church);
+    if (scope.service && scope.service !== ALL) q = q.eq('service_id', scope.service);
+    if (scope.class && scope.class !== ALL) q = q.eq('class_id', scope.class);
+    if (s) {
+      q = q.or(`name.ilike.%${s}%,phone.ilike.%${s}%,national_id.ilike.%${s}%`, {
+        referencedTable: 'person',
+      });
+    }
+    const { data, error } = await q.order('class_id').order('person(name)').order('id');
+    if (error) throw error;
+    out.push(...((data ?? []) as unknown as EnrollmentWithPerson[]).filter((e) => e.person));
+  }
+  return out;
+}
+
+/**
  * Fetch ALL enrollments of a scope in pages (used by the printing tabs,
  * which genuinely need the complete scoped set). Still filtered
  * server-side, and never more than `maxRows`.

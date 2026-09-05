@@ -292,6 +292,37 @@ export interface CardPrintRequest {
   created_at: string;
 }
 
+// ---------- Shepherds module — الأشابين (migration 0025) ----------
+// One row = one child (enrollment) inside one servant's group. A child can
+// be in ONE group only (unique enrollment_id).
+export interface ShepherdGroupRow {
+  id: string;
+  servant_id: string;
+  enrollment_id: string;
+  church_id: string;
+  service_id: string;
+  class_id: string;
+  created_at: string;
+}
+
+// `shepherd_claims` RPC — who holds each visible child (servant name/photo
+// resolved server-side, since profiles RLS hides other servants).
+export interface ShepherdClaim {
+  enrollment_id: string;
+  servant_id: string;
+  servant_name: string;
+  servant_photo: string | null;
+  created_at: string;
+}
+
+// `shepherd_group_summary` RPC — group size per servant in scope
+export interface ShepherdGroupSummary {
+  servant_id: string;
+  servant_name: string;
+  servant_photo: string | null;
+  children: number;
+}
+
 export const ROLE_LABELS: Record<AppRole, string> = {
   owner: 'مالك التطبيق',
   church_manager: 'مدير كنيسة',
