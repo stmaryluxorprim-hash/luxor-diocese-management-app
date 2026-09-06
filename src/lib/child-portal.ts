@@ -8,6 +8,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Gender } from '@/lib/types';
+import type { ExamResult, ExamStatus, PassMode, QuestionMode } from '@/lib/exams';
 
 export const CHILD_TOKEN_KEY = 'child_portal_token';
 
@@ -62,7 +63,7 @@ export interface ChildAttendanceRow {
 export interface ChildPointsRow {
   id: string;
   enrollment_id: string;
-  source: 'cause' | 'attendance' | 'store';   // 'store' = points redeemed in إستبدال النقاط (migration 0026)
+  source: 'cause' | 'attendance' | 'store' | 'exam';   // 'store' = إستبدال النقاط (0026) · 'exam' = الامتحانات (0027)
   reason: string | null;
   delta: number;
   created_at: string;
@@ -72,6 +73,61 @@ export interface ChildPointsRow {
   church_name: string;
   event_name?: string | null;
   order_id?: string | null;                   // the store bill behind a 'store' row
+  attempt_id?: string | null;                 // the exam attempt behind an 'exam' row
+}
+
+// ---------- Exams (الامتحانات) — what the child sees (migration 0027) ----------
+export interface ChildExam {
+  id: string;
+  title: string;
+  description: string | null;
+  image_url: string | null;
+  status: ExamStatus;
+  opens_at: string | null;
+  closes_at: string | null;
+  default_seconds: number;
+  question_mode: QuestionMode;
+  random_count: number;
+  max_attempts: number;
+  show_result: boolean;
+  pass_mode: PassMode;
+  pass_value: number;
+  points_pass: number;
+  points_full: number;
+  created_at: string;
+  enrollment_id: string;
+  class_name: string;
+  service_name: string;
+  church_name: string;
+  total_questions: number;
+  served_questions: number;
+  attempts_used: number;
+  open_attempt_id: string | null;
+  last_result: ExamResult | null;
+  is_open: boolean;
+}
+
+/** The question payload served to the child — NEVER contains the correct answer. */
+export interface ChildExamQuestion {
+  position: number;
+  total: number;
+  question_id: string | null;
+  text: string;
+  image_url: string | null;
+  options: string[];       // in the SERVED (shuffled) order
+  points: number;
+  seconds: number;
+  served_at: string;
+  deadline_at: string;
+  server_now: string;
+}
+
+export interface ChildExamStep {
+  attempt_id: string;
+  questions_count: number;
+  finished: boolean;
+  question?: ChildExamQuestion;
+  result?: ExamResult;
 }
 
 // ---------- Points store (إستبدال النقاط) — the child's bills ----------
@@ -175,6 +231,20 @@ const ERROR_MESSAGES: Record<string, string> = {
   not_pending: 'هذا الطلب لم يعد قيد المراجعة',
   not_found: 'الطلب غير موجود',
   forbidden: 'ليس لديك صلاحية على هذا الطلب',
+  // exams (0027)
+  module_not_visible: 'وحدة الامتحانات غير مفعّلة لفصلك',
+  exam_not_found: 'الامتحان غير موجود',
+  exam_out_of_scope: 'هذا الامتحان ليس لفصلك',
+  exam_not_published: 'الامتحان غير منشور بعد',
+  exam_not_open_yet: 'لم يبدأ وقت الامتحان بعد',
+  exam_closed: 'انتهى وقت الامتحان',
+  exam_has_no_questions: 'الامتحان لا يحتوي على أسئلة بعد',
+  no_attempts_left: 'استهلكت كل محاولاتك في هذا الامتحان',
+  attempt_not_found: 'المحاولة غير موجودة',
+  attempt_in_progress: 'المحاولة لم تنته بعد',
+  question_not_served: 'السؤال لم يُعرض بعد',
+  position_mismatch: 'لا يمكن تخطي الأسئلة أو الرجوع',
+  invalid_option: 'اختيار غير صالح',
 };
 
 export function childErrorMessage(err: unknown, fallback = 'حدث خطأ، حاول مجدداً'): string {
@@ -245,6 +315,42 @@ export async function cancelChildRequest(
   });
   if (error) throw error;
   return data as DataChangeRequest;
+}
+
+// ---------- Exams (migration 0027) ----------
+export async function fetchChildExams(supabase: SupabaseClient, token: string): Promise<ChildExam[]> {
+  const { data, error } = await supabase.rpc('child_portal_exams', { p_national_id: token });
+  if (error) throw error;
+  return (data ?? []) as ChildExam[];
+}
+
+export async function startChildExam(supabase: SupabaseClient, token: string, examId: string): Promise<ChildExamStep> {
+  const { data, error } = await supabase.rpc('child_exam_start', { p_national_id: token, p_exam: examId });
+  if (error) throw error;
+  return data as ChildExamStep;
+}
+
+export async function currentChildExamStep(supabase: SupabaseClient, token: string, attemptId: string): Promise<ChildExamStep> {
+  const { data, error } = await supabase.rpc('child_exam_current', { p_national_id: token, p_attempt: attemptId });
+  if (error) throw error;
+  return data as ChildExamStep;
+}
+
+/** `selected` = index in the served options, or null = time ran out / skipped. */
+export async function answerChildExam(
+  supabase: SupabaseClient, token: string, attemptId: string, position: number, selected: number | null
+): Promise<ChildExamStep> {
+  const { data, error } = await supabase.rpc('child_exam_answer', {
+    p_national_id: token, p_attempt: attemptId, p_position: position, p_selected: selected,
+  });
+  if (error) throw error;
+  return data as ChildExamStep;
+}
+
+export async function fetchChildExamResult(supabase: SupabaseClient, token: string, attemptId: string): Promise<ExamResult> {
+  const { data, error } = await supabase.rpc('child_exam_result', { p_national_id: token, p_attempt: attemptId });
+  if (error) throw error;
+  return data as ExamResult;
 }
 
 // ---------- Small helpers ----------

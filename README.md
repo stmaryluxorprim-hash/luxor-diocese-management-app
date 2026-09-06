@@ -91,6 +91,7 @@ In the settings hub **إدارة المناسبات** sits directly after **إد
 - ✅ **وحدة المالك + صلاحيات الوحدات (0024)**: modules registry (`src/lib/modules.ts`) — the side menu section under the 5 main pages shows **modules only**, the settings hub has a separate **الوحدات** group; the **owner module** (`/owner`, owner-only) hosts owner controls built step by step, starting with **صلاحيات الوحدات** (`/owner/modules`): per module, grant visibility to church → service → class (any level «الكل»), show for everyone / hide from everyone — enforced by RLS (`module_visible`) on the card tables and realtime everywhere
 - ✅ **وحدة الأشابين (0025)**: every servant (أشبين) is bound to **his own group of children** — in `/shepherds` he picks children from his scope (مجموعتي / اختيار tabs, search + church → service → class selectors); **a child can be in one group only** (children already chosen by another servant show «في مجموعة فلان» and are locked; managers can free them). On the children page a **«مجموعتي» button under the church / service / class selectors** narrows the list to the group — attendance, calls, messages, points, data, badges, filters and sort all work exactly the same. Visible only where the owner granted the `shepherds` module; realtime
 - ✅ **وحدة إستبدال النقاط (0026)**: نقطة بيع بالنقاط (`/store`) — **المخزون** (`/store/inventory`: كود = ملصق QR، اسم، صورة، السعر بالنقاط، الكمية، متاح/غير متاح، نطاق كنيسة → خدمة → فصل، +/− كمية سريع، **طباعة ملصقات QR** بثلاث مقاسات وعدد نسخ), **الكاشير** (`/store/pos`: مسح كارت المخدوم أو البحث عنه → سلة باسمه وصورته و**رصيده الحي** → مسح ملصقات الأصناف أو اختيارها من الشبكة مع الكمية → مجموع لحظي والمتبقي بعد الشراء — **لا يمكن إضافة صنف يتجاوز الرصيد أو الكمية المتاحة** → «إتمام العملية» مع تأكيد → الفاتورة تُحفظ ويُخصم الرصيد), **الأرشيف** (`/store/archive`: كل الفواتير مع البنود والرصيد قبل/بعد والكاشير؛ المسؤولون يلغون فاتورة فتُستردّ النقاط والكمية). العملية تظهر للمخدوم في **صفحة النقاط ببوابة المخدوم** (مصدر «إستبدال النقاط» + فاتورة قابلة للفتح). مُقيَّدة بصلاحيات الوحدات (`module_visible('store')`) وواقعية
+- ✅ **وحدة الامتحانات (0027)**: امتحانات اختيار من متعدد (`/exams`) — الخادم ينشئ الامتحان (عنوان · نطاق كنيسة → خدمة → فصل · فترة إتاحة · وقت افتراضي ودرجة افتراضية للسؤال · **شرط النجاح** نسبة ٪ أو درجة · **نقاط النجاح ونقاط الدرجة الكاملة** · **كل الأسئلة أو عدد عشوائي** (مثلاً 10 من 20 لكل مخدوم) · ترتيب عشوائي للأسئلة والاختيارات · عدد المحاولات · ما يراه المخدوم بعد الانتهاء)، يضيف الأسئلة (نص · صورة · 2–6 اختيارات · الإجابة الصحيحة · الدرجة · الوقت لكل سؤال) ثم **ينشر**. تبويب **النتائج**: كل مخدوم حل الامتحان مع الدرجة والنسبة و**فلتر ناجح / لم ينجح** و**ترتيب بالدرجة أو الاسم أو التاريخ**، تفاصيل كل سؤال بإجابته، إلغاء محاولة (استرداد النقاط + إعادة)، تصدير Excel. في **بوابة المخدوم** يظهر «الامتحانات» في القائمة الجانبية والرئيسية: **سؤال واحد كل مرة مع عدّاد مرتبط بوقت السيرفر**، ينتقل تلقائياً عند انتهاء الوقت أو بالضغط على «التالي»، **لا يمكن الرجوع**، المتابعة من حيث توقف عند إغلاق التطبيق، شاشة نتيجة، والنقاط تُضاف لرصيده فوراً وتظهر في صفحة النقاط. مُقيَّدة بصلاحيات الوحدات (`module_visible('exams')`) وواقعية
 - ✅ **طلبات تعديل البيانات** (`/settings/data-requests`): class servant, service manager, church manager or owner of the child's scope reviews pending requests (photo before/after or field diff), approves (applied to `persons`) or rejects with a note — realtime, with a pending-count badge on الإعدادات and in the side menu
 
 ## Functional Entry Points
@@ -123,6 +124,10 @@ In the settings hub **إدارة المناسبات** sits directly after **إد
 | `/store` | **وحدة إستبدال النقاط** — hub (stats + links); module-gated (`store`) |
 | `/store/inventory` | المخزون — items CRUD (code / name / picture / price in points / stock / active / scope), quick ± stock, select → **print QR labels** |
 | `/store/pos` | الكاشير — scan or search child → basket with live balance → scan / pick items with qty → live total & remaining, balance + stock guard → confirm → `store_checkout` → receipt |
+| `/exams` | **وحدة الامتحانات** — hub: every exam in scope (status, questions, attempts, pass rate), filters, create, duplicate; module-gated (`exams`) |
+| `/exams/[id]` | exam page — الأسئلة (add / edit / reorder / duplicate / delete, publish · close · reopen) · النتائج (filter pass/fail, sort by degree/name/date, detail with every answer, cancel attempt, Excel) · الإعدادات |
+| `/child/exams` | child portal — open exams (rules, attempts left, last result) + past ones |
+| `/child/exams/[id]` | child exam player — intro → one question at a time with server-anchored countdown → auto / manual next (no going back) → result (score, pass, points, review if allowed) |
 | `/store/archive` | أرشيف الفواتير — bills by day, search, scope & status filters, bill detail, managers cancel (`store_cancel_order` refunds points + restocks) |
 
 ## Data Models & Storage
@@ -135,7 +140,7 @@ In the settings hub **إدارة المناسبات** sits directly after **إد
 
 ### 1. Supabase
 1. Create a project at supabase.com
-2. SQL Editor → run **all** migrations in `supabase/migrations/` in numeric order (`0001` → `0026`); `0002_bootstrap_owner.sql` runs after step 5
+2. SQL Editor → run **all** migrations in `supabase/migrations/` in numeric order (`0001` → `0027`); `0002_bootstrap_owner.sql` runs after step 5
    ⚠️ In `0005` the `alter type ... add value 'suspended'` must run in its own query before the rest of the file
    ⚠️ `0019_performance_rls_indexes_rpc.sql` is **required** by the current frontend (home / scanner call its RPCs). It is safe to re-run (idempotent).
    ⚠️ `0020_statistics_rpcs.sql` is **required** by the الإحصائيات tab (all `stats_*` RPCs). Idempotent; depends on 0019 (`my_scope()`, `enrollment_visible()`).
@@ -145,6 +150,7 @@ In the settings hub **إدارة المناسبات** sits directly after **إد
    ⚠️ `0024_owner_module_access.sql` is **required** by وحدة المالك (`/owner/*`) and by the module sections of the side menu / settings. Adds `module_access` (owner-written grants: module → church/service/class, null = all), `module_visible(key)`, re-creates the card-module policies so `card_templates` / `card_print_requests` require `module_visible('cards')`, and **seeds one global grant for `cards`** so nothing disappears for existing users. Idempotent; run after 0023. Without it non-owners see no modules.
    ⚠️ `0025_shepherd_groups.sql` is **required** by وحدة الأشابين (`/shepherds`) and the «مجموعتي» button on the children page. Adds `shepherd_groups` (servant ↔ enrollment, **unique per enrollment**, scope filled by trigger), RLS gated by `module_visible('shepherds')`, the `shepherd_claims` / `shepherd_group_summary` RPCs and realtime. **No grant is seeded** — the owner enables the module per scope in وحدة المالك → صلاحيات الوحدات. Idempotent; run after 0024.
    ⚠️ `0026_points_store.sql` is **required** by وحدة إستبدال النقاط (`/store/*`) and by the store rows in the child portal points page. Adds `store_items`, `store_orders`, `store_order_items` (RLS gated by `module_visible('store')`), the `store_checkout` / `store_cancel_order` / `store_lookup_item` RPCs, replaces `child_portal_points` (new `source = 'store'` + `order_id` columns) and adds `child_portal_store_orders`. **No grant is seeded** — enable the module per scope in وحدة المالك → صلاحيات الوحدات. Idempotent; run after 0025.
+   ⚠️ `0027_exams.sql` is **required** by وحدة الامتحانات (`/exams/*`, `/child/exams/*`) and by the exam rows in the points pages. Adds `exams`, `exam_questions`, `exam_attempts`, `exam_answers` (RLS gated by `module_visible('exams')`; attempts / answers are read-only through the API), the anon child RPCs `child_portal_exams` / `child_exam_start` / `child_exam_current` / `child_exam_answer` / `child_exam_result`, the servant RPCs `exam_attempt_detail` / `exam_cancel_attempt` / `exam_duplicate`, the helper `module_granted_for`, and replaces `child_portal_points` (new `source = 'exam'` + `attempt_id`). **No grant is seeded** — enable the module per scope in وحدة المالك → صلاحيات الوحدات. Idempotent; run after 0026.
 3. **Authentication → Providers → Email**: disable "Confirm email"
 4. Authentication → Users → Add user: `owner@diocese.app` + password
 5. Copy that user's UUID into `supabase/migrations/0002_bootstrap_owner.sql` and run it
@@ -486,17 +492,72 @@ only where the owner grants it (`/owner/modules` → إستبدال النقاط
   manager cancel (refund + restock), double cancel, realtime publication.
   Validated on PostgreSQL 17 with all 26 migrations → «STORE TESTS PASSED».
 
+## Exams module — migration 0027 (وحدة الامتحانات)
+Multiple-choice exams the children solve from their portal. Optional module,
+visible only where the owner grants it (`/owner/modules` → الامتحانات).
+
+- **Exam** (`exams`) — scope `church_id → service_id? → class_id?` (null = all,
+  chain validated by trigger), `status` draft | published | closed, optional
+  `opens_at` / `closes_at` window, `default_seconds` / `default_points` per
+  question, pass rule `pass_mode` percent | score + `pass_value`,
+  `points_pass` / `points_full` rewards, `question_mode` all | random +
+  `random_count`, `shuffle_questions`, `shuffle_options`, `max_attempts`,
+  `show_result`, `show_answers`. RLS: read `scope_overlaps`, write
+  `scope_contains`, all behind `module_visible('exams')`.
+- **Questions** (`exam_questions`) — text, picture (`photos/exams/`),
+  `options` jsonb (2..6 non-blank strings, validated by trigger),
+  `correct_index`, `points`, `seconds` (null → exam default), `sort_order`.
+- **Attempt** (`exam_attempts` + `exam_answers`) — `child_exam_start` picks the
+  questions (all or `random_count` random, optionally shuffled), **snapshots**
+  them into `exam_answers` with a per-question **option permutation**, and
+  serves the first one. The child **never receives the correct index**: every
+  payload is built server-side (`exam_question_payload`). Each served question
+  carries `served_at` / `deadline_at` / `server_now`; `child_exam_answer`
+  accepts only the **current position** (no going back, stale double-taps are
+  ignored), maps the served index back to the original, marks correct /
+  wrong, and rejects answers after the deadline (+3 s grace) as timed-out.
+  `exam_advance` skips expired questions when the child comes back after
+  closing the app; the last answer triggers `exam_finalize`: score, max,
+  percent, pass (full mark always passes), points → **one `points_log` row**
+  (existing trigger updates `enrollments.points`). Unique partial index = one
+  open sitting per child per exam; cancelled attempts don't count toward
+  `max_attempts`.
+- **Servant side** — attempts / answers are read-only via RLS
+  (`enrollment_visible`); `exam_attempt_detail` returns the full result,
+  `exam_cancel_attempt` (write scope on the exam) refunds granted points and
+  frees a retake, `exam_duplicate` copies an exam + questions as a draft.
+- **Child portal** — `child_portal_exams` lists published exams in the child's
+  scope (module granted via `module_granted_for`, which works for anon) with
+  attempt state + last result; `child_portal_points` gets `source = 'exam'`.
+  Frontend: `/child/exams` list, `/child/exams/[id]` player (countdown
+  anchored on the server deadline with clock-offset correction, auto-advance,
+  resume on reload / visibility change, result screen with optional review),
+  side-menu entry + home card shown only when exams exist for the child.
+- **Frontend plumbing** — registry entry `exams` (`src/lib/modules.ts`), route
+  gate `src/app/exams/layout.tsx`, data layer `src/lib/exams.ts` (types, error
+  mapping, CRUD, RPC wrappers) + child fetchers in `src/lib/child-portal.ts`,
+  components `src/components/exams/*` (ExamBits, ExamFormModal,
+  QuestionFormModal, ResultsTab).
+- **Tests** — `supabase/tests/exam_module_test.sql`: module gate (servant +
+  child), RLS per class, question validation, draft invisible, out-of-scope
+  child, full start → answer → timeout → grade flow (no leak of the correct
+  index, stale answers ignored, position skipping rejected), attempts limit,
+  servant visibility + read-only attempts, cancel + refund + retake, random N
+  of M, full mark → points → balance → child points row, duplicate, closed
+  window, realtime publication. Validated on PostgreSQL 17 with all 27
+  migrations → «EXAM TESTS PASSED».
+
 ## Features Not Yet Implemented
 - Push notifications
 - Attendance history per date (per-person list view for servants)
 - PDF report export (Excel is done in الإحصائيات)
 
 ## Recommended Next Steps
-1. Run migrations `0017` → `0026` (`0026_points_store.sql` powers وحدة إستبدال النقاط; `0022` powers event-bound points / calls / messages; `0023_call_feedbacks.sql` powers the call-feedback badge & إدارة نتائج الافتقاد; `0024_owner_module_access.sql` powers وحدة المالك & module visibility; `0025_shepherd_groups.sql` powers وحدة الأشابين) in Supabase SQL editor, then grant الأشابين from وحدة المالك → صلاحيات الوحدات
+1. Run migrations `0017` → `0027` (`0027_exams.sql` powers وحدة الامتحانات; `0026_points_store.sql` powers وحدة إستبدال النقاط; `0022` powers event-bound points / calls / messages; `0023_call_feedbacks.sql` powers the call-feedback badge & إدارة نتائج الافتقاد; `0024_owner_module_access.sql` powers وحدة المالك & module visibility; `0025_shepherd_groups.sql` powers وحدة الأشابين) in Supabase SQL editor, then grant الأشابين from وحدة المالك → صلاحيات الوحدات
 2. Deploy to Vercel and test the full approval flow
 3. Per-person attendance history view
 
 ## Deployment
 - **Platform**: Vercel + Supabase
-- **Status**: ✅ Code complete for Phase 1 + performance/scale hardening (0019) + statistics tab (0020) + child portal & data change requests (0021) + event as 4th scope level with status badge (0022) + call-feedback badge & إدارة نتائج الافتقاد (0023) + owner module & per-scope module visibility (0024) + shepherds module الأشابين & «مجموعتي» (0025) + points store module إستبدال النقاط (0026) — awaiting Supabase project + Vercel connect
-- **Last Updated**: 2026-09-05
+- **Status**: ✅ Code complete for Phase 1 + performance/scale hardening (0019) + statistics tab (0020) + child portal & data change requests (0021) + event as 4th scope level with status badge (0022) + call-feedback badge & إدارة نتائج الافتقاد (0023) + owner module & per-scope module visibility (0024) + shepherds module الأشابين & «مجموعتي» (0025) + points store module إستبدال النقاط (0026) + exams module الامتحانات (0027) — awaiting Supabase project + Vercel connect
+- **Last Updated**: 2026-09-06

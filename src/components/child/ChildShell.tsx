@@ -5,15 +5,17 @@
 // service name, side menu button) and a 5-tab bottom bar:
 // الرئيسية · الحضور · النقاط · البيانات · الخيارات
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   Home, CalendarCheck, Star, Database, SlidersHorizontal, Menu, X, LogOut,
-  CalendarDays, Clock, User, type LucideIcon,
+  CalendarDays, Clock, User, GraduationCap, type LucideIcon,
 } from 'lucide-react';
 import { useChild } from '@/lib/child-context';
+import { createClient } from '@/lib/supabase/client';
+import { fetchChildExams, type ChildExam } from '@/lib/child-portal';
 import { formatCairoDate, formatCairoTime } from '@/lib/time';
 import { Loader2 } from 'lucide-react';
 
@@ -27,6 +29,33 @@ export const CHILD_NAV: { href: string; label: string; icon: LucideIcon; id: str
 
 const isActive = (pathname: string, href: string) =>
   href === '/child' ? pathname === '/child' : pathname.startsWith(href);
+
+/**
+ * The child's exams (module الامتحانات, migration 0027). `null` while loading;
+ * `[]` when the module isn't granted / nothing is published (the menu entry
+ * and the home card then stay hidden). Re-fetched when the tab regains focus.
+ */
+export function useChildExams(): { exams: ChildExam[] | null; openCount: number; pendingCount: number } {
+  const { token } = useChild();
+  const supabase = useMemo(() => createClient(), []);
+  const [exams, setExams] = useState<ChildExam[] | null>(null);
+  useEffect(() => {
+    if (!token) { setExams(null); return; }
+    let cancelled = false;
+    const load = () => fetchChildExams(supabase, token).then((r) => { if (!cancelled) setExams(r); }).catch(() => { if (!cancelled) setExams([]); });
+    load();
+    const onVis = () => { if (document.visibilityState === 'visible') load(); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { cancelled = true; document.removeEventListener('visibilitychange', onVis); };
+  }, [token, supabase]);
+  const open = (exams ?? []).filter((x) => x.is_open);
+  return {
+    exams,
+    openCount: open.length,
+    // open exams the child can still sit (never finished or has attempts left)
+    pendingCount: open.filter((x) => x.open_attempt_id || (x.attempts_used === 0 && x.total_questions > 0)).length,
+  };
+}
 
 // ---------- Header ----------
 function ChildHeader({ onMenu }: { onMenu: () => void }) {
@@ -73,6 +102,7 @@ function ChildSideMenu({ open, onClose }: { open: boolean; onClose: () => void }
   const pathname = usePathname();
   const router = useRouter();
   const { profile, logout } = useChild();
+  const { exams, pendingCount } = useChildExams();
   const [now, setNow] = useState<Date | null>(null);
 
   useEffect(() => {
@@ -154,6 +184,26 @@ function ChildSideMenu({ open, onClose }: { open: boolean; onClose: () => void }
               </Link>
             );
           })}
+
+          {exams && exams.length > 0 && (
+            <>
+              <p className="mb-1 mt-3 px-2 text-[11px] font-extrabold text-slate-400">الوحدات</p>
+              <Link
+                id="child-nav-exams"
+                href="/child/exams"
+                onClick={onClose}
+                className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-bold transition ${
+                  isActive(pathname, '/child/exams') ? 'bg-violet-100 text-violet-700' : 'text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                <GraduationCap className="h-5 w-5 text-violet-600" />
+                الامتحانات
+                {pendingCount > 0 && (
+                  <span className="mr-auto rounded-full bg-violet-600 px-2 py-0.5 text-[10px] font-extrabold text-white tabular-nums">{pendingCount}</span>
+                )}
+              </Link>
+            </>
+          )}
         </nav>
 
         <div className="border-t border-indigo-100 p-3">
