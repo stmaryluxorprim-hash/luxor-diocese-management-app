@@ -7,9 +7,9 @@
 import { useMemo } from 'react';
 import Link from 'next/link';
 import {
-  CalendarCheck, Star, ChevronLeft, School, Layers, Church, Sparkles, Database,
+  CalendarCheck, Star, ChevronLeft, School, Layers, Church, Sparkles, Database, GraduationCap,
 } from 'lucide-react';
-import ChildShell from '@/components/child/ChildShell';
+import ChildShell, { useChildExams } from '@/components/child/ChildShell';
 import { Avatar, Kpi, fmtDateTime, usePortalList } from '@/components/child/ChildBits';
 import { useChild } from '@/lib/child-context';
 import { createClient } from '@/lib/supabase/client';
@@ -30,6 +30,7 @@ export default function ChildHomePage() {
 function HomeContent() {
   const { token, profile } = useChild();
   const supabase = useMemo(() => createClient(), []);
+  const { exams, openCount, pendingCount } = useChildExams();
 
   const { rows: attendance } = usePortalList<ChildAttendanceRow>(
     token ? () => fetchChildAttendance(supabase, token) : null,
@@ -124,6 +125,25 @@ function HomeContent() {
           )}
         </div>
       </section>
+
+      {/* Exams (الامتحانات) — only when the module is granted and something is published */}
+      {exams && exams.length > 0 && (
+        <section className="mb-4">
+          <Link id="child-home-exams" href="/child/exams" className={`card flex items-center gap-3 !p-3 transition hover:bg-violet-50/40 ${pendingCount > 0 ? 'ring-2 ring-violet-200' : ''}`}>
+            <span className="rounded-xl bg-violet-600 p-2.5 text-white"><GraduationCap className="h-6 w-6" /></span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-extrabold">الامتحانات</span>
+              <span className="block truncate text-xs text-slate-500">
+                {pendingCount > 0
+                  ? `لديك ${pendingCount} امتحان متاح للحل الآن`
+                  : openCount > 0 ? `${openCount} امتحان متاح — أكملتها كلها` : 'نتائج امتحاناتك السابقة'}
+              </span>
+            </span>
+            {pendingCount > 0 && <span className="rounded-full bg-violet-600 px-2.5 py-1 text-xs font-extrabold text-white">ابدأ</span>}
+            <ChevronLeft className="h-4 w-4 text-slate-300" />
+          </Link>
+        </section>
+      )}
 
       {/* Latest activity */}
       <section className="mb-4">

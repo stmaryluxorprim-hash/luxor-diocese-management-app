@@ -8,10 +8,10 @@
 // To add a module later: add one entry here + guard its pages with
 // `useModuleVisible(key)` (or `<ModuleGate module="key">`).
 
-import { IdCard, Crown, HeartHandshake, ShoppingBag, type LucideIcon } from 'lucide-react';
+import { IdCard, Crown, HeartHandshake, ShoppingBag, GraduationCap, type LucideIcon } from 'lucide-react';
 import type { Profile } from '@/lib/types';
 
-export type ModuleKey = 'cards' | 'shepherds' | 'store';
+export type ModuleKey = 'cards' | 'shepherds' | 'store' | 'exams';
 
 export interface AppModule {
   key: ModuleKey;
@@ -51,6 +51,15 @@ export const MODULES: AppModule[] = [
     icon: ShoppingBag,
     color: 'text-orange-600',
     paths: ['/store'],
+  },
+  {
+    key: 'exams',
+    label: 'الامتحانات',
+    desc: 'امتحانات اختيار من متعدد: أسئلة بمؤقت ودرجات، نجاح ونقاط — والمخدوم يحلّها من بوابته',
+    href: '/exams',
+    icon: GraduationCap,
+    color: 'text-violet-600',
+    paths: ['/exams'],
   },
 ];
 

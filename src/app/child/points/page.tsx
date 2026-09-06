@@ -10,8 +10,9 @@
 import { useMemo, useState } from 'react';
 import Image from 'next/image';
 import {
-  Star, Loader2, Clock, User, Layers, Plus, Minus, CalendarCheck, Award, ShoppingBag, X, Receipt, Ban, Check, ChevronLeft, ImageIcon,
+  Star, Loader2, Clock, User, Layers, Plus, Minus, CalendarCheck, Award, ShoppingBag, X, Receipt, Ban, Check, ChevronLeft, ImageIcon, GraduationCap,
 } from 'lucide-react';
+import Link from 'next/link';
 import ChildShell from '@/components/child/ChildShell';
 import { EmptyState, PageTitle, fmtDate, fmtTime, usePortalList } from '@/components/child/ChildBits';
 import { useChild } from '@/lib/child-context';
@@ -21,12 +22,13 @@ import {
 } from '@/lib/child-portal';
 import { APP_TZ } from '@/lib/time';
 
-type Filter = 'all' | 'cause' | 'attendance' | 'store';
+type Filter = 'all' | 'cause' | 'attendance' | 'store' | 'exam';
 const FILTERS: { value: Filter; label: string }[] = [
   { value: 'all', label: 'الكل' },
   { value: 'cause', label: 'أسباب النقاط' },
   { value: 'attendance', label: 'نقاط الحضور' },
   { value: 'store', label: 'إستبدال النقاط' },
+  { value: 'exam', label: 'الامتحانات' },
 ];
 
 const dayKey = (iso: string) =>
@@ -56,7 +58,8 @@ function PointsContent() {
   const [bill, setBill] = useState<ChildStoreOrder | null>(null);
 
   const hasStore = (rows ?? []).some((r) => r.source === 'store');
-  const filters = FILTERS.filter((f) => f.value !== 'store' || hasStore);
+  const hasExam = (rows ?? []).some((r) => r.source === 'exam');
+  const filters = FILTERS.filter((f) => (f.value !== 'store' || hasStore) && (f.value !== 'exam' || hasExam));
 
   const visible = useMemo(
     () => (rows ?? []).filter((r) => filter === 'all' || r.source === filter),
@@ -85,6 +88,7 @@ function PointsContent() {
     const pos = r.delta >= 0;
     if (r.source === 'attendance') return { cls: 'bg-emerald-100 text-emerald-600', icon: <CalendarCheck className="h-5 w-5" /> };
     if (r.source === 'store') return { cls: pos ? 'bg-orange-100 text-orange-600' : 'bg-orange-500 text-white', icon: <ShoppingBag className="h-5 w-5" /> };
+    if (r.source === 'exam') return { cls: pos ? 'bg-violet-100 text-violet-600' : 'bg-violet-500 text-white', icon: <GraduationCap className="h-5 w-5" /> };
     return pos ? { cls: 'bg-gold-100 text-gold-600', icon: <Plus className="h-5 w-5" /> } : { cls: 'bg-red-100 text-red-500', icon: <Minus className="h-5 w-5" /> };
   };
 
@@ -162,12 +166,12 @@ function PointsContent() {
                         <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${ic.cls}`}>{ic.icon}</span>
                         <div className="min-w-0 flex-1 text-right">
                           <p className="truncate text-sm font-extrabold">
-                            {r.reason ?? (r.source === 'attendance' ? 'حضور' : r.source === 'store' ? 'إستبدال نقاط' : 'نقاط')}
+                            {r.reason ?? (r.source === 'attendance' ? 'حضور' : r.source === 'store' ? 'إستبدال نقاط' : r.source === 'exam' ? 'امتحان' : 'نقاط')}
                           </p>
                           <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] font-bold text-slate-400">
                             <span className="flex items-center gap-1">
-                              {r.source === 'attendance' ? <CalendarCheck className="h-3 w-3" /> : r.source === 'store' ? <ShoppingBag className="h-3 w-3" /> : <Award className="h-3 w-3" />}
-                              {r.source === 'attendance' ? 'حضور' : r.source === 'store' ? 'المتجر' : 'سبب'}
+                              {r.source === 'attendance' ? <CalendarCheck className="h-3 w-3" /> : r.source === 'store' ? <ShoppingBag className="h-3 w-3" /> : r.source === 'exam' ? <GraduationCap className="h-3 w-3" /> : <Award className="h-3 w-3" />}
+                              {r.source === 'attendance' ? 'حضور' : r.source === 'store' ? 'المتجر' : r.source === 'exam' ? 'امتحان' : 'سبب'}
                             </span>
                             <span className="flex items-center gap-1">
                               <Clock className="h-3 w-3" /> {fmtDate(r.created_at)} · {fmtTime(r.created_at)}
@@ -183,9 +187,17 @@ function PointsContent() {
                         <span className={`badge shrink-0 ${pos ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'}`}>
                           {pos ? '+' : ''}{r.delta}
                         </span>
-                        {order && <ChevronLeft className="h-4 w-4 shrink-0 text-slate-300" />}
+                        {(order || (r.source === 'exam' && r.attempt_id)) && <ChevronLeft className="h-4 w-4 shrink-0 text-slate-300" />}
                       </>
                     );
+                    if (r.source === 'exam' && r.attempt_id && r.delta > 0) {
+                      return (
+                        <Link key={`${r.source}-${r.id}`} id={`child-pts-row-${r.id}`} href="/child/exams"
+                          className="flex w-full items-center gap-3 px-4 py-3 text-right hover:bg-violet-50/50">
+                          {Row}
+                        </Link>
+                      );
+                    }
                     return order ? (
                       <button key={`${r.source}-${r.id}`} id={`child-pts-row-${r.id}`} type="button" onClick={() => setBill(order)}
                         className="flex w-full items-center gap-3 px-4 py-3 text-right hover:bg-orange-50/50">
