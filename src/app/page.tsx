@@ -12,6 +12,7 @@ import { ROLE_LABELS } from '@/lib/types';
 import { cairoDayStartISO } from '@/lib/time';
 import { useAppDate } from '@/lib/app-date-context';
 import { useDebouncedRealtime, scopeFilter } from '@/lib/realtime';
+import UpcomingBirthdaysWidget from '@/components/birthdays/UpcomingBirthdaysWidget';
 
 interface Counts {
   persons: number;
@@ -102,6 +103,8 @@ export default function HomePage() {
           </>
         )}
       </section>
+
+      <UpcomingBirthdaysWidget />
 
       <section id="quick-actions">
         <h3 className="mb-3 text-sm font-extrabold text-slate-500">إجراءات سريعة</h3>

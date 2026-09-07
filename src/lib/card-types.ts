@@ -9,7 +9,15 @@ export type CardVariableField =
   | 'birthdate'
   | 'phone'
   | 'national_id'
-  | 'address';
+  | 'address'
+  // ----- birthday-card variables (module أعياد الميلاد) -----
+  | 'first_name'      // الاسم الأول
+  | 'turns_age'       // السن التي يتمها في عيد الميلاد (سنة الكارت)
+  | 'birthday_day'    // يوم الميلاد (رقم)
+  | 'birthday_month'  // شهر الميلاد (اسم عربي)
+  | 'birthday_date'   // يوم + شهر (مثلاً «5 مارس»)
+  | 'birthday_year'   // سنة العيد
+  | 'gift_points';    // نقاط الهدية
 
 // Constants — fixed values bound to the template scope.
 export type CardConstantField = 'church_name' | 'service_name' | 'class_name';
@@ -151,6 +159,23 @@ export const VARIABLE_FIELDS: { value: CardVariableField; label: string }[] = [
   { value: 'address', label: 'العنوان' },
 ];
 
+// Extra variables offered by the BIRTHDAY card designer (in addition to the
+// list above). Kept separate so the ID-card designer stays unchanged.
+export const BIRTHDAY_VARIABLE_FIELDS: { value: CardVariableField; label: string }[] = [
+  { value: 'first_name', label: 'الاسم الأول' },
+  { value: 'turns_age', label: 'السن الجديدة (يتمّ … سنة)' },
+  { value: 'birthday_date', label: 'يوم وشهر العيد' },
+  { value: 'birthday_day', label: 'يوم العيد (رقم)' },
+  { value: 'birthday_month', label: 'شهر العيد' },
+  { value: 'birthday_year', label: 'سنة العيد' },
+  { value: 'gift_points', label: 'نقاط الهدية' },
+];
+
+export const ARABIC_MONTHS = [
+  'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
+  'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر',
+];
+
 export const CONSTANT_FIELDS: { value: CardConstantField; label: string }[] = [
   { value: 'church_name', label: 'اسم الكنيسة' },
   { value: 'service_name', label: 'اسم الخدمة' },
@@ -266,6 +291,55 @@ export const DEFAULT_DESIGN: CardDesign = {
       style: { ...DEFAULT_TEXT_STYLE, fontSize: 8, bold: false, align: 'right' },
     }),
     newElement('qr', { x: 3, y: 41, w: 11, h: 11, borderRadius: 0 }),
+  ],
+};
+
+// Birthday greeting card — A6 landscape (148×105 mm), festive default.
+export const DEFAULT_BIRTHDAY_DESIGN: CardDesign = {
+  version: 1,
+  width: 148,
+  height: 105,
+  cornerRadius: 4,
+  background: {
+    color: '#fff1f7', imageUrl: null, imageFit: 'cover', imageOpacity: 1,
+    zoom: 1, offsetX: 0, offsetY: 0,
+  },
+  border: { enabled: true, color: '#db2777', width: 0.8 },
+  elements: [
+    newElement('logo', { x: 4, y: 4, w: 16, h: 16, borderRadius: 8 }),
+    newElement('constant', {
+      field: 'church_name', x: 22, y: 5, w: 90, h: 7,
+      style: { ...DEFAULT_TEXT_STYLE, fontSize: 10, color: '#9d174d', align: 'right' },
+    }),
+    newElement('constant', {
+      field: 'class_name', label: 'أسرة', x: 22, y: 12, w: 90, h: 6,
+      style: { ...DEFAULT_TEXT_STYLE, fontSize: 8, bold: false, color: '#be185d', align: 'right' },
+    }),
+    newElement('text', {
+      text: '🎂 كل سنة وأنت طيب 🎉', x: 10, y: 24, w: 128, h: 14,
+      style: { ...DEFAULT_TEXT_STYLE, fontFamily: 'El Messiri', fontSize: 24, color: '#db2777' },
+    }),
+    newElement('photo', { x: 108, y: 42, w: 32, h: 40, borderRadius: 16, strokeEnabled: true, strokeColor: '#f472b6', strokeWidth: 0.8 }),
+    newElement('variable', {
+      field: 'name', x: 8, y: 44, w: 96, h: 12,
+      style: { ...DEFAULT_TEXT_STYLE, fontFamily: 'Cairo', fontSize: 18, color: '#1e293b', align: 'center' },
+    }),
+    newElement('variable', {
+      field: 'turns_age', label: 'أتممت', x: 8, y: 58, w: 96, h: 9,
+      style: { ...DEFAULT_TEXT_STYLE, fontSize: 12, bold: false, color: '#475569', align: 'center' },
+    }),
+    newElement('variable', {
+      field: 'birthday_date', x: 8, y: 67, w: 96, h: 8,
+      style: { ...DEFAULT_TEXT_STYLE, fontSize: 11, color: '#9d174d', align: 'center' },
+    }),
+    newElement('text', {
+      text: 'ربنا يفرّح قلبك ويكمّل سنينك بالخير والبركة ✨', x: 8, y: 84, w: 132, h: 9,
+      style: { ...DEFAULT_TEXT_STYLE, fontFamily: 'Amiri', fontSize: 12, bold: false, color: '#475569' },
+    }),
+    newElement('constant', {
+      field: 'service_name', x: 8, y: 95, w: 132, h: 6,
+      style: { ...DEFAULT_TEXT_STYLE, fontSize: 8, bold: false, color: '#94a3b8' },
+    }),
   ],
 };
 

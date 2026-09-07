@@ -10,7 +10,7 @@
 import { useMemo, useState } from 'react';
 import Image from 'next/image';
 import {
-  Star, Loader2, Clock, User, Layers, Plus, Minus, CalendarCheck, Award, ShoppingBag, X, Receipt, Ban, Check, ChevronLeft, ImageIcon, GraduationCap,
+  Star, Loader2, Clock, User, Layers, Plus, Minus, CalendarCheck, Award, ShoppingBag, X, Receipt, Ban, Check, ChevronLeft, ImageIcon, GraduationCap, Cake,
 } from 'lucide-react';
 import Link from 'next/link';
 import ChildShell from '@/components/child/ChildShell';
@@ -22,13 +22,14 @@ import {
 } from '@/lib/child-portal';
 import { APP_TZ } from '@/lib/time';
 
-type Filter = 'all' | 'cause' | 'attendance' | 'store' | 'exam';
+type Filter = 'all' | 'cause' | 'attendance' | 'store' | 'exam' | 'birthday';
 const FILTERS: { value: Filter; label: string }[] = [
   { value: 'all', label: 'الكل' },
   { value: 'cause', label: 'أسباب النقاط' },
   { value: 'attendance', label: 'نقاط الحضور' },
   { value: 'store', label: 'إستبدال النقاط' },
   { value: 'exam', label: 'الامتحانات' },
+  { value: 'birthday', label: 'أعياد الميلاد' },
 ];
 
 const dayKey = (iso: string) =>
@@ -59,7 +60,8 @@ function PointsContent() {
 
   const hasStore = (rows ?? []).some((r) => r.source === 'store');
   const hasExam = (rows ?? []).some((r) => r.source === 'exam');
-  const filters = FILTERS.filter((f) => (f.value !== 'store' || hasStore) && (f.value !== 'exam' || hasExam));
+  const hasBirthday = (rows ?? []).some((r) => r.source === 'birthday');
+  const filters = FILTERS.filter((f) => (f.value !== 'store' || hasStore) && (f.value !== 'exam' || hasExam) && (f.value !== 'birthday' || hasBirthday));
 
   const visible = useMemo(
     () => (rows ?? []).filter((r) => filter === 'all' || r.source === filter),
@@ -89,6 +91,7 @@ function PointsContent() {
     if (r.source === 'attendance') return { cls: 'bg-emerald-100 text-emerald-600', icon: <CalendarCheck className="h-5 w-5" /> };
     if (r.source === 'store') return { cls: pos ? 'bg-orange-100 text-orange-600' : 'bg-orange-500 text-white', icon: <ShoppingBag className="h-5 w-5" /> };
     if (r.source === 'exam') return { cls: pos ? 'bg-violet-100 text-violet-600' : 'bg-violet-500 text-white', icon: <GraduationCap className="h-5 w-5" /> };
+    if (r.source === 'birthday') return { cls: 'bg-pink-100 text-pink-600', icon: <Cake className="h-5 w-5" /> };
     return pos ? { cls: 'bg-gold-100 text-gold-600', icon: <Plus className="h-5 w-5" /> } : { cls: 'bg-red-100 text-red-500', icon: <Minus className="h-5 w-5" /> };
   };
 
@@ -166,7 +169,7 @@ function PointsContent() {
                         <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${ic.cls}`}>{ic.icon}</span>
                         <div className="min-w-0 flex-1 text-right">
                           <p className="truncate text-sm font-extrabold">
-                            {r.reason ?? (r.source === 'attendance' ? 'حضور' : r.source === 'store' ? 'إستبدال نقاط' : r.source === 'exam' ? 'امتحان' : 'نقاط')}
+                            {r.reason ?? (r.source === 'attendance' ? 'حضور' : r.source === 'store' ? 'إستبدال نقاط' : r.source === 'exam' ? 'امتحان' : r.source === 'birthday' ? 'هدية عيد ميلاد' : 'نقاط')}
                           </p>
                           <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] font-bold text-slate-400">
                             <span className="flex items-center gap-1">

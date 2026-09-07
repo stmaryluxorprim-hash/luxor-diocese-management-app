@@ -8,7 +8,7 @@ import type {
   CardElement,
   ImageFit,
 } from '@/lib/card-types';
-import { ageFromBirthdate } from '@/lib/card-types';
+import { ageFromBirthdate, ARABIC_MONTHS } from '@/lib/card-types';
 
 // ---------- data fed into a card ----------
 export interface CardPersonData {
@@ -18,7 +18,25 @@ export interface CardPersonData {
   phone: string | null;
   address: string | null;
   image_url: string | null;
+  // ----- birthday-card extras (optional; derived from birthdate when absent) -----
+  birthday_year?: number;      // the year the card is for (default: current year)
+  gift_points?: number | null; // points gifted for this birthday
 }
+
+// Arabic «N سنة» with correct plural forms
+export const arabicYears = (n: number): string => {
+  if (n === 1) return 'سنة واحدة';
+  if (n === 2) return 'سنتين';
+  if (n >= 3 && n <= 10) return `${n} سنوات`;
+  return `${n} سنة`;
+};
+
+const birthParts = (birthdate: string | null): { day: number; month: number; year: number } | null => {
+  if (!birthdate) return null;
+  const m = birthdate.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return null;
+  return { year: Number(m[1]), month: Number(m[2]), day: Number(m[3]) };
+};
 
 export interface CardConstantsData {
   church_name: string;
@@ -65,6 +83,27 @@ const resolveText = (
       case 'phone': value = person.phone ?? '—'; break;
       case 'national_id': value = person.national_id; break;
       case 'address': value = person.address ?? '—'; break;
+      // ----- birthday variables -----
+      case 'first_name': value = person.name.trim().split(/\s+/)[0] ?? ''; break;
+      case 'turns_age': {
+        const bp = birthParts(person.birthdate);
+        const y = person.birthday_year ?? new Date().getFullYear();
+        value = bp ? arabicYears(y - bp.year) : '—';
+        break;
+      }
+      case 'birthday_day': value = String(birthParts(person.birthdate)?.day ?? '—'); break;
+      case 'birthday_month': {
+        const bp = birthParts(person.birthdate);
+        value = bp ? ARABIC_MONTHS[bp.month - 1] : '—';
+        break;
+      }
+      case 'birthday_date': {
+        const bp = birthParts(person.birthdate);
+        value = bp ? `${bp.day} ${ARABIC_MONTHS[bp.month - 1]}` : '—';
+        break;
+      }
+      case 'birthday_year': value = String(person.birthday_year ?? new Date().getFullYear()); break;
+      case 'gift_points': value = person.gift_points != null ? String(person.gift_points) : '—'; break;
     }
   }
   return el.label ? `${el.label} ${value}` : value;

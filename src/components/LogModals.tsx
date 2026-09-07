@@ -12,7 +12,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import {
-  CalendarCheck, Star, Loader2, User, CalendarDays, Layers, ListChecks, ShoppingBag, GraduationCap,
+  CalendarCheck, Star, Loader2, User, CalendarDays, Layers, ListChecks, ShoppingBag, GraduationCap, Cake,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { ModalFrame } from '@/components/PersonDataModals';
@@ -224,7 +224,7 @@ export function AttendanceLogModal({
 // =====================================================================
 type PointsEntry = {
   id: string;
-  kind: 'cause' | 'attendance' | 'store' | 'exam';   // store = إستبدال النقاط (0026) · exam = الامتحانات (0027)
+  kind: 'cause' | 'attendance' | 'store' | 'exam' | 'birthday';   // store = إستبدال النقاط (0026) · exam = الامتحانات (0027) · birthday = هدية عيد الميلاد (0028)
   label: string;
   event: string | null;   // the event the points were given IN (4th scope level)
   delta: number;
@@ -242,31 +242,35 @@ export function PointsLogModal({
 }) {
   const supabase = createClient();
   const [entries, setEntries] = useState<PointsEntry[] | null>(null);
-  const [filter, setFilter] = useState<'all' | 'cause' | 'attendance' | 'store' | 'exam'>('all');
+  const [filter, setFilter] = useState<'all' | 'cause' | 'attendance' | 'store' | 'exam' | 'birthday'>('all');
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [{ data: pl }, { data: al }, so, xa] = await Promise.all([
+      const [{ data: pl }, { data: al }, so, xa, bg] = await Promise.all([
         supabase.from('points_log').select('*').eq('enrollment_id', enrollment.id),
         supabase.from('attendance_log').select('*').eq('enrollment_id', enrollment.id),
         // store bills (migration 0026) — tolerate a missing table / module
         supabase.from('store_orders').select('id, items_count, points_log_id, refund_points_log_id').eq('enrollment_id', enrollment.id),
         // exam attempts (migration 0027) — same tolerance
         supabase.from('exam_attempts').select('id, full_mark, points_log_id, refund_points_log_id, exam:exams(title)').eq('enrollment_id', enrollment.id),
+        // birthday gifts (migration 0028) — same tolerance
+        supabase.from('birthday_greetings').select('id, year, points_log_id').eq('enrollment_id', enrollment.id).eq('kind', 'gift'),
       ]);
       if (cancelled) return;
       type OrderRef = { id: string; items_count: number; points_log_id: string | null; refund_points_log_id: string | null };
       type AttemptRef = { id: string; full_mark: boolean | null; points_log_id: string | null; refund_points_log_id: string | null; exam: { title: string } | null };
       const orders = (so.error ? [] : (so.data ?? [])) as OrderRef[];
       const attempts = (xa.error ? [] : (xa.data ?? [])) as unknown as AttemptRef[];
+      const gifts = (bg.error ? [] : (bg.data ?? [])) as { id: string; year: number; points_log_id: string | null }[];
+      const giftByLog = new Map(gifts.filter((g) => g.points_log_id).map((g) => [g.points_log_id as string, g]));
       const saleByLog = new Map(orders.filter((o) => o.points_log_id).map((o) => [o.points_log_id as string, o]));
       const refundByLog = new Map(orders.filter((o) => o.refund_points_log_id).map((o) => [o.refund_points_log_id as string, o]));
       const examByLog = new Map(attempts.filter((a) => a.points_log_id).map((a) => [a.points_log_id as string, a]));
       const examRefundByLog = new Map(attempts.filter((a) => a.refund_points_log_id).map((a) => [a.refund_points_log_id as string, a]));
       const fromCauses: PointsEntry[] = ((pl ?? []) as PointsLog[]).map((r) => ({
         id: `p-${r.id}`,
-        kind: saleByLog.has(r.id) || refundByLog.has(r.id) ? 'store' : examByLog.has(r.id) || examRefundByLog.has(r.id) ? 'exam' : 'cause',
+        kind: saleByLog.has(r.id) || refundByLog.has(r.id) ? 'store' : examByLog.has(r.id) || examRefundByLog.has(r.id) ? 'exam' : giftByLog.has(r.id) ? 'birthday' : 'cause',
         label: saleByLog.has(r.id)
           ? `إستبدال نقاط — ${saleByLog.get(r.id)!.items_count} صنف`
           : refundByLog.has(r.id)
@@ -275,6 +279,8 @@ export function PointsLogModal({
             ? `${examByLog.get(r.id)!.full_mark ? 'الدرجة الكاملة في امتحان' : 'النجاح في امتحان'} «${examByLog.get(r.id)!.exam?.title ?? 'محذوف'}»`
           : examRefundByLog.has(r.id)
             ? `إلغاء محاولة امتحان «${examRefundByLog.get(r.id)!.exam?.title ?? 'محذوف'}»`
+          : giftByLog.has(r.id)
+            ? `🎂 هدية عيد ميلاد ${giftByLog.get(r.id)!.year}`
             : r.cause_id
               ? causes.find((c) => c.id === r.cause_id)?.name ?? 'سبب محذوف'
               : 'نقاط يدوية (بدون سبب)',
@@ -320,12 +326,14 @@ export function PointsLogModal({
 
   const hasStore = (entries ?? []).some((e) => e.kind === 'store');
   const hasExam = (entries ?? []).some((e) => e.kind === 'exam');
+  const hasBirthday = (entries ?? []).some((e) => e.kind === 'birthday');
   const FILTERS: { value: typeof filter; label: string }[] = [
     { value: 'all', label: 'الكل' },
     { value: 'cause', label: 'أسباب النقاط' },
     { value: 'attendance', label: 'نقاط الحضور' },
     ...(hasStore ? [{ value: 'store' as const, label: 'إستبدال' }] : []),
     ...(hasExam ? [{ value: 'exam' as const, label: 'امتحانات' }] : []),
+    ...(hasBirthday ? [{ value: 'birthday' as const, label: 'أعياد ميلاد' }] : []),
   ];
 
   return (
@@ -388,6 +396,8 @@ export function PointsLogModal({
                     <ShoppingBag className="h-3.5 w-3.5 shrink-0 text-orange-500" />
                   ) : e.kind === 'exam' ? (
                     <GraduationCap className="h-3.5 w-3.5 shrink-0 text-violet-500" />
+                  ) : e.kind === 'birthday' ? (
+                    <Cake className="h-3.5 w-3.5 shrink-0 text-pink-500" />
                   ) : (
                     <Star className="h-3.5 w-3.5 shrink-0 text-gold-500" />
                   )}
