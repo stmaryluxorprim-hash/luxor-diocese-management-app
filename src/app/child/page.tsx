@@ -4,7 +4,7 @@
 // Name, picture, attendance and points (totals + per enrollment), plus
 // quick links to the other tabs and a peek at the latest activity.
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   CalendarCheck, Star, ChevronLeft, School, Layers, Church, Sparkles, Database, GraduationCap,
@@ -18,6 +18,8 @@ import {
   type ChildAttendanceRow, type ChildPointsRow,
 } from '@/lib/child-portal';
 import { GENDER_LABELS } from '@/lib/types';
+import BirthdayBanner from '@/components/child/BirthdayBanner';
+import { fetchChildBirthday, type ChildBirthday } from '@/lib/child-portal';
 
 export default function ChildHomePage() {
   return (
@@ -40,6 +42,13 @@ function HomeContent() {
     token ? () => fetchChildPoints(supabase, token) : null,
     `pts-${token}-${profile?.enrollments.map((e) => e.points).join(',')}`
   );
+
+  // birthday banner (module 0028) — silent when the migration isn't there
+  const [birthday, setBirthday] = useState<ChildBirthday | null>(null);
+  useEffect(() => {
+    if (!token) return;
+    fetchChildBirthday(supabase, token).then(setBirthday).catch(() => setBirthday(null));
+  }, [supabase, token]);
 
   if (!profile) return null;
   const { person, enrollments } = profile;
@@ -72,6 +81,8 @@ function HomeContent() {
           </div>
         </div>
       </section>
+
+      <BirthdayBanner data={birthday} person={person} />
 
       {/* KPIs */}
       <section className="mb-4 grid grid-cols-2 gap-3">

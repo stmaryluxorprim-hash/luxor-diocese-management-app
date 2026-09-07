@@ -12,10 +12,12 @@ import type {
   CardDesign, CardElement, CardElementType, CardVariableField, CardConstantField, ImageFit, TextAlign,
 } from '@/lib/card-types';
 import {
-  newElement, VARIABLE_FIELDS, CONSTANT_FIELDS, ELEMENT_TYPE_LABELS,
+  newElement, VARIABLE_FIELDS, BIRTHDAY_VARIABLE_FIELDS, CONSTANT_FIELDS, ELEMENT_TYPE_LABELS,
   IMAGE_FIT_LABELS, FONT_FAMILIES,
 } from '@/lib/card-types';
-import CardCanvas, { SAMPLE_PERSON, type CardConstantsData } from './CardCanvas';
+import CardCanvas, { SAMPLE_PERSON, type CardConstantsData, type CardPersonData } from './CardCanvas';
+
+const ALL_VARIABLE_FIELDS = [...VARIABLE_FIELDS, ...BIRTHDAY_VARIABLE_FIELDS];
 
 // ---------- small labelled number input (mm / pt / deg) ----------
 function Num({
@@ -77,7 +79,7 @@ const TYPE_ICONS: Record<CardElementType, React.ReactNode> = {
 };
 
 const elementTitle = (el: CardElement): string => {
-  if (el.type === 'variable') return VARIABLE_FIELDS.find((f) => f.value === el.field)?.label ?? 'بيان';
+  if (el.type === 'variable') return ALL_VARIABLE_FIELDS.find((f) => f.value === el.field)?.label ?? 'بيان';
   if (el.type === 'constant') return CONSTANT_FIELDS.find((f) => f.value === el.field)?.label ?? 'ثابت';
   if (el.type === 'text') return el.text?.slice(0, 18) || 'نص ثابت';
   return ELEMENT_TYPE_LABELS[el.type];
@@ -87,11 +89,15 @@ const elementTitle = (el: CardElement): string => {
 // DESIGN TAB
 // ============================================================
 export default function DesignTab({
-  design, onChange, constants,
+  design, onChange, constants, variant = 'id', samplePerson,
 }: {
   design: CardDesign;
   onChange: (d: CardDesign) => void;
   constants: CardConstantsData;
+  /** 'birthday' adds the birthday variables (age turning, day / month …) to the add menu */
+  variant?: 'id' | 'birthday';
+  /** preview person (defaults to the built-in sample) */
+  samplePerson?: CardPersonData;
 }) {
   const supabase = createClient();
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -240,6 +246,7 @@ export default function DesignTab({
               design={design}
               scale={scale}
               constants={constants}
+              person={samplePerson ?? SAMPLE_PERSON}
               selectedId={selectedId}
               onSelect={setSelectedId}
               onMove={(id, x, y) => updateEl(id, { x, y })}
@@ -437,6 +444,16 @@ export default function DesignTab({
                       <TextCursorInput className="h-4 w-4 text-primary-500" /> {f.label}
                     </button>
                   ))}
+                  {variant === 'birthday' && (
+                    <>
+                      <p className="px-2 py-1 text-[10px] font-extrabold text-pink-400">بيانات عيد الميلاد</p>
+                      {BIRTHDAY_VARIABLE_FIELDS.map((f) => (
+                        <button key={f.value} onClick={() => addElement('variable', f.value)} className="flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-sm font-bold hover:bg-pink-50">
+                          <TextCursorInput className="h-4 w-4 text-pink-500" /> {f.label}
+                        </button>
+                      ))}
+                    </>
+                  )}
                   <button onClick={() => addElement('photo')} className="flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-sm font-bold hover:bg-primary-50">
                     <User className="h-4 w-4 text-primary-500" /> صورة المخدوم
                   </button>

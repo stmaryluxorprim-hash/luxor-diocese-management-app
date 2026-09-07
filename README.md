@@ -92,6 +92,7 @@ In the settings hub **إدارة المناسبات** sits directly after **إد
 - ✅ **وحدة الأشابين (0025)**: every servant (أشبين) is bound to **his own group of children** — in `/shepherds` he picks children from his scope (مجموعتي / اختيار tabs, search + church → service → class selectors); **a child can be in one group only** (children already chosen by another servant show «في مجموعة فلان» and are locked; managers can free them). On the children page a **«مجموعتي» button under the church / service / class selectors** narrows the list to the group — attendance, calls, messages, points, data, badges, filters and sort all work exactly the same. Visible only where the owner granted the `shepherds` module; realtime
 - ✅ **وحدة إستبدال النقاط (0026)**: نقطة بيع بالنقاط (`/store`) — **المخزون** (`/store/inventory`: كود = ملصق QR، اسم، صورة، السعر بالنقاط، الكمية، متاح/غير متاح، نطاق كنيسة → خدمة → فصل، +/− كمية سريع، **طباعة ملصقات QR** بثلاث مقاسات وعدد نسخ), **الكاشير** (`/store/pos`: مسح كارت المخدوم أو البحث عنه → سلة باسمه وصورته و**رصيده الحي** → مسح ملصقات الأصناف أو اختيارها من الشبكة مع الكمية → مجموع لحظي والمتبقي بعد الشراء — **لا يمكن إضافة صنف يتجاوز الرصيد أو الكمية المتاحة** → «إتمام العملية» مع تأكيد → الفاتورة تُحفظ ويُخصم الرصيد), **الأرشيف** (`/store/archive`: كل الفواتير مع البنود والرصيد قبل/بعد والكاشير؛ المسؤولون يلغون فاتورة فتُستردّ النقاط والكمية). العملية تظهر للمخدوم في **صفحة النقاط ببوابة المخدوم** (مصدر «إستبدال النقاط» + فاتورة قابلة للفتح). مُقيَّدة بصلاحيات الوحدات (`module_visible('store')`) وواقعية
 - ✅ **وحدة الامتحانات (0027)**: امتحانات اختيار من متعدد (`/exams`) — الخادم ينشئ الامتحان (عنوان · نطاق كنيسة → خدمة → فصل · فترة إتاحة · وقت افتراضي ودرجة افتراضية للسؤال · **شرط النجاح** نسبة ٪ أو درجة · **نقاط النجاح ونقاط الدرجة الكاملة** · **كل الأسئلة أو عدد عشوائي** (مثلاً 10 من 20 لكل مخدوم) · ترتيب عشوائي للأسئلة والاختيارات · عدد المحاولات · ما يراه المخدوم بعد الانتهاء)، يضيف الأسئلة (نص · صورة · 2–6 اختيارات · الإجابة الصحيحة · الدرجة · الوقت لكل سؤال) ثم **ينشر**. تبويب **النتائج**: كل مخدوم حل الامتحان مع الدرجة والنسبة و**فلتر ناجح / لم ينجح** و**ترتيب بالدرجة أو الاسم أو التاريخ**، تفاصيل كل سؤال بإجابته، إلغاء محاولة (استرداد النقاط + إعادة)، تصدير Excel. في **بوابة المخدوم** يظهر «الامتحانات» في القائمة الجانبية والرئيسية: **سؤال واحد كل مرة مع عدّاد مرتبط بوقت السيرفر**، ينتقل تلقائياً عند انتهاء الوقت أو بالضغط على «التالي»، **لا يمكن الرجوع**، المتابعة من حيث توقف عند إغلاق التطبيق، شاشة نتيجة، والنقاط تُضاف لرصيده فوراً وتظهر في صفحة النقاط. مُقيَّدة بصلاحيات الوحدات (`module_visible('exams')`) وواقعية
+- ✅ **وحدة أعياد الميلاد (0028)**: `/birthdays` — **من عيد ميلاده هذا الشهر يوماً بيوم** مع ◀ ▶ لتغيير الشهر (والسنة) وشريط الشهور، ونطاق كنيسة → خدمة → فصل، واليوم الحالي مُضاء. لكل مخدوم: **اتصال** · **واتساب / SMS** بنص تهنئة فيه متغيرات ([الاسم الأول] · [السن] · [تاريخ العيد] · [اسم الفصل] …) · **هدية نقاط** (مرة واحدة في السنة، NumPad، تُسجَّل في سجل النقاط وتظهر للمخدوم) · **كارت تهنئة** (معاينة → **إرسال كصورة** عبر قائمة المشاركة/واتساب · تنزيل PNG بدقة 300dpi · طباعة) · **سجل التهاني** (مكالمة / واتساب / SMS / كارت مطبوع / كارت مُرسَل / هدية / ملاحظة — مع تراجع). جماعياً: **تهنئة الجميع** (يفتح محادثة كل مخدوم بدوره بالنص المكتوب مع تخطّي)، **هدية للجميع**، **طباعة كروت الشهر**، تصدير **تقويم ICS** (تذكير سنوي) و**Excel**، فلاتر (لم يُهنَّأ / هُنِّئ / بلا هدية / بلا هاتف) وبحث. **كروت التهنئة** (`/birthdays/cards`): قوالب بنفس محرك تصميم الكروت + بيانات عيد الميلاد (الاسم الأول · السن الجديدة · يوم وشهر العيد · نقاط الهدية)، افتراضي لكل نطاق، وتبويب طباعة مصدره مواليد الشهر. **الإعدادات** (`/birthdays/settings`): نقاط الهدية ونص التهنئة الافتراضي لكل كنيسة / عام. **الرئيسية**: بطاقة «أعياد الميلاد» بمواليد اليوم والأسبوع القادم. **بوابة المخدوم**: يوم عيد ميلاده يرى تهنئة وكارته (يحفظه كصورة) وهديته، وقبله بأسبوع عدّاد. مُقيَّدة بصلاحيات الوحدات (`module_visible('birthdays')`) وواقعية
 - ✅ **طلبات تعديل البيانات** (`/settings/data-requests`): class servant, service manager, church manager or owner of the child's scope reviews pending requests (photo before/after or field diff), approves (applied to `persons`) or rejects with a note — realtime, with a pending-count badge on الإعدادات and in the side menu
 
 ## Functional Entry Points
@@ -129,6 +130,9 @@ In the settings hub **إدارة المناسبات** sits directly after **إد
 | `/child/exams` | child portal — open exams (rules, attempts left, last result) + past ones |
 | `/child/exams/[id]` | child exam player — intro → one question at a time with server-anchored countdown → auto / manual next (no going back) → result (score, pass, points, review if allowed) |
 | `/store/archive` | أرشيف الفواتير — bills by day, search, scope & status filters, bill detail, managers cancel (`store_cancel_order` refunds points + restocks) |
+| `/birthdays` | **وحدة أعياد الميلاد** — month view day by day (◀ ▶ month / year, scope), per-child call / WhatsApp-SMS / gift / card / log, greet-all stepper, gift-all, ICS + Excel; module-gated (`birthdays`) |
+| `/birthdays/cards` | birthday card templates (scoped, default per scope) → `/birthdays/cards/[id]` design (birthday variables) + print the month's children |
+| `/birthdays/settings` | default gift points + greeting template per church / global |
 
 ## Data Models & Storage
 - **Tables**: `churches`, `services`, `classes`, `profiles`, `children`, `attendance` — all with RLS + realtime
@@ -140,7 +144,7 @@ In the settings hub **إدارة المناسبات** sits directly after **إد
 
 ### 1. Supabase
 1. Create a project at supabase.com
-2. SQL Editor → run **all** migrations in `supabase/migrations/` in numeric order (`0001` → `0027`); `0002_bootstrap_owner.sql` runs after step 5
+2. SQL Editor → run **all** migrations in `supabase/migrations/` in numeric order (`0001` → `0028`); `0002_bootstrap_owner.sql` runs after step 5
    ⚠️ In `0005` the `alter type ... add value 'suspended'` must run in its own query before the rest of the file
    ⚠️ `0019_performance_rls_indexes_rpc.sql` is **required** by the current frontend (home / scanner call its RPCs). It is safe to re-run (idempotent).
    ⚠️ `0020_statistics_rpcs.sql` is **required** by the الإحصائيات tab (all `stats_*` RPCs). Idempotent; depends on 0019 (`my_scope()`, `enrollment_visible()`).
@@ -151,6 +155,7 @@ In the settings hub **إدارة المناسبات** sits directly after **إد
    ⚠️ `0025_shepherd_groups.sql` is **required** by وحدة الأشابين (`/shepherds`) and the «مجموعتي» button on the children page. Adds `shepherd_groups` (servant ↔ enrollment, **unique per enrollment**, scope filled by trigger), RLS gated by `module_visible('shepherds')`, the `shepherd_claims` / `shepherd_group_summary` RPCs and realtime. **No grant is seeded** — the owner enables the module per scope in وحدة المالك → صلاحيات الوحدات. Idempotent; run after 0024.
    ⚠️ `0026_points_store.sql` is **required** by وحدة إستبدال النقاط (`/store/*`) and by the store rows in the child portal points page. Adds `store_items`, `store_orders`, `store_order_items` (RLS gated by `module_visible('store')`), the `store_checkout` / `store_cancel_order` / `store_lookup_item` RPCs, replaces `child_portal_points` (new `source = 'store'` + `order_id` columns) and adds `child_portal_store_orders`. **No grant is seeded** — enable the module per scope in وحدة المالك → صلاحيات الوحدات. Idempotent; run after 0025.
    ⚠️ `0027_exams.sql` is **required** by وحدة الامتحانات (`/exams/*`, `/child/exams/*`) and by the exam rows in the points pages. Adds `exams`, `exam_questions`, `exam_attempts`, `exam_answers` (RLS gated by `module_visible('exams')`; attempts / answers are read-only through the API), the anon child RPCs `child_portal_exams` / `child_exam_start` / `child_exam_current` / `child_exam_answer` / `child_exam_result`, the servant RPCs `exam_attempt_detail` / `exam_cancel_attempt` / `exam_duplicate`, the helper `module_granted_for`, and replaces `child_portal_points` (new `source = 'exam'` + `attempt_id`). **No grant is seeded** — enable the module per scope in وحدة المالك → صلاحيات الوحدات. Idempotent; run after 0026.
+   ⚠️ `0028_birthdays.sql` is **required** by وحدة أعياد الميلاد (`/birthdays/*`), the home birthdays widget and the birthday banner in the child portal. Adds `birthday_greetings` (person × year × kind, RLS gated by `module_visible('birthdays')`, scope filled by trigger, one gift per person per year), `birthday_card_templates` (same JSON design engine, scoped, one default per scope), `birthday_settings` (per church / global), the RPCs `birthdays_in_month` / `birthdays_upcoming` (security invoker → RLS) and `birthday_gift` / `birthday_gift_cancel` (SECURITY DEFINER; the gift is ONE `points_log` row), `next_birthday()` (Feb 29 → Feb 28), the anon `child_portal_birthday`, replaces `child_portal_points` (new `source = 'birthday'`) and an expression index on `persons(month, day)`. **No grant is seeded** — enable the module per scope in وحدة المالك → صلاحيات الوحدات. Idempotent; run after 0027.
 3. **Authentication → Providers → Email**: disable "Confirm email"
 4. Authentication → Users → Add user: `owner@diocese.app` + password
 5. Copy that user's UUID into `supabase/migrations/0002_bootstrap_owner.sql` and run it
@@ -547,17 +552,102 @@ visible only where the owner grants it (`/owner/modules` → الامتحانا�
   window, realtime publication. Validated on PostgreSQL 17 with all 27
   migrations → «EXAM TESTS PASSED».
 
+## Birthdays module — migration 0028 (وحدة أعياد الميلاد)
+Who has a birthday **this month, day by day** — and everything a servant
+wants to do about it. Optional module, visible only where the owner grants
+it (`/owner/modules` → أعياد الميلاد).
+
+- **Month view** (`/birthdays`, `src/app/birthdays/page.tsx`) — ◀ ▶ change
+  the month (wrapping the year) + a 12-month strip; church → service → class
+  selectors; stats (birthdays · today · greeted · gifts). The list is grouped
+  **by day** (today ring-highlighted, past days greyed) — one row per
+  **person** even if he has several enrollments (`enrollments_count`).
+  Per row: greeting chips (which kinds were done this year), points balance,
+  and four buttons: **call**, **WhatsApp / SMS** (channel toggle, text from
+  the greeting template with variables), **gift** (NumPad → RPC, disabled
+  once gifted), **card** (preview modal). Filters: not greeted / greeted /
+  no gift / no phone + search. **Bulk**: «تهنئة الجميع» opens a stepper
+  that sends to every not-yet-messaged child one by one (send / skip);
+  «هدية للجميع» gifts everyone without a gift; «طباعة الكروت» deep-links to
+  the card print tab pre-filtered on the month; export **ICS** (yearly
+  recurring events with a reminder — import into Google / Apple calendar)
+  and **Excel**. The greeting template is per device (`localStorage`),
+  seeded from the settings.
+- **Greetings log** (`birthday_greetings`) — `person_id × year × kind`
+  (`call | whatsapp | sms | card_printed | card_shared | gift | note`), scope
+  denormalized by trigger from the enrollment, `recorded_by` defaulted to
+  `auth.uid()`. Every action from the UI logs itself (fire-and-forget). The
+  row modal (`GreetingLogModal`) lists the year's greetings with who / when,
+  lets the author (or a manager) delete one, add a **note**, and managers
+  **cancel a gift**.
+- **Gift** (`birthday_gift(enrollment, year, points, note)`) — SECURITY
+  DEFINER: module granted → enrollment visible → **no gift yet for this
+  person this year** (checked across all his enrollments; also a unique
+  partial index) → one `points_log` row (`+points`, no cause / event, the
+  existing trigger updates `enrollments.points`) + one greeting row of kind
+  `gift` holding the `points_log_id`. `birthday_gift_cancel` (owner / church
+  / service managers) inserts a compensating `−points` row and removes the
+  greeting (same pattern as the store refund). Gift rows are labelled
+  «🎂 هدية عيد ميلاد YYYY» in the servant `PointsLogModal` (filter «أعياد
+  ميلاد») and in the child portal points page (`source = 'birthday'`).
+- **Birthday cards** (`birthday_card_templates`, `/birthdays/cards`) — the
+  same JSON design engine as the ID cards (`CardCanvas`, `DesignTab` with
+  `variant="birthday"`) plus **birthday variables** resolved in
+  `CardCanvas`: `first_name`, `turns_age` («يتمّ N سنة» with Arabic plurals),
+  `birthday_day`, `birthday_month`, `birthday_date`, `birthday_year`,
+  `gift_points` (`CardPersonData.birthday_year / gift_points`). A festive A6
+  landscape default (`DEFAULT_BIRTHDAY_DESIGN`). Scoped church → service? →
+  class? with **one default per exact scope** (trigger); the card used for a
+  child is the **most specific** template that covers him (`templateFor`,
+  mirrored in SQL). **Print tab** (`BirthdayPrintTab`): the print source is
+  the **month's children** (month navigator + scope, select all / only not
+  yet printed), same mm-exact hidden print sheet (`@page` sized, cols × rows,
+  margins, gaps, cut marks, center lines) as the card module; after printing
+  a `card_printed` greeting is logged per child. **Single card**
+  (`BirthdayCardModal`): preview → **إرسال الصورة** rasterizes the card to a
+  300-dpi PNG (`modern-screenshot`) and opens the phone's share sheet (Web
+  Share API with files → WhatsApp etc.; desktop fallback downloads the PNG
+  and opens the wa.me chat) and logs `card_shared`; **تنزيل PNG**; **طباعة**
+  one card on its own page.
+- **Settings** (`birthday_settings`, `/birthdays/settings`) — `gift_points`
+  and `message_template` per church (church manager / owner) or one global
+  row (`church_id null`, owner). Effective = church row → global → defaults.
+- **Home widget** (`UpcomingBirthdaysWidget`) — `birthdays_upcoming(7,
+  working-date)`: today's and the next 7 days' birthdays (wraps Dec → Jan,
+  Feb 29 → Feb 28 via `next_birthday()`), with call / WhatsApp shortcuts;
+  module-gated, realtime.
+- **Child portal** — `child_portal_birthday(nid)` (anon, SECURITY DEFINER):
+  is today his birthday, age he turns, days left, the card template of his
+  scope (only when the module is granted to that scope via
+  `module_granted_for`) + constants, and this year's gift. `BirthdayBanner`
+  on `/child` shows a festive banner with his card (downloadable PNG) and
+  gift on the day, a countdown in the 7 days before.
+- **Performance** — expression index `idx_persons_birth_month_day` so the
+  month query is an index scan; `birthdays_in_month` is one RPC returning
+  greetings as JSON per row (no N+1); realtime on `birthday_greetings`,
+  `birthday_card_templates`, `birthday_settings` (debounced).
+- **Tests** — `supabase/tests/birthday_module_test.sql`: module gate,
+  one-row-per-person + ordering + `turns_age` + scope narrowing, upcoming
+  window / year wrap / leap day / today, greeting trigger + RLS (own scope
+  only, no direct `gift` insert), gift validation (points, scope, double
+  gift through another enrollment), servant can't cancel, manager cancel
+  restores balance, re-gift, template RLS + one default per scope + chain,
+  settings RLS (service manager refused, one global row), anon portal (most
+  specific card, fallback to church card, gift, points source), realtime
+  publication. Validated on PostgreSQL 17 with all 28 migrations →
+  «BIRTHDAY TESTS PASSED» (store + exam suites still pass).
+
 ## Features Not Yet Implemented
 - Push notifications
 - Attendance history per date (per-person list view for servants)
 - PDF report export (Excel is done in الإحصائيات)
 
 ## Recommended Next Steps
-1. Run migrations `0017` → `0027` (`0027_exams.sql` powers وحدة الامتحانات; `0026_points_store.sql` powers وحدة إستبدال النقاط; `0022` powers event-bound points / calls / messages; `0023_call_feedbacks.sql` powers the call-feedback badge & إدارة نتائج الافتقاد; `0024_owner_module_access.sql` powers وحدة المالك & module visibility; `0025_shepherd_groups.sql` powers وحدة الأشابين) in Supabase SQL editor, then grant الأشابين from وحدة المالك → صلاحيات الوحدات
+1. Run migrations `0017` → `0028` (`0028_birthdays.sql` powers وحدة أعياد الميلاد; `0027_exams.sql` powers وحدة الامتحانات; `0026_points_store.sql` powers وحدة إستبدال النقاط; `0022` powers event-bound points / calls / messages; `0023_call_feedbacks.sql` powers the call-feedback badge & إدارة نتائج الافتقاد; `0024_owner_module_access.sql` powers وحدة المالك & module visibility; `0025_shepherd_groups.sql` powers وحدة الأشابين) in Supabase SQL editor, then grant الأشابين from وحدة المالك → صلاحيات الوحدات
 2. Deploy to Vercel and test the full approval flow
 3. Per-person attendance history view
 
 ## Deployment
 - **Platform**: Vercel + Supabase
-- **Status**: ✅ Code complete for Phase 1 + performance/scale hardening (0019) + statistics tab (0020) + child portal & data change requests (0021) + event as 4th scope level with status badge (0022) + call-feedback badge & إدارة نتائج الافتقاد (0023) + owner module & per-scope module visibility (0024) + shepherds module الأشابين & «مجموعتي» (0025) + points store module إستبدال النقاط (0026) + exams module الامتحانات (0027) — awaiting Supabase project + Vercel connect
-- **Last Updated**: 2026-09-06
+- **Status**: ✅ Code complete for Phase 1 + performance/scale hardening (0019) + statistics tab (0020) + child portal & data change requests (0021) + event as 4th scope level with status badge (0022) + call-feedback badge & إدارة نتائج الافتقاد (0023) + owner module & per-scope module visibility (0024) + shepherds module الأشابين & «مجموعتي» (0025) + points store module إستبدال النقاط (0026) + exams module الامتحانات (0027) + birthdays module أعياد الميلاد (0028) — awaiting Supabase project + Vercel connect
+- **Last Updated**: 2026-09-07

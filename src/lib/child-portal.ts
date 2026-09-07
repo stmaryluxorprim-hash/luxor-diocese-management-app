@@ -63,7 +63,7 @@ export interface ChildAttendanceRow {
 export interface ChildPointsRow {
   id: string;
   enrollment_id: string;
-  source: 'cause' | 'attendance' | 'store' | 'exam';   // 'store' = إستبدال النقاط (0026) · 'exam' = الامتحانات (0027)
+  source: 'cause' | 'attendance' | 'store' | 'exam' | 'birthday';   // 'store' = إستبدال النقاط (0026) · 'exam' = الامتحانات (0027) · 'birthday' = هدية عيد الميلاد (0028)
   reason: string | null;
   delta: number;
   created_at: string;
@@ -256,6 +256,26 @@ export function childErrorMessage(err: unknown, fallback = 'حدث خطأ، حا
 }
 
 // ---------- Fetchers ----------
+// ---------- Birthday (migration 0028) ----------
+export interface ChildBirthday {
+  is_birthday: boolean;
+  birthdate: string | null;
+  age?: number;
+  turns_age?: number;
+  next_birthday?: string;
+  days_left?: number;
+  module_granted?: boolean;
+  card?: { id: string; name: string; design: unknown } | null;
+  constants?: { church_name: string; service_name: string; class_name: string; church_logo_url: string | null };
+  gift?: { points: number; created_at: string } | null;
+}
+
+export async function fetchChildBirthday(supabase: SupabaseClient, token: string): Promise<ChildBirthday | null> {
+  const { data, error } = await supabase.rpc('child_portal_birthday', { p_national_id: token });
+  if (error) return null;   // migration not run yet → no banner
+  return data as ChildBirthday;
+}
+
 export async function fetchChildProfile(supabase: SupabaseClient, token: string): Promise<ChildProfile> {
   const { data, error } = await supabase.rpc('child_portal_profile', { p_national_id: token });
   if (error) throw error;

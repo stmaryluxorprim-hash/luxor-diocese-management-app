@@ -8,10 +8,10 @@
 // To add a module later: add one entry here + guard its pages with
 // `useModuleVisible(key)` (or `<ModuleGate module="key">`).
 
-import { IdCard, Crown, HeartHandshake, ShoppingBag, GraduationCap, type LucideIcon } from 'lucide-react';
+import { IdCard, Crown, HeartHandshake, ShoppingBag, GraduationCap, Cake, type LucideIcon } from 'lucide-react';
 import type { Profile } from '@/lib/types';
 
-export type ModuleKey = 'cards' | 'shepherds' | 'store' | 'exams';
+export type ModuleKey = 'cards' | 'shepherds' | 'store' | 'exams' | 'birthdays';
 
 export interface AppModule {
   key: ModuleKey;
@@ -60,6 +60,15 @@ export const MODULES: AppModule[] = [
     icon: GraduationCap,
     color: 'text-violet-600',
     paths: ['/exams'],
+  },
+  {
+    key: 'birthdays',
+    label: 'أعياد الميلاد',
+    desc: 'من عيد ميلاده هذا الشهر يوماً بيوم — اتصال ورسائل للجميع، هدية نقاط، وكروت تهنئة للطباعة أو الإرسال',
+    href: '/birthdays',
+    icon: Cake,
+    color: 'text-pink-600',
+    paths: ['/birthdays'],
   },
 ];
 
