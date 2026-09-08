@@ -8,8 +8,9 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   CalendarCheck, Star, ChevronLeft, School, Layers, Church, Sparkles, Database, GraduationCap,
+  MessageSquareText, Bell,
 } from 'lucide-react';
-import ChildShell, { useChildExams } from '@/components/child/ChildShell';
+import ChildShell, { useChildExams, useChildMsgBadge } from '@/components/child/ChildShell';
 import { Avatar, Kpi, fmtDateTime, usePortalList } from '@/components/child/ChildBits';
 import { useChild } from '@/lib/child-context';
 import { createClient } from '@/lib/supabase/client';
@@ -33,6 +34,7 @@ function HomeContent() {
   const { token, profile } = useChild();
   const supabase = useMemo(() => createClient(), []);
   const { exams, openCount, pendingCount } = useChildExams();
+  const msg = useChildMsgBadge();
 
   const { rows: attendance } = usePortalList<ChildAttendanceRow>(
     token ? () => fetchChildAttendance(supabase, token) : null,
@@ -136,6 +138,32 @@ function HomeContent() {
           )}
         </div>
       </section>
+
+      {/* Messages (الرسائل) — only when the messaging module is granted */}
+      {msg.module_granted && (
+        <section className="mb-4 grid grid-cols-2 gap-3">
+          <Link id="child-home-messages" href="/child/messages" className={`card relative flex flex-col items-start gap-2 !p-3 transition hover:bg-sky-50/40 ${msg.unread_messages > 0 ? 'ring-2 ring-sky-200' : ''}`}>
+            <span className="rounded-xl bg-sky-600 p-2.5 text-white"><MessageSquareText className="h-5 w-5" /></span>
+            <span className="block text-sm font-extrabold">الرسائل</span>
+            <span className="block text-xs text-slate-500">
+              {msg.unread_messages > 0 ? `${msg.unread_messages} رسالة جديدة` : 'تواصل مع خدامك'}
+            </span>
+            {msg.unread_messages > 0 && (
+              <span className="absolute start-3 top-3 rounded-full bg-rose-500 px-2 py-0.5 text-[11px] font-extrabold text-white">{msg.unread_messages}</span>
+            )}
+          </Link>
+          <Link id="child-home-notifications" href="/child/notifications" className={`card relative flex flex-col items-start gap-2 !p-3 transition hover:bg-amber-50/40 ${msg.unread_notifications > 0 ? 'ring-2 ring-amber-200' : ''}`}>
+            <span className="rounded-xl bg-amber-500 p-2.5 text-white"><Bell className="h-5 w-5" /></span>
+            <span className="block text-sm font-extrabold">الإشعارات</span>
+            <span className="block text-xs text-slate-500">
+              {msg.unread_notifications > 0 ? `${msg.unread_notifications} إشعار غير مقروء` : 'كل الإشعارات مقروءة'}
+            </span>
+            {msg.unread_notifications > 0 && (
+              <span className="absolute start-3 top-3 rounded-full bg-rose-500 px-2 py-0.5 text-[11px] font-extrabold text-white">{msg.unread_notifications}</span>
+            )}
+          </Link>
+        </section>
+      )}
 
       {/* Exams (الامتحانات) — only when the module is granted and something is published */}
       {exams && exams.length > 0 && (
