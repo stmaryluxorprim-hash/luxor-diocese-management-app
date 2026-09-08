@@ -17,11 +17,11 @@ export const KIND_META: Record<NotificationKind, { label: string; icon: LucideIc
   message:     { label: 'رسالة',  icon: MessageCircle, bg: 'bg-indigo-50',  fg: 'text-indigo-700',  ring: 'ring-indigo-200' },
 };
 
-export const CHANNEL_META: Record<Channel, { label: string; short: string; icon: LucideIcon; desc: string }> = {
-  in_app:   { label: 'إشعار داخل التطبيق', short: 'إشعار',  icon: Bell,          desc: 'يظهر في جرس الإشعارات (بوابة المخدوم / التطبيق)' },
-  chat:     { label: 'رسالة في المحادثة',  short: 'محادثة', icon: MessageSquare, desc: 'تُكتب في محادثة المخدوم مع خدامه' },
-  whatsapp: { label: 'واتساب',             short: 'واتساب', icon: Smartphone,    desc: 'تدخل قائمة الإرسال — تُرسل من هاتف الخادم بضغطة' },
-  sms:      { label: 'رسالة SMS',          short: 'SMS',    icon: Send,          desc: 'تدخل قائمة الإرسال — تُرسل من هاتف الخادم بضغطة' },
+export const CHANNEL_META: Record<Channel, { label: string; short: string; icon: LucideIcon; desc: string; bg: string; fg: string }> = {
+  in_app:   { label: 'إشعار داخل التطبيق', short: 'إشعار',  icon: Bell,          desc: 'يظهر في جرس الإشعارات (بوابة المخدوم / التطبيق)',            bg: 'bg-indigo-600',  fg: 'text-white' },
+  chat:     { label: 'رسالة في المحادثة',  short: 'محادثة', icon: MessageSquare, desc: 'تُكتب في محادثة المخدوم مع خدامه',                            bg: 'bg-sky-600',     fg: 'text-white' },
+  whatsapp: { label: 'واتساب',             short: 'واتساب', icon: Smartphone,    desc: 'تدخل قائمة الإرسال — تُرسل من هاتف الخادم بضغطة',             bg: 'bg-emerald-600', fg: 'text-white' },
+  sms:      { label: 'رسالة SMS',          short: 'SMS',    icon: Send,          desc: 'تدخل قائمة الإرسال — تُرسل من هاتف الخادم بضغطة',             bg: 'bg-amber-500',   fg: 'text-white' },
 };
 
 export const AUDIENCE_LABELS: Record<Audience, string> = { children: 'المخدومين', servants: 'الخدام', both: 'المخدومين والخدام' };

@@ -89,7 +89,7 @@ export default function MessagingSettingsPage() {
   const grouped = useMemo(() => {
     const m = new Map<TemplateCategory, MessageTemplate[]>();
     for (const t of templates) m.set(t.category, [...(m.get(t.category) ?? []), t]);
-    return [...m.entries()];
+    return Array.from(m.entries()) as Array<[TemplateCategory, MessageTemplate[]]>;
   }, [templates]);
 
   const Row = ({ label, desc, checked, onChange }: { label: string; desc: string; checked: boolean; onChange: (v: boolean) => void }) => (
