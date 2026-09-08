@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   Users, Search, Plus, Phone, MapPin, Star, CalendarCheck, X, Loader2,
@@ -35,6 +36,7 @@ import {
 } from '@/components/PersonDataModals';
 import { AttendanceLogModal, PointsLogModal } from '@/components/LogModals';
 import { useDebouncedRealtime, scopeFilter } from '@/lib/realtime';
+import { sendMessage as sendChatMessage, chatErrorMessage } from '@/lib/chat';
 import {
   fetchEnrollmentsPage, fetchMyGroupIds, fetchMyGroupEnrollments, cachedLookup, ALL, PAGE_SIZE,
 } from '@/lib/queries';
@@ -125,6 +127,8 @@ export default function ChildrenPage() {
   // owner granted that module to my scope (see /owner/modules).
   const { isVisible: moduleVisible } = useModules();
   const cardsModuleOn = moduleVisible('cards');
+  // «رسالة داخلية» belongs to the MESSAGES MODULE (migration 0029)
+  const messagesModuleOn = moduleVisible('messages');
   const availableJobs = useMemo(
     () => JOBS.filter((j) => j.value !== 'print_card' || cardsModuleOn),
     [cardsModuleOn]
@@ -707,6 +711,24 @@ export default function ChildrenPage() {
       window.location.href = `tel:${e.person.phone}`;
     } else if (job === 'message') {
       if (!eventId) { alert('اختر المناسبة أولاً — الرسالة متابعة لمناسبة'); return; }
+      if (messageChannel === 'internal') {
+        // In-app message (وحدة الرسائل): the text goes to the child's
+        // conversation → he reads it in his portal, every servant of the
+        // tenant sees it too. Logged as a follow-up like WhatsApp / SMS.
+        const text = messageTemplate.trim() ? fillTemplate(messageTemplate, e, selectedEvent) : '';
+        if (!text) { alert('اكتب نص الرسالة أولاً من زر «كتابة الرسالة»'); return; }
+        setBusyChild(e.id);
+        try {
+          await sendChatMessage(supabase, { target: 'children', enrollment_ids: [e.id], body: text });
+          logContact(e, 'internal', text);
+          alert(`${e.person.name} — تم إرسال الرسالة الداخلية ✅`);
+        } catch (err) {
+          alert(chatErrorMessage(err, 'تعذر إرسال الرسالة الداخلية'));
+        } finally {
+          setBusyChild(null);
+        }
+        return;
+      }
       if (!e.person.phone) return;
       const digits = e.person.phone.replace(/\D/g, '');
       const waNumber = digits.startsWith('0') ? `2${digits}` : digits;
@@ -723,7 +745,6 @@ export default function ChildrenPage() {
           ? `sms:${e.person.phone}?body=${encodeURIComponent(text)}`
           : `sms:${e.person.phone}`;
       }
-      // internal: coming soon — button is disabled
     } else if (job === 'data') {
       // Opens the view / edit / delete modal per the armed data mode
       setDataTarget(e);
@@ -966,11 +987,13 @@ export default function ChildrenPage() {
         id={`job-btn-${child.id}`}
         aria-label="إرسال رسالة"
         onClick={() => doJob(child)}
-        disabled={!child.person.phone || messageChannel === 'internal'}
+        disabled={messageChannel === 'internal' ? (!messagesModuleOn || busyChild === child.id) : !child.person.phone}
         className={`flex h-10 w-10 items-center justify-center rounded-full text-white shadow transition active:scale-95 disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none ${
           messageChannel === 'whatsapp'
             ? 'bg-emerald-500 hover:bg-emerald-600'
-            : 'bg-primary-600 hover:bg-primary-700'
+            : messageChannel === 'internal'
+              ? 'bg-sky-600 hover:bg-sky-700'
+              : 'bg-primary-600 hover:bg-primary-700'
         }`}
       >
         {messageChannel === 'whatsapp' ? (
@@ -1360,13 +1383,13 @@ export default function ChildrenPage() {
             </button>
             <button
               id="msg-mode-internal"
-              aria-label="رسالة داخلية — قريبًا"
+              aria-label={messagesModuleOn ? 'رسالة داخلية في التطبيق' : 'رسالة داخلية — وحدة الرسائل غير مفعّلة'}
               aria-pressed={messageChannel === 'internal'}
               onClick={() => setMessageChannel('internal')}
               className={`flex h-10 flex-1 items-center justify-center rounded-xl transition active:scale-95 ${
                 messageChannel === 'internal'
-                  ? 'bg-slate-500 text-white shadow ring-2 ring-slate-300'
-                  : 'bg-slate-100 text-slate-400'
+                  ? 'bg-sky-600 text-white shadow ring-2 ring-sky-300'
+                  : messagesModuleOn ? 'bg-sky-50 text-sky-500' : 'bg-slate-100 text-slate-400'
               }`}
             >
               <Inbox className="h-5 w-5" />
@@ -1439,9 +1462,15 @@ export default function ChildrenPage() {
 
       {/* Internal messaging notice */}
       {job === 'message' && messageChannel === 'internal' && (
-        <p className="mb-3 rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-600">
-          الرسائل الداخلية قريبًا
-        </p>
+        messagesModuleOn ? (
+          <p className="mb-3 rounded-xl bg-sky-50 px-3 py-2 text-xs font-bold text-sky-700">
+            رسالة داخلية: تُرسَل إلى محادثة المخدوم في بوابته (يراها هو وخدام فصله) — اكتب النص من زر «كتابة الرسالة» ثم اضغط زر الرسالة بجانب المخدوم. المتابعة الكاملة في <Link href="/messages" className="underline">وحدة الرسائل</Link>.
+          </p>
+        ) : (
+          <p className="mb-3 rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-600">
+            الرسائل الداخلية تحتاج تفعيل «وحدة الرسائل» لنطاقك من وحدة المالك → صلاحيات الوحدات
+          </p>
+        )
       )}
 
       {/* ---------- Filter accordion ---------- */}
