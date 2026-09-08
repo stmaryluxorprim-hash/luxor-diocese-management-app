@@ -1188,3 +1188,296 @@ returns integer language sql volatile security definer set search_path = public 
   select count(*)::int from u
 $$;
 grant execute on function public.msg_notifications_read(uuid[]) to authenticated;
+
+-- ---------------------------------------------------------------------
+-- 13. AUTOMATION ENGINE — run ONE automation for ONE child / for the
+--     servants of a scope. Applies audience filters, cooldown, dedupe.
+-- ---------------------------------------------------------------------
+create or replace function public.msg_automation_covers(a public.message_automations, p_church uuid, p_service uuid, p_class uuid)
+returns boolean language sql stable as $$
+  select a.is_active
+     and (a.church_id is null or a.church_id = p_church)
+     and (a.service_id is null or a.service_id = p_service)
+     and (a.class_id is null or a.class_id = p_class)
+     and a.starts_at <= now()
+     and (a.ends_at is null or a.ends_at > now())
+$$;
+
+create or replace function public.msg_run_for_child(
+  a public.message_automations, p_enrollment uuid, p_dedupe text, p_extra_ctx jsonb default '{}'::jsonb)
+returns text language plpgsql volatile security definer set search_path = public as $$
+declare
+  e public.enrollments; p public.persons;
+  v_res text;
+  f jsonb := coalesce(a.audience_filter, '{}'::jsonb);
+begin
+  if a.audience = 'servants' then return 'skipped'; end if;
+  select * into e from public.enrollments where id = p_enrollment;
+  if e.id is null then return 'skipped'; end if;
+  if not public.msg_automation_covers(a, e.church_id, e.service_id, e.class_id) then return 'skipped'; end if;
+  if not public.module_granted_for('messaging', e.church_id, e.service_id, e.class_id) then return 'skipped'; end if;
+  select * into p from public.persons where id = e.person_id;
+  if coalesce(f->>'gender', '') <> '' and p.gender::text is distinct from f->>'gender' then return 'skipped'; end if;
+  if coalesce((f->>'has_phone')::boolean, false) and (p.phone is null or length(regexp_replace(p.phone, '\D', '', 'g')) < 10) then return 'skipped'; end if;
+  if coalesce(f->>'min_age', '') <> '' and (p.birthdate is null or extract(year from age(p.birthdate))::int < (f->>'min_age')::int) then return 'skipped'; end if;
+  if coalesce(f->>'max_age', '') <> '' and (p.birthdate is null or extract(year from age(p.birthdate))::int > (f->>'max_age')::int) then return 'skipped'; end if;
+  if jsonb_typeof(f->'enrollment_ids') = 'array' and jsonb_array_length(f->'enrollment_ids') > 0
+     and not (e.id::text in (select jsonb_array_elements_text(f->'enrollment_ids'))) then return 'skipped'; end if;
+  if a.cooldown_hours > 0 and exists (
+    select 1 from public.message_deliveries d
+     where d.automation_id = a.id and d.person_id = e.person_id and d.status in ('sent', 'queued', 'deferred')
+       and d.created_at > now() - make_interval(hours => a.cooldown_hours)) then
+    return 'cooldown';
+  end if;
+  v_res := public.msg_deliver(
+    'auto:' || a.id || ':' || p_dedupe, a.channels, a.title, a.body, a.kind, a.link,
+    public.msg_child_context(e.id) || coalesce(p_extra_ctx, '{}'::jsonb),
+    e.person_id, e.id, null, 'automation', a.id, null, a.created_by, a.respect_quiet_hours, a.icon, a.color,
+    jsonb_build_object('trigger', a.trigger));
+  if v_res in ('sent', 'queued', 'deferred') then
+    update public.message_automations set sent_count = sent_count + 1 where id = a.id;
+  end if;
+  return v_res;
+end $$;
+revoke all on function public.msg_run_for_child(public.message_automations, uuid, text, jsonb) from public, anon, authenticated;
+
+create or replace function public.msg_run_for_servants(
+  a public.message_automations, p_church uuid, p_service uuid, p_class uuid, p_dedupe text, p_ctx jsonb)
+returns integer language plpgsql volatile security definer set search_path = public as $$
+declare r record; n int := 0; v_res text; f jsonb := coalesce(a.audience_filter, '{}'::jsonb);
+begin
+  if a.audience = 'children' then return 0; end if;
+  if not public.msg_automation_covers(a, p_church, p_service, p_class) then return 0; end if;
+  for r in select * from public.msg_audience_servants(p_church, p_service, p_class, f - 'gender' - 'has_phone' - 'min_age' - 'max_age' - 'enrollment_ids') loop
+    v_res := public.msg_deliver('auto:' || a.id || ':' || p_dedupe || ':u:' || r.profile_id,
+      array_remove(a.channels, 'chat'), a.title, a.body, a.kind, a.link,
+      public.msg_profile_context(r.profile_id) || coalesce(p_ctx, '{}'::jsonb),
+      null, null, r.profile_id, 'automation', a.id, null, a.created_by, a.respect_quiet_hours, a.icon, a.color,
+      jsonb_build_object('trigger', a.trigger));
+    if v_res in ('sent', 'queued', 'deferred') then n := n + 1; end if;
+  end loop;
+  if n > 0 then update public.message_automations set sent_count = sent_count + n where id = a.id; end if;
+  return n;
+end $$;
+revoke all on function public.msg_run_for_servants(public.message_automations, uuid, uuid, uuid, text, jsonb) from public, anon, authenticated;
+
+-- ---------------------------------------------------------------------
+-- 14. EVENT-BASED TRIGGERS (fire-and-forget; never break the source op)
+-- ---------------------------------------------------------------------
+create or replace function public.msg_on_attendance()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare a public.message_automations; e public.enrollments; ctx jsonb;
+begin
+  begin
+    select * into e from public.enrollments where id = new.enrollment_id;
+    if e.id is null then return new; end if;
+    ctx := jsonb_build_object(
+      'اسم المناسبة', coalesce((select name from public.events where id = new.event_id), ''),
+      'نقاط الحضور', new.points_delta::text, 'اسم المخدوم', (select name from public.persons where id = e.person_id));
+    for a in select * from public.message_automations x
+              where x.is_active and x.trigger = 'attendance'
+                and (x.church_id is null or x.church_id = e.church_id)
+                and (coalesce(x.trigger_config->>'event_id', '') = '' or (x.trigger_config->>'event_id')::uuid = new.event_id) loop
+      perform public.msg_run_for_child(a, e.id, 'att:' || new.id, ctx);
+      perform public.msg_run_for_servants(a, e.church_id, e.service_id, e.class_id, 'att:' || new.id, ctx);
+    end loop;
+  exception when others then
+    raise warning 'messaging attendance trigger: %', sqlerrm;
+  end;
+  return new;
+end $$;
+drop trigger if exists trg_msg_on_attendance on public.attendance_log;
+create trigger trg_msg_on_attendance after insert on public.attendance_log
+for each row execute function public.msg_on_attendance();
+
+create or replace function public.msg_on_points()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare a public.message_automations; e public.enrollments; ctx jsonb; before_pts int; ms int;
+begin
+  begin
+    select * into e from public.enrollments where id = new.enrollment_id;
+    if e.id is null then return new; end if;
+    before_pts := e.points - new.delta;
+    ctx := jsonb_build_object(
+      'التغير', case when new.delta > 0 then '+' || new.delta else new.delta::text end,
+      'السبب', coalesce((select name from public.causes where id = new.cause_id), ''),
+      'اسم المناسبة', coalesce((select name from public.events where id = new.event_id), ''),
+      'اسم المخدوم', (select name from public.persons where id = e.person_id));
+    for a in select * from public.message_automations x
+              where x.is_active and x.trigger = 'points' and (x.church_id is null or x.church_id = e.church_id) loop
+      if coalesce(a.trigger_config->>'direction', 'any') = 'add' and new.delta <= 0 then continue; end if;
+      if coalesce(a.trigger_config->>'direction', 'any') = 'subtract' and new.delta >= 0 then continue; end if;
+      if coalesce(a.trigger_config->>'min_abs', '') <> '' and abs(new.delta) < (a.trigger_config->>'min_abs')::int then continue; end if;
+      ms := nullif(a.trigger_config->>'milestone', '')::int;
+      if ms is not null and ms > 0 then
+        if floor(e.points::numeric / ms) <= floor(before_pts::numeric / ms) then continue; end if;
+        ctx := ctx || jsonb_build_object('الهدف', ((floor(e.points::numeric / ms)) * ms)::int::text);
+        perform public.msg_run_for_child(a, e.id, 'pts:ms:' || ((floor(e.points::numeric / ms)) * ms)::int, ctx);
+      else
+        perform public.msg_run_for_child(a, e.id, 'pts:' || new.id, ctx);
+      end if;
+      perform public.msg_run_for_servants(a, e.church_id, e.service_id, e.class_id, 'pts:' || new.id, ctx);
+    end loop;
+  exception when others then
+    raise warning 'messaging points trigger: %', sqlerrm;
+  end;
+  return new;
+end $$;
+drop trigger if exists trg_msg_on_points on public.points_log;
+create trigger trg_msg_on_points after insert on public.points_log
+for each row execute function public.msg_on_points();
+
+create or replace function public.msg_on_enrollment()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare a public.message_automations; ctx jsonb;
+begin
+  begin
+    ctx := jsonb_build_object('اسم المخدوم', (select name from public.persons where id = new.person_id));
+    for a in select * from public.message_automations x
+              where x.is_active and x.trigger = 'new_enrollment' and (x.church_id is null or x.church_id = new.church_id) loop
+      perform public.msg_run_for_child(a, new.id, 'enr:' || new.id, ctx);
+      perform public.msg_run_for_servants(a, new.church_id, new.service_id, new.class_id, 'enr:' || new.id, ctx);
+    end loop;
+  exception when others then
+    raise warning 'messaging enrollment trigger: %', sqlerrm;
+  end;
+  return new;
+end $$;
+drop trigger if exists trg_msg_on_enrollment on public.enrollments;
+create trigger trg_msg_on_enrollment after insert on public.enrollments
+for each row execute function public.msg_on_enrollment();
+
+create or replace function public.msg_on_exam_result()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare a public.message_automations; ctx jsonb;
+begin
+  if new.status <> 'submitted' or old.status = 'submitted' then return new; end if;
+  begin
+    ctx := jsonb_build_object(
+      'اسم الامتحان', coalesce((select title from public.exams where id = new.exam_id), ''),
+      'الدرجة', new.score::text, 'الدرجة الكاملة', new.max_score::text, 'النسبة', round(new.percent)::text || '٪',
+      'النتيجة', case when new.passed then 'ناجح' else 'لم ينجح' end, 'نقاط الامتحان', new.points_granted::text,
+      'اسم المخدوم', (select name from public.persons where id = new.person_id));
+    for a in select * from public.message_automations x
+              where x.is_active and x.trigger = 'exam_result' and (x.church_id is null or x.church_id = new.church_id) loop
+      if coalesce(a.trigger_config->>'only', 'any') = 'passed' and not coalesce(new.passed, false) then continue; end if;
+      if coalesce(a.trigger_config->>'only', 'any') = 'failed' and coalesce(new.passed, false) then continue; end if;
+      perform public.msg_run_for_child(a, new.enrollment_id, 'exam:' || new.id, ctx);
+      perform public.msg_run_for_servants(a, new.church_id, new.service_id, new.class_id, 'exam:' || new.id, ctx);
+    end loop;
+  exception when others then
+    raise warning 'messaging exam trigger: %', sqlerrm;
+  end;
+  return new;
+end $$;
+drop trigger if exists trg_msg_on_exam_result on public.exam_attempts;
+create trigger trg_msg_on_exam_result after update on public.exam_attempts
+for each row execute function public.msg_on_exam_result();
+
+create or replace function public.msg_on_store_order()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare a public.message_automations; ctx jsonb;
+begin
+  begin
+    ctx := jsonb_build_object('عدد الأصناف', new.items_count::text, 'إجمالي النقاط', new.total_points::text, 'الرصيد بعد', new.balance_after::text,
+                              'اسم المخدوم', (select name from public.persons where id = new.person_id));
+    for a in select * from public.message_automations x
+              where x.is_active and x.trigger = 'store_order' and (x.church_id is null or x.church_id = new.church_id) loop
+      perform public.msg_run_for_child(a, new.enrollment_id, 'order:' || new.id, ctx);
+      perform public.msg_run_for_servants(a, new.church_id, new.service_id, new.class_id, 'order:' || new.id, ctx);
+    end loop;
+  exception when others then
+    raise warning 'messaging store trigger: %', sqlerrm;
+  end;
+  return new;
+end $$;
+drop trigger if exists trg_msg_on_store_order on public.store_orders;
+create trigger trg_msg_on_store_order after insert on public.store_orders
+for each row execute function public.msg_on_store_order();
+
+-- data change request decided → the child (automation, or a system default)
+create or replace function public.msg_on_data_request()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare a public.message_automations; e public.enrollments; ctx jsonb; n int := 0;
+begin
+  if new.status not in ('approved', 'rejected') or old.status = new.status then return new; end if;
+  begin
+    select * into e from public.enrollments where person_id = new.person_id order by created_at, id limit 1;
+    if e.id is null then return new; end if;
+    ctx := jsonb_build_object(
+      'نوع الطلب', case new.kind when 'photo' then 'تغيير الصورة' else 'تعديل البيانات' end,
+      'القرار', case new.status when 'approved' then 'تمت الموافقة' else 'تم الرفض' end,
+      'ملاحظة القرار', coalesce(new.decision_note, ''));
+    for a in select * from public.message_automations x
+              where x.is_active and x.trigger = 'data_request' and (x.church_id is null or x.church_id = e.church_id) loop
+      if coalesce(a.trigger_config->>'only', 'any') = 'approved' and new.status <> 'approved' then continue; end if;
+      if coalesce(a.trigger_config->>'only', 'any') = 'rejected' and new.status <> 'rejected' then continue; end if;
+      if public.msg_run_for_child(a, e.id, 'dcr:' || new.id, ctx) in ('sent', 'queued', 'deferred') then n := n + 1; end if;
+    end loop;
+    if n = 0 and public.module_granted_for('messaging', e.church_id, e.service_id, e.class_id) then
+      perform public.msg_deliver('sys:dcr:' || new.id, array['in_app'],
+        case new.status when 'approved' then 'تمت الموافقة على طلبك ✅' else 'تم رفض طلبك' end,
+        (ctx->>'نوع الطلب') || case when coalesce(new.decision_note, '') <> '' then ' — ' || new.decision_note else '' end,
+        case new.status when 'approved' then 'success' else 'warning' end, '/child/data', null,
+        e.person_id, e.id, null, 'system', null, null, new.decided_by, false);
+    end if;
+  exception when others then
+    raise warning 'messaging data request trigger: %', sqlerrm;
+  end;
+  return new;
+end $$;
+drop trigger if exists trg_msg_on_data_request on public.data_change_requests;
+create trigger trg_msg_on_data_request after update on public.data_change_requests
+for each row execute function public.msg_on_data_request();
+
+-- SYSTEM notices to servants: join request → approvers · approval → the servant
+create or replace function public.msg_on_profile_change()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare r record;
+begin
+  begin
+    if tg_op = 'INSERT' and new.status = 'pending' then
+      for r in select id from public.profiles p where p.status = 'approved' and p.id <> new.id and (
+                 p.role = 'owner'
+                 or (p.role = 'church_manager' and p.church_id = new.church_id)
+                 or (p.role = 'service_manager' and p.church_id = new.church_id and (p.service_id is null or p.service_id = new.service_id))) loop
+        perform public.msg_deliver('sys:join:' || new.id || ':' || r.id, array['in_app'], 'طلب انضمام جديد 👤',
+          new.full_name || ' يطلب الانضمام كخادم', 'info', '/settings/approvals', null, null, null, r.id, 'system',
+          null, null, null, false, 'UserPlus', null);
+      end loop;
+    elsif tg_op = 'UPDATE' and new.status = 'approved' and old.status <> 'approved' then
+      perform public.msg_deliver('sys:approved:' || new.id || ':' || extract(epoch from now())::bigint, array['in_app'],
+        'تم قبول طلبك 🎉', 'أهلاً بك يا ' || split_part(new.full_name, ' ', 1) || '، حسابك أصبح فعالاً', 'success', '/', null,
+        null, null, new.id, 'system', null, null, new.approved_by, false, 'PartyPopper', null);
+    end if;
+  exception when others then
+    raise warning 'messaging profile trigger: %', sqlerrm;
+  end;
+  return new;
+end $$;
+drop trigger if exists trg_msg_on_profile_change on public.profiles;
+create trigger trg_msg_on_profile_change after insert or update of status on public.profiles
+for each row execute function public.msg_on_profile_change();
+
+-- new data change request → the servants of the child's scope
+create or replace function public.msg_on_data_request_new()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare e public.enrollments; r record; p public.persons;
+begin
+  begin
+    select * into e from public.enrollments where person_id = new.person_id order by created_at, id limit 1;
+    if e.id is null then return new; end if;
+    select * into p from public.persons where id = new.person_id;
+    for r in select * from public.msg_audience_servants(e.church_id, e.service_id, e.class_id, '{}'::jsonb) where role <> 'owner' loop
+      perform public.msg_deliver('sys:dcr-new:' || new.id || ':' || r.profile_id, array['in_app'], 'طلب تعديل بيانات 📝',
+        p.name || ' — ' || case new.kind when 'photo' then 'صورة جديدة' else 'تعديل بيانات' end, 'info', '/settings/data-requests',
+        null, null, null, r.profile_id, 'system', null, null, null, false, 'FileEdit', null);
+    end loop;
+  exception when others then
+    raise warning 'messaging dcr-new trigger: %', sqlerrm;
+  end;
+  return new;
+end $$;
+drop trigger if exists trg_msg_on_data_request_new on public.data_change_requests;
+create trigger trg_msg_on_data_request_new after insert on public.data_change_requests
+for each row execute function public.msg_on_data_request_new();
