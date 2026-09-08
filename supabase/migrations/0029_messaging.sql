@@ -1481,3 +1481,271 @@ end $$;
 drop trigger if exists trg_msg_on_data_request_new on public.data_change_requests;
 create trigger trg_msg_on_data_request_new after insert on public.data_change_requests
 for each row execute function public.msg_on_data_request_new();
+
+-- ---------------------------------------------------------------------
+-- 15. TIME-BASED SCHEDULER — messaging_tick()
+--     birthday        {days_before: 0, at: "09:00"}
+--     schedule        {repeat: once|daily|weekly|monthly, at: "HH:MM", date: "YYYY-MM-DD", weekdays: [0..6], day_of_month: n}
+--     absent          {event_id?: uuid, consecutive: 1, hours_after: 2}
+--     inactive        {days: 30, at: "HH:MM"}
+--     event_reminder  {event_id?: uuid, minutes_before: 60}
+-- ---------------------------------------------------------------------
+create or replace function public.msg_time_reached(p_at text, p_now timestamp)
+returns boolean language sql immutable as $$
+  select p_now::time >= coalesce(nullif(p_at, ''), '00:00')::time
+$$;
+
+create or replace function public.messaging_tick(p_force boolean default false)
+returns jsonb language plpgsql volatile security definer set search_path = public as $$
+declare
+  a public.message_automations;
+  r record; ev public.events;
+  v_now timestamp := public.msg_cairo(now());
+  today date := v_now::date;
+  n_runs int := 0; n_sent int := 0; n_released int := 0; v_res text;
+  target date; occ date; cutoff timestamp;
+  cfg jsonb; k int; i int; ctx jsonb; period text; last_run timestamptz; names text; hrs int;
+begin
+  if not pg_try_advisory_xact_lock(hashtext('messaging_tick')) then return jsonb_build_object('skipped', 'locked'); end if;
+  select max(last_scheduler_run) into last_run from public.messaging_settings;
+  if not p_force and last_run is not null and last_run > now() - interval '60 seconds' then
+    return jsonb_build_object('skipped', 'throttled', 'last_run', last_run);
+  end if;
+  insert into public.messaging_settings (church_id, last_scheduler_run) values (null, now())
+  on conflict ((coalesce(church_id, '00000000-0000-0000-0000-000000000000'::uuid))) do update set last_scheduler_run = now();
+
+  n_released := public.msg_release_deferred(500);
+
+  for a in select * from public.message_automations x
+            where x.is_active and x.trigger in ('birthday', 'schedule', 'absent', 'inactive', 'event_reminder')
+              and x.starts_at <= now() and (x.ends_at is null or x.ends_at > now()) loop
+    cfg := coalesce(a.trigger_config, '{}'::jsonb);
+    n_runs := n_runs + 1;
+
+    if a.trigger = 'birthday' then
+      if public.msg_time_reached(cfg->>'at', v_now) then
+        target := today + coalesce(nullif(cfg->>'days_before', '')::int, 0);
+        for r in select e.id as enrollment_id, p.birthdate
+                   from public.enrollments e join public.persons p on p.id = e.person_id
+                  where p.birthdate is not null
+                    and extract(month from p.birthdate)::int = extract(month from target)::int
+                    and least(extract(day from p.birthdate)::int, extract(day from (date_trunc('month', target) + interval '1 month - 1 day'))::int) = extract(day from target)::int
+                    and (a.church_id is null or e.church_id = a.church_id)
+                    and (a.service_id is null or e.service_id = a.service_id)
+                    and (a.class_id is null or e.class_id = a.class_id) loop
+          ctx := jsonb_build_object('السن الجديدة', (extract(year from target)::int - extract(year from r.birthdate)::int)::text,
+                                    'تاريخ العيد', to_char(target, 'DD/MM'), 'أيام متبقية', (target - today)::text);
+          v_res := public.msg_run_for_child(a, r.enrollment_id, 'bd:' || extract(year from target)::int, ctx);
+          if v_res in ('sent', 'queued', 'deferred') then n_sent := n_sent + 1; end if;
+        end loop;
+        if a.audience in ('servants', 'both') then
+          select string_agg(p.name, '، ') into names from public.enrollments e join public.persons p on p.id = e.person_id
+           where p.birthdate is not null and extract(month from p.birthdate)::int = extract(month from target)::int
+             and extract(day from p.birthdate)::int = extract(day from target)::int
+             and (a.church_id is null or e.church_id = a.church_id) and (a.service_id is null or e.service_id = a.service_id)
+             and (a.class_id is null or e.class_id = a.class_id);
+          if names is not null then
+            n_sent := n_sent + public.msg_run_for_servants(a, a.church_id, a.service_id, a.class_id, 'bd:' || target,
+                        jsonb_build_object('أسماء أصحاب العيد', names, 'تاريخ العيد', to_char(target, 'DD/MM'), 'أيام متبقية', (target - today)::text));
+          end if;
+        end if;
+      end if;
+
+    elsif a.trigger = 'schedule' then
+      if public.msg_time_reached(cfg->>'at', v_now) then
+        period := case coalesce(cfg->>'repeat', 'once')
+          when 'once'    then case when coalesce(cfg->>'date', '') = '' or (cfg->>'date')::date <= today then 'once' else null end
+          when 'daily'   then today::text
+          when 'weekly'  then case when jsonb_typeof(cfg->'weekdays') is distinct from 'array' or jsonb_array_length(cfg->'weekdays') = 0
+                                     or extract(dow from today)::int::text in (select jsonb_array_elements_text(cfg->'weekdays'))
+                                   then today::text else null end
+          when 'monthly' then case when extract(day from today)::int = least(coalesce(nullif(cfg->>'day_of_month', '')::int, 1),
+                                     extract(day from (date_trunc('month', today) + interval '1 month - 1 day'))::int)
+                                   then to_char(today, 'YYYY-MM') else null end
+          else null end;
+        if period is not null then
+          if a.audience in ('children', 'both') then
+            for r in select * from public.msg_audience_children(a.church_id, a.service_id, a.class_id, a.audience_filter) loop
+              v_res := public.msg_run_for_child(a, r.enrollment_id, 'sch:' || period, '{}'::jsonb);
+              if v_res in ('sent', 'queued', 'deferred') then n_sent := n_sent + 1; end if;
+            end loop;
+          end if;
+          n_sent := n_sent + public.msg_run_for_servants(a, a.church_id, a.service_id, a.class_id, 'sch:' || period, '{}'::jsonb);
+          if coalesce(cfg->>'repeat', 'once') = 'once' then
+            update public.message_automations set is_active = false where id = a.id;
+          end if;
+        end if;
+      end if;
+
+    elsif a.trigger = 'absent' then
+      k := greatest(coalesce(nullif(cfg->>'consecutive', '')::int, 1), 1);
+      hrs := coalesce(nullif(cfg->>'hours_after', '')::int, 2);
+      for ev in select * from public.events x
+                 where (coalesce(cfg->>'event_id', '') = '' or x.id = (cfg->>'event_id')::uuid)
+                   and (a.church_id is null or x.church_id = a.church_id)
+                   and (a.service_id is null or x.service_id is null or x.service_id = a.service_id)
+                   and (a.class_id is null or x.class_id is null or x.class_id = a.class_id) loop
+        occ := null;
+        if ev.recurrence = 'once' then
+          if ev.event_date is not null and (ev.event_date + coalesce(ev.end_time, ev.start_time, '23:59'::time)) + make_interval(hours => hrs) <= v_now then occ := ev.event_date; end if;
+        elsif ev.weekdays is not null then
+          for i in 0..7 loop
+            if extract(dow from today - i)::int = any(ev.weekdays)
+               and ((today - i) + coalesce(ev.end_time, ev.start_time, '23:59'::time)) + make_interval(hours => hrs) <= v_now then
+              occ := today - i; exit;
+            end if;
+          end loop;
+        end if;
+        if occ is null or occ < (a.created_at at time zone 'Africa/Cairo')::date - 7 then continue; end if;
+        for r in select e.id as enrollment_id, e.church_id, e.service_id, e.class_id, p.name
+                   from public.enrollments e join public.persons p on p.id = e.person_id
+                  where e.church_id = ev.church_id
+                    and (ev.service_id is null or e.service_id = ev.service_id)
+                    and (ev.class_id is null or e.class_id = ev.class_id)
+                    and (a.church_id is null or e.church_id = a.church_id)
+                    and (a.service_id is null or e.service_id = a.service_id)
+                    and (a.class_id is null or e.class_id = a.class_id)
+                    and e.created_at::date <= occ
+                    and not exists (select 1 from public.attendance_log al where al.enrollment_id = e.id and al.event_id = ev.id and al.attended_on = occ)
+                    and (k = 1 or ev.recurrence <> 'weekly' or (
+                      select count(*) from (
+                        select d::date as d from generate_series(occ - 1, occ - 7 * k, -1) d
+                         where extract(dow from d)::int = any(ev.weekdays)
+                         order by d desc limit k - 1) prev
+                       where not exists (select 1 from public.attendance_log al where al.enrollment_id = e.id and al.event_id = ev.id and al.attended_on = prev.d)
+                    ) = k - 1) loop
+          ctx := jsonb_build_object('اسم المناسبة', ev.name, 'تاريخ الغياب', to_char(occ, 'DD/MM/YYYY'),
+                                    'يوم الغياب', public.msg_arabic_weekday(occ), 'مرات الغياب', k::text, 'اسم المخدوم', r.name);
+          v_res := public.msg_run_for_child(a, r.enrollment_id, 'abs:' || ev.id || ':' || occ, ctx);
+          if v_res in ('sent', 'queued', 'deferred') then n_sent := n_sent + 1; end if;
+          if a.audience in ('servants', 'both') then
+            n_sent := n_sent + public.msg_run_for_servants(a, r.church_id, r.service_id, r.class_id, 'abs:' || ev.id || ':' || occ || ':' || r.enrollment_id, ctx);
+          end if;
+        end loop;
+      end loop;
+
+    elsif a.trigger = 'inactive' then
+      k := greatest(coalesce(nullif(cfg->>'days', '')::int, 30), 1);
+      if public.msg_time_reached(cfg->>'at', v_now) then
+        for r in select e.id as enrollment_id, e.church_id, e.service_id, e.class_id, p.name,
+                        coalesce((select max(al.attended_on) from public.attendance_log al where al.enrollment_id = e.id), e.created_at::date) as last_seen
+                   from public.enrollments e join public.persons p on p.id = e.person_id
+                  where (a.church_id is null or e.church_id = a.church_id)
+                    and (a.service_id is null or e.service_id = a.service_id)
+                    and (a.class_id is null or e.class_id = a.class_id) loop
+          if today - r.last_seen >= k then
+            period := ((today - r.last_seen) / k)::text;
+            ctx := jsonb_build_object('أيام الغياب', (today - r.last_seen)::text, 'آخر حضور', to_char(r.last_seen, 'DD/MM/YYYY'), 'اسم المخدوم', r.name);
+            v_res := public.msg_run_for_child(a, r.enrollment_id, 'inact:' || r.last_seen || ':' || period, ctx);
+            if v_res in ('sent', 'queued', 'deferred') then n_sent := n_sent + 1; end if;
+            if a.audience in ('servants', 'both') then
+              n_sent := n_sent + public.msg_run_for_servants(a, r.church_id, r.service_id, r.class_id,
+                          'inact:' || r.enrollment_id || ':' || r.last_seen || ':' || period, ctx);
+            end if;
+          end if;
+        end loop;
+      end if;
+
+    elsif a.trigger = 'event_reminder' then
+      k := greatest(coalesce(nullif(cfg->>'minutes_before', '')::int, 60), 0);
+      for ev in select * from public.events x
+                 where x.start_time is not null
+                   and (coalesce(cfg->>'event_id', '') = '' or x.id = (cfg->>'event_id')::uuid)
+                   and (a.church_id is null or x.church_id = a.church_id)
+                   and (a.service_id is null or x.service_id is null or x.service_id = a.service_id)
+                   and (a.class_id is null or x.class_id is null or x.class_id = a.class_id) loop
+        occ := null;
+        if ev.recurrence = 'once' then
+          if ev.event_date in (today, today + 1) then occ := ev.event_date; end if;
+        elsif ev.weekdays is not null then
+          if extract(dow from today)::int = any(ev.weekdays) then occ := today;
+          elsif extract(dow from today + 1)::int = any(ev.weekdays) then occ := today + 1; end if;
+        end if;
+        if occ is null then continue; end if;
+        cutoff := (occ + ev.start_time) - make_interval(mins => k);
+        if v_now < cutoff or v_now > cutoff + interval '30 minutes' then continue; end if;
+        ctx := jsonb_build_object('اسم المناسبة', ev.name, 'وقت المناسبة', public.msg_fmt_time(ev.start_time),
+                                  'تاريخ المناسبة', to_char(occ, 'DD/MM/YYYY'), 'يوم المناسبة', public.msg_arabic_weekday(occ),
+                                  'بعد كم دقيقة', k::text);
+        for r in select e.id as enrollment_id from public.enrollments e
+                  where e.church_id = ev.church_id
+                    and (ev.service_id is null or e.service_id = ev.service_id) and (ev.class_id is null or e.class_id = ev.class_id)
+                    and (a.church_id is null or e.church_id = a.church_id) and (a.service_id is null or e.service_id = a.service_id)
+                    and (a.class_id is null or e.class_id = a.class_id) loop
+          v_res := public.msg_run_for_child(a, r.enrollment_id, 'rem:' || ev.id || ':' || occ, ctx);
+          if v_res in ('sent', 'queued', 'deferred') then n_sent := n_sent + 1; end if;
+        end loop;
+        n_sent := n_sent + public.msg_run_for_servants(a, ev.church_id, ev.service_id, ev.class_id, 'rem:' || ev.id || ':' || occ, ctx);
+      end loop;
+    end if;
+
+    update public.message_automations set last_run_at = now(), run_count = run_count + 1 where id = a.id;
+  end loop;
+
+  return jsonb_build_object('ran_at', now(), 'automations', n_runs, 'sent', n_sent, 'released', n_released);
+end $$;
+grant execute on function public.messaging_tick(boolean) to authenticated, anon, service_role;
+
+-- preview a template with real / sample variables (editor)
+create or replace function public.msg_preview_template(p_title text, p_body text, p_enrollment uuid default null)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare s record; e uuid; ctx jsonb;
+begin
+  select * into s from public.my_scope();
+  if s.role is null or not public.module_visible('messaging') then raise exception 'forbidden'; end if;
+  e := p_enrollment;
+  if e is null then
+    select x.id into e from public.enrollments x
+     where public.enrollment_visible(x.church_id, x.service_id, x.class_id, s.role, s.church_id, s.service_id, s.class_id)
+     order by x.created_at limit 1;
+  end if;
+  if e is null then ctx := public.msg_clock_context() || jsonb_build_object('الاسم', 'مينا', 'الاسم الأول', 'مينا', 'الاسم الكامل', 'مينا جرجس', 'السن', '10', 'اسم الفصل', 'الفصل', 'اسم الخدمة', 'الخدمة', 'اسم الكنيسة', 'الكنيسة', 'النقاط', '120', 'ضمير', '');
+  else ctx := public.msg_child_context(e); end if;
+  ctx := ctx || jsonb_build_object('اسم المناسبة', 'القداس', 'تاريخ الغياب', to_char(current_date, 'DD/MM/YYYY'), 'يوم الغياب', public.msg_arabic_weekday(current_date),
+                                   'مرات الغياب', '1', 'السن الجديدة', coalesce(nullif(ctx->>'السن', ''), '10'), 'تاريخ العيد', to_char(current_date, 'DD/MM'),
+                                   'أيام متبقية', '0', 'وقت المناسبة', '10:00 ص', 'يوم المناسبة', public.msg_arabic_weekday(current_date), 'تاريخ المناسبة', to_char(current_date, 'DD/MM/YYYY'),
+                                   'بعد كم دقيقة', '60', 'التغير', '+5', 'السبب', 'حفظ الآية', 'الهدف', '100', 'نقاط الحضور', '5',
+                                   'اسم الامتحان', 'امتحان الكتاب المقدس', 'الدرجة', '8', 'الدرجة الكاملة', '10', 'النسبة', '80٪', 'النتيجة', 'ناجح', 'نقاط الامتحان', '5',
+                                   'عدد الأصناف', '2', 'إجمالي النقاط', '30', 'الرصيد بعد', '90', 'نوع الطلب', 'تعديل البيانات', 'القرار', 'تمت الموافقة', 'ملاحظة القرار', '',
+                                   'اسم المخدوم', coalesce(ctx->>'الاسم الكامل', 'مينا'), 'أسماء أصحاب العيد', coalesce(ctx->>'الاسم الكامل', 'مينا'));
+  return jsonb_build_object('title', public.msg_render(p_title, ctx), 'body', public.msg_render(p_body, ctx), 'ctx', ctx);
+end $$;
+grant execute on function public.msg_preview_template(text, text, uuid) to authenticated;
+
+-- run ONE automation right now (▶ button)
+create or replace function public.msg_run_now(p_automation uuid)
+returns jsonb language plpgsql volatile security definer set search_path = public as $$
+declare a public.message_automations; r record; n int := 0; v_res text; today date := public.msg_cairo(now())::date; target date; stamp text := extract(epoch from now())::bigint::text;
+begin
+  if not public.module_visible('messaging') then raise exception 'module_not_visible'; end if;
+  select * into a from public.message_automations where id = p_automation;
+  if a.id is null then raise exception 'not_found'; end if;
+  if a.church_id is not null and not public.msg_scope_visible(a.church_id, a.service_id, a.class_id) then raise exception 'forbidden'; end if;
+  if a.church_id is null and not public.is_owner() then raise exception 'forbidden'; end if;
+  if a.trigger = 'schedule' then
+    if a.audience in ('children', 'both') then
+      for r in select * from public.msg_audience_children(a.church_id, a.service_id, a.class_id, a.audience_filter) loop
+        v_res := public.msg_run_for_child(a, r.enrollment_id, 'manual:' || stamp, '{}'::jsonb);
+        if v_res in ('sent', 'queued', 'deferred') then n := n + 1; end if;
+      end loop;
+    end if;
+    n := n + public.msg_run_for_servants(a, a.church_id, a.service_id, a.class_id, 'manual:' || stamp, '{}'::jsonb);
+  elsif a.trigger = 'birthday' then
+    target := today + coalesce(nullif(a.trigger_config->>'days_before', '')::int, 0);
+    for r in select e.id as enrollment_id, p.birthdate from public.enrollments e join public.persons p on p.id = e.person_id
+              where p.birthdate is not null and extract(month from p.birthdate)::int = extract(month from target)::int
+                and extract(day from p.birthdate)::int = extract(day from target)::int
+                and (a.church_id is null or e.church_id = a.church_id) and (a.service_id is null or e.service_id = a.service_id)
+                and (a.class_id is null or e.class_id = a.class_id) loop
+      v_res := public.msg_run_for_child(a, r.enrollment_id, 'bd:' || extract(year from target)::int,
+                 jsonb_build_object('السن الجديدة', (extract(year from target)::int - extract(year from r.birthdate)::int)::text, 'تاريخ العيد', to_char(target, 'DD/MM'), 'أيام متبقية', (target - today)::text));
+      if v_res in ('sent', 'queued', 'deferred') then n := n + 1; end if;
+    end loop;
+  else
+    perform public.messaging_tick(true);
+    return jsonb_build_object('ticked', true);
+  end if;
+  update public.message_automations set last_run_at = now(), run_count = run_count + 1 where id = a.id;
+  return jsonb_build_object('sent', n);
+end $$;
+grant execute on function public.msg_run_now(uuid) to authenticated;
