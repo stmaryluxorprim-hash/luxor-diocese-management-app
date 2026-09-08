@@ -1893,3 +1893,79 @@ begin
     'module_granted', exists (select 1 from public.enrollments e where e.person_id = p.id and public.module_granted_for('messaging', e.church_id, e.service_id, e.class_id)));
 end $$;
 grant execute on function public.child_portal_badge(text) to anon, authenticated;
+
+-- ---------------------------------------------------------------------
+-- 17. OUTBOUND QUEUE — servant marks sent / cancelled (batch)
+-- ---------------------------------------------------------------------
+create or replace function public.msg_queue_mark(p_ids uuid[], p_status text)
+returns integer language plpgsql volatile security definer set search_path = public as $$
+declare n int;
+begin
+  if not public.module_visible('messaging') then raise exception 'module_not_visible'; end if;
+  if p_status not in ('sent', 'cancelled', 'failed') then raise exception 'invalid_status'; end if;
+  with u as (
+    update public.outbound_queue q set status = p_status, sent_by = auth.uid(), sent_at = case when p_status = 'sent' then now() else sent_at end
+     where q.id = any(p_ids) and q.status = 'pending'
+       and ((q.church_id is null and public.is_owner()) or public.msg_scope_visible(q.church_id, q.service_id, q.class_id))
+    returning 1)
+  select count(*) into n from u;
+  return n;
+end $$;
+grant execute on function public.msg_queue_mark(uuid[], text) to authenticated;
+
+-- ---------------------------------------------------------------------
+-- 18. STORAGE — chat attachments (photos bucket, folder messages/)
+-- ---------------------------------------------------------------------
+do $$ begin
+  if exists (select 1 from storage.buckets where id = 'photos') then
+    drop policy if exists "photos_messages_upload" on storage.objects;
+    create policy "photos_messages_upload" on storage.objects for insert to anon, authenticated
+      with check (bucket_id = 'photos' and (storage.foldername(name))[1] = 'messages');
+  end if;
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 19. REALTIME
+-- ---------------------------------------------------------------------
+do $$
+declare t text;
+begin
+  foreach t in array array['notifications', 'conversations', 'conversation_members', 'messages', 'message_automations',
+                           'message_deliveries', 'outbound_queue', 'message_campaigns', 'messaging_settings', 'message_templates'] loop
+    if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = t) then
+      execute format('alter publication supabase_realtime add table public.%I', t);
+    end if;
+  end loop;
+end $$;
+alter table public.notifications replica identity full;
+alter table public.messages replica identity full;
+alter table public.conversations replica identity full;
+
+-- ---------------------------------------------------------------------
+-- 20. pg_cron (when the extension exists on the project) — every 5 min
+-- ---------------------------------------------------------------------
+do $$ begin
+  if exists (select 1 from pg_extension where extname = 'pg_cron') then
+    perform cron.unschedule(jobid) from cron.job where jobname = 'messaging_tick';
+    perform cron.schedule('messaging_tick', '*/5 * * * *', 'select public.messaging_tick(false)');
+  end if;
+exception when others then
+  raise notice 'pg_cron not scheduled: %', sqlerrm;
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 21. SEED — global default templates (church_id null)
+-- ---------------------------------------------------------------------
+insert into public.message_templates (church_id, name, category, title, body)
+select null, x.name, x.category, x.title, x.body from (values
+  ('تهنئة عيد ميلاد', 'birthday', 'كل سنة وأنت طيب[ضمير] 🎂', 'كل سنة وأنت طيب[ضمير] يا [الاسم الأول] 🎉 عيد ميلاد سعيد وربنا يفرّح قلبك — أسرة [اسم الفصل] · [اسم الكنيسة]'),
+  ('افتقاد غياب', 'absent', 'وحشتنا يا [الاسم الأول]', 'وحشتنا يا [الاسم الأول] 💙 لاحظنا غيابك عن [اسم المناسبة] يوم [يوم الغياب] — منتظرينك المرة الجاية، ولو محتاج[ضمير] أي حاجة كلمنا'),
+  ('ترحيب بمخدوم جديد', 'welcome', 'أهلاً بك في [اسم الفصل] 🎉', 'أهلاً وسهلاً يا [الاسم الأول] في أسرة [اسم الفصل] بـ [اسم الكنيسة] ✨ فرحانين بوجودك معنا'),
+  ('تذكير بالمناسبة', 'reminder', 'تذكير: [اسم المناسبة] ⏰', 'يا [الاسم الأول]، [اسم المناسبة] هتبدأ الساعة [وقت المناسبة] يوم [يوم المناسبة] — منتظرينك 🙏'),
+  ('تهنئة بالنقاط', 'points', 'مبروك! 🌟', 'برافو يا [الاسم الأول] 👏 وصلت لـ [النقاط] نقطة! استمر[ضمير]'),
+  ('نتيجة الامتحان', 'exam', 'نتيجة [اسم الامتحان]', 'يا [الاسم الأول]، نتيجتك في [اسم الامتحان]: [الدرجة] من [الدرجة الكاملة] ([النسبة]) — [النتيجة]'),
+  ('إعلان عام', 'announcement', 'إعلان مهم 📢', 'إلى كل أسرة [اسم الفصل]: ')
+) as x(name, category, title, body)
+where not exists (select 1 from public.message_templates t where t.church_id is null and t.name = x.name);
+
+commit;
