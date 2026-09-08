@@ -322,7 +322,14 @@ export async function saveSettings(
   churchId: string | null,
   patch: Partial<Pick<MessagingSettings, 'children_can_reply' | 'children_can_start' | 'quiet_hours_start' | 'quiet_hours_end' | 'default_channels' | 'signature' | 'webhook_url'>>,
 ): Promise<void> {
-  const { error } = await supabase.from('messaging_settings').upsert({ church_id: churchId, ...patch }, { onConflict: 'church_id' });
+  // unique key is an expression index (coalesce(church_id, zero-uuid)) → select then insert/update
+  let q = supabase.from('messaging_settings').select('id');
+  q = churchId ? q.eq('church_id', churchId) : q.is('church_id', null);
+  const { data: existing, error: e1 } = await q.maybeSingle();
+  if (e1) throw e1;
+  const { error } = existing
+    ? await supabase.from('messaging_settings').update(patch).eq('id', existing.id)
+    : await supabase.from('messaging_settings').insert({ church_id: churchId, ...patch });
   if (error) throw error;
 }
 

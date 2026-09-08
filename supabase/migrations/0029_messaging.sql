@@ -1286,8 +1286,8 @@ begin
   end;
   return new;
 end $$;
-drop trigger if exists trg_msg_on_attendance on public.attendance_log;
-create trigger trg_msg_on_attendance after insert on public.attendance_log
+drop trigger if exists zz_msg_on_attendance on public.attendance_log;
+create trigger zz_msg_on_attendance after insert on public.attendance_log
 for each row execute function public.msg_on_attendance();
 
 create or replace function public.msg_on_points()
@@ -1323,8 +1323,8 @@ begin
   end;
   return new;
 end $$;
-drop trigger if exists trg_msg_on_points on public.points_log;
-create trigger trg_msg_on_points after insert on public.points_log
+drop trigger if exists zz_msg_on_points on public.points_log;
+create trigger zz_msg_on_points after insert on public.points_log
 for each row execute function public.msg_on_points();
 
 create or replace function public.msg_on_enrollment()
@@ -1343,8 +1343,8 @@ begin
   end;
   return new;
 end $$;
-drop trigger if exists trg_msg_on_enrollment on public.enrollments;
-create trigger trg_msg_on_enrollment after insert on public.enrollments
+drop trigger if exists zz_msg_on_enrollment on public.enrollments;
+create trigger zz_msg_on_enrollment after insert on public.enrollments
 for each row execute function public.msg_on_enrollment();
 
 create or replace function public.msg_on_exam_result()
@@ -1370,8 +1370,8 @@ begin
   end;
   return new;
 end $$;
-drop trigger if exists trg_msg_on_exam_result on public.exam_attempts;
-create trigger trg_msg_on_exam_result after update on public.exam_attempts
+drop trigger if exists zz_msg_on_exam_result on public.exam_attempts;
+create trigger zz_msg_on_exam_result after update on public.exam_attempts
 for each row execute function public.msg_on_exam_result();
 
 create or replace function public.msg_on_store_order()
@@ -1391,8 +1391,8 @@ begin
   end;
   return new;
 end $$;
-drop trigger if exists trg_msg_on_store_order on public.store_orders;
-create trigger trg_msg_on_store_order after insert on public.store_orders
+drop trigger if exists zz_msg_on_store_order on public.store_orders;
+create trigger zz_msg_on_store_order after insert on public.store_orders
 for each row execute function public.msg_on_store_order();
 
 -- data change request decided → the child (automation, or a system default)
@@ -1426,8 +1426,8 @@ begin
   end;
   return new;
 end $$;
-drop trigger if exists trg_msg_on_data_request on public.data_change_requests;
-create trigger trg_msg_on_data_request after update on public.data_change_requests
+drop trigger if exists zz_msg_on_data_request on public.data_change_requests;
+create trigger zz_msg_on_data_request after update on public.data_change_requests
 for each row execute function public.msg_on_data_request();
 
 -- SYSTEM notices to servants: join request → approvers · approval → the servant
@@ -1455,8 +1455,8 @@ begin
   end;
   return new;
 end $$;
-drop trigger if exists trg_msg_on_profile_change on public.profiles;
-create trigger trg_msg_on_profile_change after insert or update of status on public.profiles
+drop trigger if exists zz_msg_on_profile_change on public.profiles;
+create trigger zz_msg_on_profile_change after insert or update of status on public.profiles
 for each row execute function public.msg_on_profile_change();
 
 -- new data change request → the servants of the child's scope
@@ -1478,8 +1478,8 @@ begin
   end;
   return new;
 end $$;
-drop trigger if exists trg_msg_on_data_request_new on public.data_change_requests;
-create trigger trg_msg_on_data_request_new after insert on public.data_change_requests
+drop trigger if exists zz_msg_on_data_request_new on public.data_change_requests;
+create trigger zz_msg_on_data_request_new after insert on public.data_change_requests
 for each row execute function public.msg_on_data_request_new();
 
 -- ---------------------------------------------------------------------
