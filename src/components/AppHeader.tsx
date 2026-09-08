@@ -7,7 +7,6 @@ import { useAuth } from '@/lib/auth-context';
 import { ROLE_LABELS } from '@/lib/types';
 import SideMenu from '@/components/SideMenu';
 import AppDateButton from '@/components/AppDateButton';
-import NotificationBell from '@/components/messaging/NotificationBell';
 
 export default function AppHeader() {
   const { profile, church, service } = useAuth();
@@ -43,9 +42,6 @@ export default function AppHeader() {
 
           {/* Working-date button (opens date/time selector modal) */}
           <AppDateButton />
-
-          {/* Notifications bell (messaging module) */}
-          <NotificationBell />
 
           {/* Side menu button (replaces the bell, at the end of the header) */}
           <button

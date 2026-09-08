@@ -5,19 +5,17 @@
 // service name, side menu button) and a 5-tab bottom bar:
 // الرئيسية · الحضور · النقاط · البيانات · الخيارات
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   Home, CalendarCheck, Star, Database, SlidersHorizontal, Menu, X, LogOut,
-  CalendarDays, Clock, User, GraduationCap, Bell, MessageSquareText, type LucideIcon,
+  CalendarDays, Clock, User, GraduationCap, type LucideIcon,
 } from 'lucide-react';
 import { useChild } from '@/lib/child-context';
 import { createClient } from '@/lib/supabase/client';
 import { fetchChildExams, type ChildExam } from '@/lib/child-portal';
-import { fetchChildBadge, type ChildMsgBadge } from '@/lib/child-messaging';
-import { useDebouncedRealtime } from '@/lib/realtime';
 import { formatCairoDate, formatCairoTime } from '@/lib/time';
 import { Loader2 } from 'lucide-react';
 
@@ -59,37 +57,10 @@ export function useChildExams(): { exams: ChildExam[] | null; openCount: number;
   };
 }
 
-/**
- * Messaging badge for the child (module الرسائل, migration 0029): unread
- * notifications + unread chat messages. `module_granted` is false when the
- * module isn't enabled for the child's scope (bell / menu entries stay hidden).
- * Refreshed on realtime changes of notifications/messages and on focus.
- */
-export function useChildMsgBadge(): ChildMsgBadge & { total: number; loaded: boolean } {
-  const { token } = useChild();
-  const supabase = useMemo(() => createClient(), []);
-  const [b, setB] = useState<ChildMsgBadge | null>(null);
-  const load = useCallback(() => {
-    if (!token) return;
-    fetchChildBadge(supabase, token).then(setB).catch(() => setB({ unread_notifications: 0, unread_messages: 0, module_granted: false }));
-  }, [token, supabase]);
-  useEffect(() => {
-    if (!token) { setB(null); return; }
-    load();
-    const onVis = () => { if (document.visibilityState === 'visible') load(); };
-    document.addEventListener('visibilitychange', onVis);
-    return () => document.removeEventListener('visibilitychange', onVis);
-  }, [token, load]);
-  useDebouncedRealtime(supabase, 'child-msg-badge', [{ table: 'notifications' }, { table: 'messages' }], load, { enabled: !!token, delayMs: 500 });
-  const v = b ?? { unread_notifications: 0, unread_messages: 0, module_granted: false };
-  return { ...v, total: v.unread_notifications + v.unread_messages, loaded: b !== null };
-}
-
 // ---------- Header ----------
 function ChildHeader({ onMenu }: { onMenu: () => void }) {
   const { profile } = useChild();
   const main = profile?.enrollments[0];
-  const badge = useChildMsgBadge();
   return (
     <header
       id="child-header"
@@ -113,14 +84,6 @@ function ChildHeader({ onMenu }: { onMenu: () => void }) {
             {main ? `${main.service_name} · ${main.class_name}` : 'بوابة المخدوم'}
           </p>
         </div>
-        {badge.module_granted && (
-          <Link id="child-bell" href="/child/notifications" aria-label={`الإشعارات${badge.total ? ` (${badge.total} جديد)` : ''}`} className="relative rounded-full p-2 hover:bg-white/15 transition">
-            <Bell className="h-6 w-6" />
-            {badge.total > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-extrabold text-white ring-2 ring-primary-600 tabular-nums">{badge.total > 99 ? '99+' : badge.total}</span>
-            )}
-          </Link>
-        )}
         <button
           id="child-menu-btn"
           aria-label="فتح القائمة"
@@ -140,7 +103,6 @@ function ChildSideMenu({ open, onClose }: { open: boolean; onClose: () => void }
   const router = useRouter();
   const { profile, logout } = useChild();
   const { exams, pendingCount } = useChildExams();
-  const msg = useChildMsgBadge();
   const [now, setNow] = useState<Date | null>(null);
 
   useEffect(() => {
@@ -223,27 +185,9 @@ function ChildSideMenu({ open, onClose }: { open: boolean; onClose: () => void }
             );
           })}
 
-          {((exams && exams.length > 0) || msg.module_granted) && (
-            <p className="mb-1 mt-3 px-2 text-[11px] font-extrabold text-slate-400">الوحدات</p>
-          )}
-          {msg.module_granted && (
-            <>
-              <Link id="child-nav-messages" href="/child/messages" onClick={onClose}
-                className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-bold transition ${isActive(pathname, '/child/messages') ? 'bg-sky-100 text-sky-700' : 'text-slate-600 hover:bg-slate-50'}`}>
-                <MessageSquareText className="h-5 w-5 text-sky-600" />
-                الرسائل
-                {msg.unread_messages > 0 && <span className="mr-auto rounded-full bg-sky-600 px-2 py-0.5 text-[10px] font-extrabold text-white tabular-nums">{msg.unread_messages}</span>}
-              </Link>
-              <Link id="child-nav-notifications" href="/child/notifications" onClick={onClose}
-                className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-bold transition ${isActive(pathname, '/child/notifications') ? 'bg-rose-100 text-rose-700' : 'text-slate-600 hover:bg-slate-50'}`}>
-                <Bell className="h-5 w-5 text-rose-500" />
-                الإشعارات
-                {msg.unread_notifications > 0 && <span className="mr-auto rounded-full bg-rose-500 px-2 py-0.5 text-[10px] font-extrabold text-white tabular-nums">{msg.unread_notifications}</span>}
-              </Link>
-            </>
-          )}
           {exams && exams.length > 0 && (
             <>
+              <p className="mb-1 mt-3 px-2 text-[11px] font-extrabold text-slate-400">الوحدات</p>
               <Link
                 id="child-nav-exams"
                 href="/child/exams"
