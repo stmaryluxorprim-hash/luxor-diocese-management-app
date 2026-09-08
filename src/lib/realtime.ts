@@ -22,6 +22,26 @@ import type { SupabaseClient, RealtimeChannel } from '@supabase/supabase-js';
  * `onChange` may receive the payload for cheap local patches; callers that
  * need a full refetch just pass their `load`.
  */
+/**
+ * Realtime channel topics MUST be unique per subscription.
+ *
+ * `supabase.channel(topic)` returns the EXISTING channel when one with the
+ * same topic is already registered on the (singleton) browser client. If that
+ * channel has already been `subscribe()`d, calling `.on('postgres_changes')`
+ * on it throws «cannot add postgres_changes callbacks … after subscribe()» —
+ * which happened whenever two mounted components (or a React strict-mode
+ * effect re-run racing the async `removeChannel`) used the same topic and
+ * crashed the whole page (the child portal could not be opened).
+ *
+ * `uniqueTopic('child-msgs')` → `child-msgs-<time>-<n>`: readable prefix,
+ * never colliding.
+ */
+let topicSeq = 0;
+export function uniqueTopic(base: string): string {
+  topicSeq += 1;
+  return `${base}-${Date.now().toString(36)}-${topicSeq}`;
+}
+
 export interface RealtimeTableSpec {
   table: string;
   /** PostgREST-style filter, e.g. `church_id=eq.<uuid>` */
@@ -80,7 +100,8 @@ export function useDebouncedRealtime(
     };
     document.addEventListener('visibilitychange', onVisible);
 
-    let channel: RealtimeChannel = supabase.channel(channelName);
+    // unique topic per subscription — see uniqueTopic()
+    let channel: RealtimeChannel = supabase.channel(uniqueTopic(channelName));
     (JSON.parse(specKey) as RealtimeTableSpec[]).forEach((t) => {
       channel = channel.on(
         'postgres_changes',

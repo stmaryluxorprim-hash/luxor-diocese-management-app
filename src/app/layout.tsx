@@ -22,6 +22,9 @@ export const metadata: Metadata = {
     statusBarStyle: 'default',
     title: 'الإيبارشية',
   },
+  // Chrome deprecated `apple-mobile-web-app-capable` alone — the standard tag
+  // must be present too (Next emits the apple one from `appleWebApp`).
+  other: { 'mobile-web-app-capable': 'yes' },
 };
 
 export const viewport: Viewport = {

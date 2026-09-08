@@ -93,12 +93,28 @@ export default function NewMessagePage() {
     fetchStaffRecipients(supabase).then(setStaff).catch(() => setStaff([]));
   }, [approved, target, staff, supabase]);
 
-  // audience count for scope mode
-  const scopeIds = useMemo(() => ({
-    church: scope.church === ALL ? null : scope.church,
-    service: scope.service === ALL ? null : scope.service,
-    class: scope.class === ALL ? null : scope.class,
-  }), [scope.church, scope.service, scope.class]);
+  // Effective audience scope.
+  // The selectors show «ALL» (and are disabled) when only ONE option is
+  // visible — e.g. a church manager sees just his church, a service manager
+  // just his service. «ALL» used to be sent as NULL (= every church /
+  // every service), which the DB rightly refused for non-owners
+  // (scope_not_allowed → «خارج صلاحيتك») so they could never send to their
+  // whole church / service. Resolve a single visible option to its id; keep
+  // NULL only when there really are several (owner → «كل الكنائس»).
+  const scopeIds = useMemo(() => {
+    const church = scope.church !== ALL ? scope.church
+      : churches.length === 1 ? churches[0].id
+      : (profile && profile.role !== 'owner' ? profile.church_id : null);
+    const visServices = services.filter((s) => !church || s.church_id === church);
+    const service = scope.service !== ALL ? scope.service
+      : church && visServices.length === 1 ? visServices[0].id
+      : (church && profile && profile.role !== 'owner' && profile.service_id) || null;
+    const visClasses = classes.filter((c) => (!church || c.church_id === church) && (!service || c.service_id === service));
+    const cls = scope.class !== ALL ? scope.class
+      : service && visClasses.length === 1 ? visClasses[0].id
+      : (service && profile && profile.role !== 'owner' && profile.class_id) || null;
+    return { church, service, class: cls };
+  }, [scope.church, scope.service, scope.class, churches, services, classes, profile]);
   useEffect(() => {
     if (!approved || mode !== 'scope') return;
     setAudience(null);

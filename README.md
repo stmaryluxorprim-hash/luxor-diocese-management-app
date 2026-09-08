@@ -277,6 +277,19 @@ rejected by RLS).
   events into one reload (1.2–2 s), never overlaps reloads, filters
   subscriptions to the user's scope (`class_id=eq.…`), and pauses while the tab
   is hidden (one refresh on return).
+- **Unique realtime topics** — `supabase.channel(topic)` returns the *existing*
+  channel when the topic is already registered on the singleton browser
+  client; adding `postgres_changes` to an already-subscribed channel throws
+  and crashes the page. Every subscription therefore uses
+  `uniqueTopic('prefix')` (`src/lib/realtime.ts`); `useDebouncedRealtime` does
+  it internally. The child portal fetches exams/messages **once** in
+  `ChildProvider` (header, side menu and pages read from the context).
+- **Images** — `next.config.mjs` sets `images.unoptimized: true`: photos are
+  already 512px WebP from the app, and routing every distinct child photo
+  through Vercel's optimizer exhausted the quota → pictures vanished on phones.
+- **Service worker** (`public/sw.js`) — same-origin only, always resolves to a
+  real `Response` (offline page `public/offline.html`), never serves HTML for
+  an image/script, registered with `updateViaCache: 'none'`.
 - **Optimistic patches** — attendance/points mutations update the row locally
   instead of refetching the list.
 - **Cached lookups** — churches/services/classes/events cached 60 s across pages.

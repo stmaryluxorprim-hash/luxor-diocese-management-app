@@ -5,7 +5,7 @@
 // service name, side menu button) and a 5-tab bottom bar:
 // الرئيسية · الحضور · النقاط · البيانات · الخيارات
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
@@ -14,10 +14,9 @@ import {
   CalendarDays, Clock, User, GraduationCap, MessageCircle, type LucideIcon,
 } from 'lucide-react';
 import { useChild } from '@/lib/child-context';
-import { createClient } from '@/lib/supabase/client';
-import { fetchChildExams, type ChildExam } from '@/lib/child-portal';
+import type { ChildExam } from '@/lib/child-portal';
 import { formatCairoDate, formatCairoTime } from '@/lib/time';
-import { fetchChildChatOverview, type ChildChatOverview } from '@/lib/chat';
+import type { ChildChatOverview } from '@/lib/chat';
 import { Loader2 } from 'lucide-react';
 
 export const CHILD_NAV: { href: string; label: string; icon: LucideIcon; id: string }[] = [
@@ -32,23 +31,13 @@ const isActive = (pathname: string, href: string) =>
   href === '/child' ? pathname === '/child' : pathname.startsWith(href);
 
 /**
- * The child's exams (module الامتحانات, migration 0027). `null` while loading;
- * `[]` when the module isn't granted / nothing is published (the menu entry
- * and the home card then stay hidden). Re-fetched when the tab regains focus.
+ * The child's exams (module الامتحانات, migration 0027) — read from the
+ * shared ChildProvider (fetched once for header + menu + pages).
+ * `null` while loading; `[]` when the module isn't granted / nothing is
+ * published (the menu entry and the home card then stay hidden).
  */
 export function useChildExams(): { exams: ChildExam[] | null; openCount: number; pendingCount: number } {
-  const { token } = useChild();
-  const supabase = useMemo(() => createClient(), []);
-  const [exams, setExams] = useState<ChildExam[] | null>(null);
-  useEffect(() => {
-    if (!token) { setExams(null); return; }
-    let cancelled = false;
-    const load = () => fetchChildExams(supabase, token).then((r) => { if (!cancelled) setExams(r); }).catch(() => { if (!cancelled) setExams([]); });
-    load();
-    const onVis = () => { if (document.visibilityState === 'visible') load(); };
-    document.addEventListener('visibilitychange', onVis);
-    return () => { cancelled = true; document.removeEventListener('visibilitychange', onVis); };
-  }, [token, supabase]);
+  const { exams } = useChild();
   const open = (exams ?? []).filter((x) => x.is_open);
   return {
     exams,
@@ -59,41 +48,17 @@ export function useChildExams(): { exams: ChildExam[] | null; openCount: number;
 }
 
 /**
- * The child's conversations (module الرسائل, migration 0029). `null` while
- * loading; `[]` when the module isn't granted to any of his enrollments (menu
- * entry, header bell and home card stay hidden). Realtime on chat_messages
- * (the anon key may subscribe; the RPC re-filters) + refetch on focus.
+ * The child's conversations (module الرسائل, migration 0029) — read from the
+ * shared ChildProvider: ONE fetch + ONE realtime subscription for the whole
+ * portal. `null` while loading; `[]` when the module isn't granted to any of
+ * his enrollments (menu entry, header bell and home card stay hidden).
  */
 export function useChildMessages(): { conversations: ChildChatOverview[] | null; unread: number; reload: () => void } {
-  const { token } = useChild();
-  const supabase = useMemo(() => createClient(), []);
-  const [conversations, setConversations] = useState<ChildChatOverview[] | null>(null);
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    if (!token) { setConversations(null); return; }
-    let cancelled = false;
-    const load = () => fetchChildChatOverview(supabase, token).then((r) => { if (!cancelled) setConversations(r); }).catch(() => { if (!cancelled) setConversations([]); });
-    load();
-    const onVis = () => { if (document.visibilityState === 'visible') load(); };
-    document.addEventListener('visibilitychange', onVis);
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const channel = supabase.channel(`child-msgs-${token}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages' }, () => {
-        if (timer) clearTimeout(timer);
-        timer = setTimeout(load, 700);
-      })
-      .subscribe();
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-      document.removeEventListener('visibilitychange', onVis);
-      supabase.removeChannel(channel);
-    };
-  }, [token, supabase, tick]);
+  const { conversations, reloadMessages } = useChild();
   return {
     conversations,
     unread: (conversations ?? []).reduce((a, c) => a + (c.unread ?? 0), 0),
-    reload: () => setTick((t) => t + 1),
+    reload: reloadMessages,
   };
 }
 
