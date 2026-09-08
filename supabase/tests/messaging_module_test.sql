@@ -262,8 +262,10 @@ begin
 
   -- attendance → servants of class A scope (servant A, svc manager, owner) get in_app
   insert into public.attendance_log (enrollment_id, points_delta, recorded_by) values ('50000000-0000-0000-0000-000000000001', 1, '00000000-0000-0000-0000-000000000001');
-  if (select count(*) from public.notifications where automation_id = a_att) < 2 then raise exception 'attendance servants notified: %', (select count(*) from public.notifications where automation_id = a_att); end if;
-  if (select count(*) from public.notifications where automation_id = a_att and recipient_profile_id = '00000000-0000-0000-0000-000000000003') <> 0 then raise exception 'servant B (class B) should not be notified'; end if;
+  -- notifications are RLS-scoped to the recipient → assert via the delivery log (owner, servant A, service manager)
+  if (select count(*) from public.message_deliveries where automation_id = a_att and status = 'sent') <> 3 then raise exception 'attendance servants notified: %', (select count(*) from public.message_deliveries where automation_id = a_att); end if;
+  if exists (select 1 from public.message_deliveries where automation_id = a_att and profile_id = '00000000-0000-0000-0000-000000000003') then raise exception 'servant B (class B) should not be notified'; end if;
+  if (select count(*) from public.notifications where automation_id = a_att) <> 1 then raise exception 'owner should see only his own notification'; end if;
 
   -- new enrollment → welcome (in_app + chat)
   insert into public.persons (id, national_id, name) values ('40000000-0000-0000-0000-000000000009', '29901010000009', 'جديد');
@@ -276,7 +278,7 @@ begin
   -- preview template with sample enrollment
   r := public.msg_preview_template('يا [الاسم الأول]', 'نقاطك [النقاط]', '50000000-0000-0000-0000-000000000001');
   if r->>'title' <> 'يا مينا' then raise exception 'preview title %', r; end if;
-  if r->>'body' <> 'نقاطك 108' then raise exception 'preview body %', r; end if;
+  if r->>'body' <> 'نقاطك 109' then raise exception 'preview body %', r; end if;
 
   -- time-based birthday automation + run now (مينا's birthday is today)
   insert into public.message_automations (church_id, name, trigger, trigger_config, audience, channels, title, body, kind)
