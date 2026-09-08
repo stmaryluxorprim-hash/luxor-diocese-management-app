@@ -94,7 +94,6 @@ In the settings hub **إدارة المناسبات** sits directly after **إد
 - ✅ **وحدة الامتحانات (0027)**: امتحانات اختيار من متعدد (`/exams`) — الخادم ينشئ الامتحان (عنوان · نطاق كنيسة → خدمة → فصل · فترة إتاحة · وقت افتراضي ودرجة افتراضية للسؤال · **شرط النجاح** نسبة ٪ أو درجة · **نقاط النجاح ونقاط الدرجة الكاملة** · **كل الأسئلة أو عدد عشوائي** (مثلاً 10 من 20 لكل مخدوم) · ترتيب عشوائي للأسئلة والاختيارات · عدد المحاولات · ما يراه المخدوم بعد الانتهاء)، يضيف الأسئلة (نص · صورة · 2–6 اختيارات · الإجابة الصحيحة · الدرجة · الوقت لكل سؤال) ثم **ينشر**. تبويب **النتائج**: كل مخدوم حل الامتحان مع الدرجة والنسبة و**فلتر ناجح / لم ينجح** و**ترتيب بالدرجة أو الاسم أو التاريخ**، تفاصيل كل سؤال بإجابته، إلغاء محاولة (استرداد النقاط + إعادة)، تصدير Excel. في **بوابة المخدوم** يظهر «الامتحانات» في القائمة الجانبية والرئيسية: **سؤال واحد كل مرة مع عدّاد مرتبط بوقت السيرفر**، ينتقل تلقائياً عند انتهاء الوقت أو بالضغط على «التالي»، **لا يمكن الرجوع**، المتابعة من حيث توقف عند إغلاق التطبيق، شاشة نتيجة، والنقاط تُضاف لرصيده فوراً وتظهر في صفحة النقاط. مُقيَّدة بصلاحيات الوحدات (`module_visible('exams')`) وواقعية
 - ✅ **وحدة أعياد الميلاد (0028)**: `/birthdays` — **من عيد ميلاده هذا الشهر يوماً بيوم** مع ◀ ▶ لتغيير الشهر (والسنة) وشريط الشهور، ونطاق كنيسة → خدمة → فصل، واليوم الحالي مُضاء. لكل مخدوم: **اتصال** · **واتساب / SMS** بنص تهنئة فيه متغيرات ([الاسم الأول] · [السن] · [تاريخ العيد] · [اسم الفصل] …) · **هدية نقاط** (مرة واحدة في السنة، NumPad، تُسجَّل في سجل النقاط وتظهر للمخدوم) · **كارت تهنئة** (معاينة → **إرسال كصورة** عبر قائمة المشاركة/واتساب · تنزيل PNG بدقة 300dpi · طباعة) · **سجل التهاني** (مكالمة / واتساب / SMS / كارت مطبوع / كارت مُرسَل / هدية / ملاحظة — مع تراجع). جماعياً: **تهنئة الجميع** (يفتح محادثة كل مخدوم بدوره بالنص المكتوب مع تخطّي)، **هدية للجميع**، **طباعة كروت الشهر**، تصدير **تقويم ICS** (تذكير سنوي) و**Excel**، فلاتر (لم يُهنَّأ / هُنِّئ / بلا هدية / بلا هاتف) وبحث. **كروت التهنئة** (`/birthdays/cards`): قوالب بنفس محرك تصميم الكروت + بيانات عيد الميلاد (الاسم الأول · السن الجديدة · يوم وشهر العيد · نقاط الهدية)، افتراضي لكل نطاق، وتبويب طباعة مصدره مواليد الشهر. **الإعدادات** (`/birthdays/settings`): نقاط الهدية ونص التهنئة الافتراضي لكل كنيسة / عام. **الرئيسية**: بطاقة «أعياد الميلاد» بمواليد اليوم والأسبوع القادم. **بوابة المخدوم**: يوم عيد ميلاده يرى تهنئة وكارته (يحفظه كصورة) وهديته، وقبله بأسبوع عدّاد. مُقيَّدة بصلاحيات الوحدات (`module_visible('birthdays')`) وواقعية
 - ✅ **طلبات تعديل البيانات** (`/settings/data-requests`): class servant, service manager, church manager or owner of the child's scope reviews pending requests (photo before/after or field diff), approves (applied to `persons`) or rejects with a note — realtime, with a pending-count badge on الإعدادات and in the side menu
-- ✅ **وحدة الرسائل والإشعارات (0029)**: `/messaging` — **إشعارات** للخدام والمخدومين (جرس في الهيدر + بوابة المخدوم، Realtime، إشعارات المتصفح)، **محادثات** مع مخدوم (اتجاه واحد أو اتجاهين) · خادم · **مجموعة** (فصل / خدمة / كنيسة) مع صور ومرفقات وأرشفة، **إرسال جماعي** بثلاث خطوات (النطاق والجمهور → معاينة الأشخاص → الرسالة بمتغيرات عربية `[الاسم الأول]` … وقوالب) عبر قنوات: إشعار · محادثة · **واتساب / SMS** (قائمة إرسال بضغطة واحدة من هاتف الخادم)، **رسائل تلقائية** مبرمجة: عيد ميلاد · موعد ثابت (يومي / أسبوعي / شهري / مرة) · **غياب** n مرات · عدم نشاط · تذكير بمناسبة · وعند الأحداث: حضور · نقاط · تسجيل جديد · نتيجة امتحان · طلب من المتجر · طلب تعديل بيانات — مع **11 قالباً جاهزاً**، ساعات هدوء، منع التكرار (cooldown)، **سجل** الحملات والتسليمات، إعدادات لكل كنيسة (هل يردّ المخدوم / يبدأ محادثة). مُقيَّدة بصلاحيات الوحدات (`module_visible('messaging')`) وواقعية
 
 ## Functional Entry Points
 | Path | Description |
@@ -134,17 +133,6 @@ In the settings hub **إدارة المناسبات** sits directly after **إد
 | `/birthdays` | **وحدة أعياد الميلاد** — month view day by day (◀ ▶ month / year, scope), per-child call / WhatsApp-SMS / gift / card / log, greet-all stepper, gift-all, ICS + Excel; module-gated (`birthdays`) |
 | `/birthdays/cards` | birthday card templates (scoped, default per scope) → `/birthdays/cards/[id]` design (birthday variables) + print the month's children |
 | `/birthdays/settings` | default gift points + greeting template per church / global |
-| `/messaging` | **وحدة الرسائل والإشعارات** — hub: 6 tiles (send · new chat · automations · queue · log · settings), notifications tab (mark read, deep links) + chats tab (unread badges, archive); module-gated (`messaging`) |
-| `/messaging/send` | 3-step bulk send: scope + audience (children / servants / both) + filters → audience preview → message (kind, `[متغيرات]`, templates, channels, quiet-hours toggle) → result |
-| `/messaging/new` | start a chat: direct with a child (one-way / two-way), with a servant, or a group over a scope |
-| `/messaging/chat/[id]` | thread — day groups, photo attachments (`photos/messages/`), call / WhatsApp links, archive, one-way ↔ two-way toggle |
-| `/messaging/automations` | automatic messages — presets, trigger config (time / event), audience, template with live preview, channels, cooldown, enable / run now / delete; «تشغيل الآن» ticks the scheduler |
-| `/messaging/queue` | WhatsApp / SMS outbound queue — pending / sent / failed / cancelled, one-tap send (wa.me / sms:) that marks the row sent |
-| `/messaging/log` | campaigns + per-recipient deliveries (source / status filters) |
-| `/messaging/settings` | per church / global: children can reply / start chats, quiet hours, default channels, signature + templates CRUD |
-| `/api/cron/messaging` | server route (service role, `CRON_SECRET`) → `messaging_tick(true)`; scheduled every 5 min by `vercel.json` (fallback when pg_cron is unavailable) |
-| `/child/notifications` | child portal — notifications (unread first, mark read, deep links) |
-| `/child/messages` | child portal — conversations (or «ابدأ محادثة» when allowed) → `/child/messages/[id]` thread (reply only when two-way & allowed) |
 
 ## Data Models & Storage
 - **Tables**: `churches`, `services`, `classes`, `profiles`, `children`, `attendance` — all with RLS + realtime
@@ -156,7 +144,7 @@ In the settings hub **إدارة المناسبات** sits directly after **إد
 
 ### 1. Supabase
 1. Create a project at supabase.com
-2. SQL Editor → run **all** migrations in `supabase/migrations/` in numeric order (`0001` → `0029`); `0002_bootstrap_owner.sql` runs after step 5
+2. SQL Editor → run **all** migrations in `supabase/migrations/` in numeric order (`0001` → `0028`); `0002_bootstrap_owner.sql` runs after step 5
    ⚠️ In `0005` the `alter type ... add value 'suspended'` must run in its own query before the rest of the file
    ⚠️ `0019_performance_rls_indexes_rpc.sql` is **required** by the current frontend (home / scanner call its RPCs). It is safe to re-run (idempotent).
    ⚠️ `0020_statistics_rpcs.sql` is **required** by the الإحصائيات tab (all `stats_*` RPCs). Idempotent; depends on 0019 (`my_scope()`, `enrollment_visible()`).
@@ -168,7 +156,6 @@ In the settings hub **إدارة المناسبات** sits directly after **إد
    ⚠️ `0026_points_store.sql` is **required** by وحدة إستبدال النقاط (`/store/*`) and by the store rows in the child portal points page. Adds `store_items`, `store_orders`, `store_order_items` (RLS gated by `module_visible('store')`), the `store_checkout` / `store_cancel_order` / `store_lookup_item` RPCs, replaces `child_portal_points` (new `source = 'store'` + `order_id` columns) and adds `child_portal_store_orders`. **No grant is seeded** — enable the module per scope in وحدة المالك → صلاحيات الوحدات. Idempotent; run after 0025.
    ⚠️ `0027_exams.sql` is **required** by وحدة الامتحانات (`/exams/*`, `/child/exams/*`) and by the exam rows in the points pages. Adds `exams`, `exam_questions`, `exam_attempts`, `exam_answers` (RLS gated by `module_visible('exams')`; attempts / answers are read-only through the API), the anon child RPCs `child_portal_exams` / `child_exam_start` / `child_exam_current` / `child_exam_answer` / `child_exam_result`, the servant RPCs `exam_attempt_detail` / `exam_cancel_attempt` / `exam_duplicate`, the helper `module_granted_for`, and replaces `child_portal_points` (new `source = 'exam'` + `attempt_id`). **No grant is seeded** — enable the module per scope in وحدة المالك → صلاحيات الوحدات. Idempotent; run after 0026.
    ⚠️ `0028_birthdays.sql` is **required** by وحدة أعياد الميلاد (`/birthdays/*`), the home birthdays widget and the birthday banner in the child portal. Adds `birthday_greetings` (person × year × kind, RLS gated by `module_visible('birthdays')`, scope filled by trigger, one gift per person per year), `birthday_card_templates` (same JSON design engine, scoped, one default per scope), `birthday_settings` (per church / global), the RPCs `birthdays_in_month` / `birthdays_upcoming` (security invoker → RLS) and `birthday_gift` / `birthday_gift_cancel` (SECURITY DEFINER; the gift is ONE `points_log` row), `next_birthday()` (Feb 29 → Feb 28), the anon `child_portal_birthday`, replaces `child_portal_points` (new `source = 'birthday'`) and an expression index on `persons(month, day)`. **No grant is seeded** — enable the module per scope in وحدة المالك → صلاحيات الوحدات. Idempotent; run after 0027.
-   ⚠️ `0029_messaging.sql` is **required** by وحدة الرسائل والإشعارات (`/messaging/*`, `/child/messages/*`, `/child/notifications`), the header bell and the child-portal bell. Adds `messaging_settings`, `message_templates`, `message_automations`, `message_campaigns`, `notifications`, `conversations` / `conversation_members` / `messages`, `message_deliveries`, `outbound_queue` (all RLS gated by `module_visible('messaging')`, scope clamped to the caller's own scope for non-owners), the engine `msg_deliver` (dedupe keys, quiet-hours deferral, channels in_app / chat / whatsapp / sms), the servant RPCs `msg_send` / `msg_audience_preview` / `msg_open_direct` / `msg_open_staff` / `msg_create_group` / `msg_post` / `msg_mark_read` / `msg_inbox` / `msg_badge` / `msg_run_now` / `msg_preview_template` / `msg_queue_mark`, the scheduler `messaging_tick(p_force)` (advisory-locked; scheduled with **pg_cron** every 5 min when the extension exists — otherwise use `/api/cron/messaging`), the event triggers `zz_msg_on_*` (attendance · points · enrollment · exam result · store order · data request · profile change) and the anon child RPCs `child_portal_badge` / `child_portal_notifications` / `child_portal_notifications_read` / `child_portal_conversations` / `child_portal_messages` / `child_portal_send` / `child_portal_open_direct`. **No grant is seeded** — enable the module per scope in وحدة المالك → صلاحيات الوحدات. Idempotent; run after 0028.
 3. **Authentication → Providers → Email**: disable "Confirm email"
 4. Authentication → Users → Add user: `owner@diocese.app` + password
 5. Copy that user's UUID into `supabase/migrations/0002_bootstrap_owner.sql` and run it
@@ -183,7 +170,7 @@ npm run dev
 
 ### 3. Deploy to Vercel
 1. vercel.com → New Project → import this GitHub repo
-2. Add env vars: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` — plus `SUPABASE_SERVICE_ROLE_KEY` and `CRON_SECRET` (random string) for the messaging cron route
+2. Add env vars: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 3. Deploy — done. PWA is installable from the browser.
 
 ## Card Designer Module (تصميم الكروت) — migrations 0017 + 0018
@@ -650,101 +637,32 @@ it (`/owner/modules` → أعياد الميلاد).
   publication. Validated on PostgreSQL 17 with all 28 migrations →
   «BIRTHDAY TESTS PASSED» (store + exam suites still pass).
 
-## Messaging & notifications module — migration 0029 (وحدة الرسائل والإشعارات)
-One place for everything a servant sends to children and colleagues:
-notifications, one-way / two-way chats, bulk campaigns and **programmable
-automatic messages**. Optional module, visible only where the owner grants
-it (`/owner/modules` → الرسائل والإشعارات).
-
-- **Hub** (`/messaging`) — six action tiles, then two tabs: **الإشعارات**
-  (every notification addressed to me, unread first, mark one / all read,
-  deep link to the thing it is about) and **المحادثات** (inbox with unread
-  counts, last message, kind avatar, archive). Realtime on `notifications`,
-  `messages` and `conversation_members`; the page also calls
-  `messaging_tick()` on load so nothing waits for the cron.
-- **Header bell** (`src/components/messaging/NotificationBell.tsx`, in
-  `AppHeader`) — unread notifications + unread chats badge, dropdown with
-  the latest, browser notifications (`Notification` API) for new rows.
-- **Send** (`/messaging/send`) — 3 steps: (1) scope church → service → class
-  → event, audience children / servants / both, filters (absent ≥ n,
-  birthday this month, no phone…); (2) **audience preview** through
-  `msg_audience_preview` (name, class, phone, reachable channels); (3)
-  message kind (info · reminder · alert · praise · birthday), title + body
-  with `[متغيرات]` chips (`[الاسم الأول]` `[اسم الفصل]` `[النقاط]`
-  `[عدد الغياب]` …) rendered **in SQL per recipient**, templates, channels
-  (`ChannelChips`), «احترام ساعات الهدوء», then a result screen (sent ·
-  deferred · skipped · queued). Everything is one `msg_send` → one
-  `message_campaigns` row + `message_deliveries` per recipient.
-- **Chats** — `msg_open_direct(enrollment)` (one conversation per child,
-  `one_way` by default: the child reads, only servants write; switch to
-  `two_way` from the thread header), `msg_open_staff(profile)` and
-  `msg_create_group(scope…)` (all children and/or servants of a scope).
-  Thread page groups by day, shows sender name / photo (`profiles` or
-  `persons`), supports photo attachments (`uploadPhoto(supabase,
-  'messages', file)`), call / WhatsApp shortcuts and archive.
-- **Automations** (`/messaging/automations`, `AutomationEditor`) — pick a
-  **preset** (birthday wish, 3-absences follow-up, welcome new child,
-  weekly reminder, exam result, store order, points praise…) or start
-  blank; triggers are **time-based** (`birthday` with `days_before`,
-  `schedule` once / daily / weekly / monthly at `HH:MM`, `absent` n
-  consecutive absences, `inactive` n days, `event_reminder`) — run by
-  `messaging_tick()` — or **event-based** (`attendance`, `points`,
-  `new_enrollment`, `exam_result`, `store_order`, `data_request`) — fired by
-  the `zz_msg_on_*` triggers with `msg_automation_covers` scope checks.
-  Each has audience, channels, kind, cooldown (dedupe key per person ×
-  automation × period), start / end dates, live preview against a real
-  child, enable / disable, «تشغيل الآن» (`msg_run_now` → sent / total).
-- **Outbound queue** (`/messaging/queue`) — WhatsApp / SMS are not sent by
-  a gateway: rows land in `outbound_queue` with the rendered text and the
-  phone, the servant taps → `wa.me` / `sms:` opens with the text → the row
-  is marked sent (`msg_queue_mark`). Rapid mode walks the list.
-- **Log** (`/messaging/log`) — campaigns (who, when, audience, counts) and
-  deliveries (recipient, channel, status sent / deferred / skipped /
-  failed, reason) with source filters (manual · automation · system).
-- **Settings** (`/messaging/settings`) — per church / global
-  (`messaging_settings`): children can reply / can start a chat, quiet
-  hours (deferred deliveries are released by the tick — `msg_quiet_until`),
-  default channels, signature; **templates** (`message_templates`, category
-  general · birthday · absent · welcome · reminder · points · exam ·
-  announcement) CRUD.
-- **Child portal** — `useChildMsgBadge()` in `ChildShell` (realtime badge,
-  `module_granted` gate) drives the header bell, two side-menu entries, two
-  home cards, `/child/notifications`, `/child/messages` and
-  `/child/messages/[id]` (reply box only when the conversation is two-way
-  and the church allows replies). All through anon `child_portal_*` RPCs
-  keyed by the national-id token.
-- **Scheduler** — `messaging_tick(p_force)` is cheap (throttled to one run
-  per minute unless forced, `pg_try_advisory_xact_lock`): releases deferred
-  deliveries, runs due time-based automations, expires old queue rows. The
-  migration schedules it with **pg_cron** when the extension is installed;
-  `/api/cron/messaging` (service role, `Authorization: Bearer
-  $CRON_SECRET`, `vercel.json` `*/5 * * * *`) is the fallback. Idempotent —
-  running both is harmless.
-- **Client layer** — `src/lib/messaging.ts` (servant), `src/lib/child-messaging.ts`
-  (child), `src/lib/messaging-types.ts`, `src/lib/messaging-meta.ts`
-  (labels / icons / colours / variables), `src/lib/messaging-presets.ts`,
-  shared UI in `src/components/messaging/MessagingBits.tsx`.
-- **Tests** — `supabase/tests/messaging_module_test.sql` (8 sections): module
-  gate, settings uniqueness + RLS, direct / staff / group conversations and
-  one-way enforcement, bulk send with rendering + deliveries + notifications
-  RLS per recipient, quiet-hours deferral + release by tick, birthday /
-  absence / attendance automations (time + event, cooldown), outbound queue
-  lifecycle, anon child portal (badge, read marks, reply permission).
-  Validated on PostgreSQL 17 with all 29 migrations → «MESSAGING TESTS
-  PASSED» (birthday + store + exam suites still pass).
+## Rolled back: Messaging module — migration 0029 (وحدة الرسائل والإشعارات)
+The messaging & notifications module (PR #51, `0029_messaging.sql`) was
+**reverted** — the code is back to the 0028 state. If `0029_messaging.sql`
+was already applied to your Supabase project, run
+`supabase/rollbacks/0029_messaging_rollback.sql` once in the SQL editor.
+It drops everything 0029 created (10 tables, ~60 `msg_*` / `child_portal_*`
+functions, the `zz_msg_on_*` triggers on `attendance_log` / `points_log` /
+`enrollments` / `exam_attempts` / `store_orders` / `data_change_requests` /
+`profiles`, the `photos_messages_upload` storage policy, the `messaging_tick`
+pg_cron job and the `messaging` row in `module_access`) and touches nothing
+else. Verified on PostgreSQL 17: schema after `0001…0029 + rollback` is
+identical (`pg_dump -s` diff) to a clean `0001…0028` install; idempotent.
+Also remove the `/api/cron/messaging` cron and `CRON_SECRET` env var from
+Vercel if they were added.
 
 ## Features Not Yet Implemented
-- Web-push notifications (in-app + browser notifications while open are done)
-- WhatsApp / SMS gateway (today: one-tap send from the servant's phone)
+- Push notifications
 - Attendance history per date (per-person list view for servants)
 - PDF report export (Excel is done in الإحصائيات)
 
 ## Recommended Next Steps
-1. Run migrations `0017` → `0029` (`0029_messaging.sql` powers وحدة الرسائل والإشعارات; `0028_birthdays.sql` powers وحدة أعياد الميلاد; `0027_exams.sql` powers وحدة الامتحانات; `0026_points_store.sql` powers وحدة إستبدال النقاط; `0022` powers event-bound points / calls / messages; `0023_call_feedbacks.sql` powers the call-feedback badge & إدارة نتائج الافتقاد; `0024_owner_module_access.sql` powers وحدة المالك & module visibility; `0025_shepherd_groups.sql` powers وحدة الأشابين) in Supabase SQL editor, then grant الأشابين from وحدة المالك → صلاحيات الوحدات
+1. Run migrations `0017` → `0028` (`0028_birthdays.sql` powers وحدة أعياد الميلاد; `0027_exams.sql` powers وحدة الامتحانات; `0026_points_store.sql` powers وحدة إستبدال النقاط; `0022` powers event-bound points / calls / messages; `0023_call_feedbacks.sql` powers the call-feedback badge & إدارة نتائج الافتقاد; `0024_owner_module_access.sql` powers وحدة المالك & module visibility; `0025_shepherd_groups.sql` powers وحدة الأشابين) in Supabase SQL editor, then grant الأشابين from وحدة المالك → صلاحيات الوحدات
 2. Deploy to Vercel and test the full approval flow
 3. Per-person attendance history view
 
 ## Deployment
 - **Platform**: Vercel + Supabase
-- **Status**: ✅ Code complete for Phase 1 + performance/scale hardening (0019) + statistics tab (0020) + child portal & data change requests (0021) + event as 4th scope level with status badge (0022) + call-feedback badge & إدارة نتائج الافتقاد (0023) + owner module & per-scope module visibility (0024) + shepherds module الأشابين & «مجموعتي» (0025) + points store module إستبدال النقاط (0026) + exams module الامتحانات (0027) + birthdays module أعياد الميلاد (0028) + messaging & notifications module الرسائل والإشعارات (0029) — awaiting Supabase project + Vercel connect
-- **Last Updated**: 2026-09-08
+- **Status**: ✅ Code complete for Phase 1 + performance/scale hardening (0019) + statistics tab (0020) + child portal & data change requests (0021) + event as 4th scope level with status badge (0022) + call-feedback badge & إدارة نتائج الافتقاد (0023) + owner module & per-scope module visibility (0024) + shepherds module الأشابين & «مجموعتي» (0025) + points store module إستبدال النقاط (0026) + exams module الامتحانات (0027) + birthdays module أعياد الميلاد (0028) — awaiting Supabase project + Vercel connect
+- **Last Updated**: 2026-09-07
