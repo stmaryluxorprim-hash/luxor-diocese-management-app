@@ -287,7 +287,7 @@ create table if not exists public.messages (
   kind               text not null default 'text' check (kind in ('text', 'image', 'system')),
   via                text check (via in ('automation', 'campaign')),   -- null = typed by hand
   automation_id      uuid references public.message_automations(id) on delete set null,
-  created_at         timestamptz not null default now(),
+  created_at         timestamptz not null default clock_timestamp(),
   edited_at          timestamptz,
   deleted_at         timestamptz,
   constraint messages_has_content check (body is not null or attachment_url is not null or kind = 'system')
@@ -938,7 +938,9 @@ declare
 begin
   select * into s from public.my_scope();
   if s.role is null or not public.module_visible('messaging') then raise exception 'forbidden'; end if;
-  if p_church is null and s.role <> 'owner' then p_church := s.church_id; end if;
+  if s.role <> 'owner' then   -- clamp "all" to the caller's own scope
+    p_church := coalesce(p_church, s.church_id); p_service := coalesce(p_service, s.service_id); p_class := coalesce(p_class, s.class_id);
+  end if;
   if p_church is not null and not public.msg_scope_visible(p_church, p_service, p_class) then raise exception 'forbidden'; end if;
   if p_audience in ('children', 'both') then
     select count(*), count(*) filter (where phone is not null and length(regexp_replace(phone, '\D', '', 'g')) >= 10),
@@ -979,7 +981,9 @@ begin
   if not public.module_visible('messaging') then raise exception 'module_not_visible'; end if;
   if p_body is null or length(trim(p_body)) = 0 then raise exception 'empty_body'; end if;
   if p_channels is null or array_length(p_channels, 1) is null then raise exception 'no_channels'; end if;
-  if p_church is null and s.role <> 'owner' then p_church := s.church_id; end if;
+  if s.role <> 'owner' then   -- clamp "all" to the caller's own scope
+    p_church := coalesce(p_church, s.church_id); p_service := coalesce(p_service, s.service_id); p_class := coalesce(p_class, s.class_id);
+  end if;
   if p_church is not null and not public.msg_scope_visible(p_church, p_service, p_class) then raise exception 'forbidden'; end if;
   if p_audience not in ('children', 'servants', 'both') then raise exception 'invalid_audience'; end if;
 
@@ -1069,7 +1073,9 @@ begin
   if s.role is null then raise exception 'forbidden'; end if;
   if not public.module_visible('messaging') then raise exception 'module_not_visible'; end if;
   if p_mode not in ('one_way', 'two_way') then raise exception 'invalid_mode'; end if;
-  if p_church is null and s.role <> 'owner' then p_church := s.church_id; end if;
+  if s.role <> 'owner' then   -- clamp "all" to the caller's own scope
+    p_church := coalesce(p_church, s.church_id); p_service := coalesce(p_service, s.service_id); p_class := coalesce(p_class, s.class_id);
+  end if;
   if p_church is null then raise exception 'church_required'; end if;
   if not public.msg_scope_visible(p_church, p_service, p_class) then raise exception 'forbidden'; end if;
 
