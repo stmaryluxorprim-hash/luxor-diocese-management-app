@@ -170,10 +170,13 @@ export default function NewConversationPage() {
           <div>
             <p className="mb-1 text-xs font-bold text-slate-600">نوع المجموعة</p>
             <div className="grid grid-cols-2 gap-2">
-              {([['one_way', 'إعلانات فقط', 'الخدام يكتبون والمخدومون يقرؤون', Megaphone, 'amber'], ['two_way', 'نقاش مفتوح', 'الجميع يمكنه الكتابة', Users, 'emerald']] as const).map(([v, l, d, Icon, tone]) => (
+              {([
+                ['one_way', 'إعلانات فقط', 'الخدام يكتبون والمخدومون يقرؤون', Megaphone, 'border-amber-300 bg-amber-50 ring-2 ring-amber-200', 'text-amber-600'],
+                ['two_way', 'نقاش مفتوح', 'الجميع يمكنه الكتابة', Users, 'border-emerald-300 bg-emerald-50 ring-2 ring-emerald-200', 'text-emerald-600'],
+              ] as const).map(([v, l, d, Icon, onCls, iconCls]) => (
                 <button key={v} type="button" onClick={() => setGMode(v)} aria-pressed={gMode === v}
-                  className={`rounded-2xl border p-3 text-right transition ${gMode === v ? `border-${tone}-300 bg-${tone}-50 ring-2 ring-${tone}-200` : 'border-slate-200 bg-white'}`}>
-                  <Icon className={`mb-1 h-5 w-5 ${gMode === v ? `text-${tone}-600` : 'text-slate-400'}`} />
+                  className={`rounded-2xl border p-3 text-right transition ${gMode === v ? onCls : 'border-slate-200 bg-white'}`}>
+                  <Icon className={`mb-1 h-5 w-5 ${gMode === v ? iconCls : 'text-slate-400'}`} />
                   <p className="text-sm font-extrabold">{l}</p>
                   <p className="text-[11px] font-bold text-slate-400">{d}</p>
                 </button>
