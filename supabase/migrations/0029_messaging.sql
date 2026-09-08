@@ -1749,3 +1749,147 @@ begin
   return jsonb_build_object('sent', n);
 end $$;
 grant execute on function public.msg_run_now(uuid) to authenticated;
+
+-- ---------------------------------------------------------------------
+-- 16. CHILD PORTAL RPCs (anon, keyed by the scanned national id)
+-- ---------------------------------------------------------------------
+create or replace function public.child_portal_notifications(p_national_id text, p_limit integer default 100)
+returns table (id uuid, title text, body text, kind text, icon text, color text, link text, data jsonb, source text, read_at timestamptz, created_at timestamptz, sender_name text)
+language plpgsql stable security definer set search_path = public as $$
+declare p public.persons;
+begin
+  p := public.child_portal_person(p_national_id);
+  return query
+    select n.id, n.title, n.body, n.kind, n.icon, n.color, n.link, n.data, n.source, n.read_at, n.created_at, pr.full_name
+      from public.notifications n left join public.profiles pr on pr.id = n.sender_id
+     where n.recipient_person_id = p.id
+     order by n.created_at desc limit p_limit;
+end $$;
+grant execute on function public.child_portal_notifications(text, integer) to anon, authenticated;
+
+create or replace function public.child_portal_notifications_read(p_national_id text, p_ids uuid[] default null)
+returns integer language plpgsql volatile security definer set search_path = public as $$
+declare p public.persons; n int;
+begin
+  p := public.child_portal_person(p_national_id);
+  with u as (update public.notifications set read_at = now()
+              where recipient_person_id = p.id and read_at is null and (p_ids is null or id = any(p_ids)) returning 1)
+  select count(*) into n from u;
+  return n;
+end $$;
+grant execute on function public.child_portal_notifications_read(text, uuid[]) to anon, authenticated;
+
+create or replace function public.child_portal_conversations(p_national_id text)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare p public.persons; out jsonb;
+begin
+  p := public.child_portal_person(p_national_id);
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'id', c.id, 'kind', c.kind, 'mode', c.mode, 'subject', c.subject,
+           'church_id', c.church_id, 'service_id', c.service_id, 'class_id', c.class_id, 'enrollment_id', c.enrollment_id,
+           'title', case c.kind when 'direct' then 'خدام ' || coalesce(cl.name, '') else coalesce(c.subject, 'مجموعة') end,
+           'class_name', cl.name, 'service_name', sv.name, 'church_name', ch.name, 'image_url', coalesce(cl.photo_url, ch.logo_url),
+           'last_message_at', c.last_message_at, 'last_message_preview', c.last_message_preview, 'last_sender_type', c.last_sender_type,
+           'messages_count', c.messages_count,
+           'can_reply', c.mode = 'two_way' and coalesce((public.msg_settings_for(c.church_id)).children_can_reply, true),
+           'unread', (select count(*) from public.messages m where m.conversation_id = c.id and m.deleted_at is null and m.sender_type <> 'child'
+                        and m.created_at > coalesce(cm.last_read_at, '-infinity'::timestamptz)))
+           order by c.last_message_at desc nulls last, c.created_at desc), '[]'::jsonb)
+    into out
+    from public.conversation_members cm
+    join public.conversations c on c.id = cm.conversation_id
+    left join public.classes cl on cl.id = c.class_id
+    left join public.services sv on sv.id = c.service_id
+    left join public.churches ch on ch.id = c.church_id
+   where cm.person_id = p.id and not c.is_archived
+     and public.module_granted_for('messaging', c.church_id, c.service_id, c.class_id);
+  return out;
+end $$;
+grant execute on function public.child_portal_conversations(text) to anon, authenticated;
+
+create or replace function public.child_portal_messages(p_national_id text, p_conversation uuid, p_limit integer default 200)
+returns jsonb language plpgsql volatile security definer set search_path = public as $$
+declare p public.persons; c public.conversations; out jsonb;
+begin
+  p := public.child_portal_person(p_national_id);
+  select c2.* into c from public.conversations c2 join public.conversation_members cm on cm.conversation_id = c2.id
+   where c2.id = p_conversation and cm.person_id = p.id;
+  if c.id is null then raise exception 'forbidden' using errcode = 'P0001'; end if;
+  update public.conversation_members set last_read_at = now() where conversation_id = c.id and person_id = p.id;
+  update public.notifications set read_at = now() where recipient_person_id = p.id and read_at is null and (data->>'conversation_id') = c.id::text;
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'id', m.id, 'sender_type', m.sender_type, 'mine', m.sender_person_id = p.id,
+           'sender_name', case m.sender_type when 'child' then coalesce(ps.name, '') when 'servant' then coalesce(pr.full_name, 'خادم') else 'النظام' end,
+           'sender_photo', case m.sender_type when 'servant' then pr.photo_url else ps.image_url end,
+           'body', m.body, 'attachment_url', m.attachment_url, 'kind', m.kind, 'via', m.via,
+           'created_at', m.created_at, 'deleted', m.deleted_at is not null) order by m.created_at), '[]'::jsonb)
+    into out
+    from (select * from public.messages x where x.conversation_id = c.id order by x.created_at desc limit p_limit) m
+    left join public.profiles pr on pr.id = m.sender_profile_id
+    left join public.persons ps on ps.id = m.sender_person_id;
+  return jsonb_build_object(
+    'conversation', jsonb_build_object('id', c.id, 'kind', c.kind, 'mode', c.mode, 'subject', c.subject,
+      'can_reply', c.mode = 'two_way' and coalesce((public.msg_settings_for(c.church_id)).children_can_reply, true),
+      'title', case c.kind when 'direct' then 'خدام ' || coalesce((select name from public.classes where id = c.class_id), '') else coalesce(c.subject, 'مجموعة') end),
+    'messages', out);
+end $$;
+grant execute on function public.child_portal_messages(text, uuid, integer) to anon, authenticated;
+
+create or replace function public.child_portal_send(p_national_id text, p_conversation uuid, p_body text, p_attachment_url text default null)
+returns uuid language plpgsql volatile security definer set search_path = public as $$
+declare p public.persons; c public.conversations; v_id uuid; r record; s public.messaging_settings;
+begin
+  p := public.child_portal_person(p_national_id);
+  select c2.* into c from public.conversations c2 join public.conversation_members cm on cm.conversation_id = c2.id
+   where c2.id = p_conversation and cm.person_id = p.id;
+  if c.id is null then raise exception 'forbidden' using errcode = 'P0001'; end if;
+  s := public.msg_settings_for(c.church_id);
+  if c.mode <> 'two_way' or not coalesce(s.children_can_reply, true) then raise exception 'read_only' using errcode = 'P0001'; end if;
+  if (p_body is null or length(trim(p_body)) = 0) and p_attachment_url is null then raise exception 'empty_body' using errcode = 'P0001'; end if;
+  if length(coalesce(p_body, '')) > 4000 then raise exception 'too_long' using errcode = 'P0001'; end if;
+  insert into public.messages (conversation_id, church_id, service_id, class_id, sender_type, sender_person_id, body, attachment_url, kind)
+  values (c.id, c.church_id, c.service_id, c.class_id, 'child', p.id, nullif(trim(p_body), ''), p_attachment_url,
+          case when p_attachment_url is not null and nullif(trim(p_body), '') is null then 'image' else 'text' end)
+  returning id into v_id;
+  for r in select distinct pr.id from public.profiles pr
+            where pr.status = 'approved' and (
+              exists (select 1 from public.conversation_members cm where cm.conversation_id = c.id and cm.profile_id = pr.id and not cm.muted)
+              or (c.kind = 'direct' and pr.role <> 'owner'
+                  and public.enrollment_visible(c.church_id, c.service_id, c.class_id, pr.role, pr.church_id, pr.service_id, pr.class_id))) loop
+    insert into public.notifications (recipient_profile_id, enrollment_id, church_id, service_id, class_id, title, body, kind, link, source, data)
+    values (r.id, c.enrollment_id, c.church_id, c.service_id, c.class_id,
+            case c.kind when 'group' then coalesce(c.subject, 'المجموعة') || ' · ' || p.name else p.name end,
+            left(coalesce(nullif(trim(p_body), ''), '📷 صورة'), 140), 'message', '/messaging/chat/' || c.id, 'system',
+            jsonb_build_object('conversation_id', c.id, 'message_id', v_id, 'from_person', p.id));
+  end loop;
+  return v_id;
+end $$;
+grant execute on function public.child_portal_send(text, uuid, text, text) to anon, authenticated;
+
+create or replace function public.child_portal_open_direct(p_national_id text, p_enrollment uuid)
+returns uuid language plpgsql volatile security definer set search_path = public as $$
+declare p public.persons; e public.enrollments; s public.messaging_settings;
+begin
+  p := public.child_portal_person(p_national_id);
+  select * into e from public.enrollments where id = p_enrollment and person_id = p.id;
+  if e.id is null then raise exception 'forbidden' using errcode = 'P0001'; end if;
+  if not public.module_granted_for('messaging', e.church_id, e.service_id, e.class_id) then raise exception 'module_not_visible' using errcode = 'P0001'; end if;
+  s := public.msg_settings_for(e.church_id);
+  if not coalesce(s.children_can_start, true) and not exists (select 1 from public.conversations c where c.kind = 'direct' and c.enrollment_id = e.id) then
+    raise exception 'cannot_start' using errcode = 'P0001';
+  end if;
+  return public.msg_ensure_direct_conversation(e.id, null);
+end $$;
+grant execute on function public.child_portal_open_direct(text, uuid) to anon, authenticated;
+
+create or replace function public.child_portal_badge(p_national_id text)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare p public.persons;
+begin
+  p := public.child_portal_person(p_national_id);
+  return jsonb_build_object(
+    'unread_notifications', (select count(*) from public.notifications n where n.recipient_person_id = p.id and n.read_at is null),
+    'unread_messages', coalesce((select sum((x->>'unread')::int) from jsonb_array_elements(public.child_portal_conversations(p_national_id)) x), 0),
+    'module_granted', exists (select 1 from public.enrollments e where e.person_id = p.id and public.module_granted_for('messaging', e.church_id, e.service_id, e.class_id)));
+end $$;
+grant execute on function public.child_portal_badge(text) to anon, authenticated;
