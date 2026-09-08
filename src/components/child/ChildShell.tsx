@@ -11,12 +11,13 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   Home, CalendarCheck, Star, Database, SlidersHorizontal, Menu, X, LogOut,
-  CalendarDays, Clock, User, GraduationCap, type LucideIcon,
+  CalendarDays, Clock, User, GraduationCap, MessageCircle, type LucideIcon,
 } from 'lucide-react';
 import { useChild } from '@/lib/child-context';
 import { createClient } from '@/lib/supabase/client';
 import { fetchChildExams, type ChildExam } from '@/lib/child-portal';
 import { formatCairoDate, formatCairoTime } from '@/lib/time';
+import { fetchChildChatOverview, type ChildChatOverview } from '@/lib/chat';
 import { Loader2 } from 'lucide-react';
 
 export const CHILD_NAV: { href: string; label: string; icon: LucideIcon; id: string }[] = [
@@ -57,10 +58,50 @@ export function useChildExams(): { exams: ChildExam[] | null; openCount: number;
   };
 }
 
+/**
+ * The child's conversations (module الرسائل, migration 0029). `null` while
+ * loading; `[]` when the module isn't granted to any of his enrollments (menu
+ * entry, header bell and home card stay hidden). Realtime on chat_messages
+ * (the anon key may subscribe; the RPC re-filters) + refetch on focus.
+ */
+export function useChildMessages(): { conversations: ChildChatOverview[] | null; unread: number; reload: () => void } {
+  const { token } = useChild();
+  const supabase = useMemo(() => createClient(), []);
+  const [conversations, setConversations] = useState<ChildChatOverview[] | null>(null);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (!token) { setConversations(null); return; }
+    let cancelled = false;
+    const load = () => fetchChildChatOverview(supabase, token).then((r) => { if (!cancelled) setConversations(r); }).catch(() => { if (!cancelled) setConversations([]); });
+    load();
+    const onVis = () => { if (document.visibilityState === 'visible') load(); };
+    document.addEventListener('visibilitychange', onVis);
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const channel = supabase.channel(`child-msgs-${token}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages' }, () => {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(load, 700);
+      })
+      .subscribe();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVis);
+      supabase.removeChannel(channel);
+    };
+  }, [token, supabase, tick]);
+  return {
+    conversations,
+    unread: (conversations ?? []).reduce((a, c) => a + (c.unread ?? 0), 0),
+    reload: () => setTick((t) => t + 1),
+  };
+}
+
 // ---------- Header ----------
 function ChildHeader({ onMenu }: { onMenu: () => void }) {
   const { profile } = useChild();
   const main = profile?.enrollments[0];
+  const { conversations, unread } = useChildMessages();
   return (
     <header
       id="child-header"
@@ -84,6 +125,21 @@ function ChildHeader({ onMenu }: { onMenu: () => void }) {
             {main ? `${main.service_name} · ${main.class_name}` : 'بوابة المخدوم'}
           </p>
         </div>
+        {conversations && conversations.length > 0 && (
+          <Link
+            id="child-messages-bell"
+            href="/child/messages"
+            aria-label={unread > 0 ? `${unread} رسائل غير مقروءة` : 'الرسائل'}
+            className="relative rounded-full p-2 transition hover:bg-white/15"
+          >
+            <MessageCircle className="h-6 w-6" />
+            {unread > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-extrabold text-white ring-2 ring-primary-700 tabular-nums">
+                {unread > 99 ? '99+' : unread}
+              </span>
+            )}
+          </Link>
+        )}
         <button
           id="child-menu-btn"
           aria-label="فتح القائمة"
@@ -103,6 +159,8 @@ function ChildSideMenu({ open, onClose }: { open: boolean; onClose: () => void }
   const router = useRouter();
   const { profile, logout } = useChild();
   const { exams, pendingCount } = useChildExams();
+  const { conversations, unread } = useChildMessages();
+  const hasMessages = !!conversations && conversations.length > 0;
   const [now, setNow] = useState<Date | null>(null);
 
   useEffect(() => {
@@ -185,9 +243,27 @@ function ChildSideMenu({ open, onClose }: { open: boolean; onClose: () => void }
             );
           })}
 
+          {((exams && exams.length > 0) || hasMessages) && (
+            <p className="mb-1 mt-3 px-2 text-[11px] font-extrabold text-slate-400">الوحدات</p>
+          )}
+          {hasMessages && (
+            <Link
+              id="child-nav-messages"
+              href="/child/messages"
+              onClick={onClose}
+              className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-bold transition ${
+                isActive(pathname, '/child/messages') ? 'bg-sky-100 text-sky-700' : 'text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              <MessageCircle className="h-5 w-5 text-sky-600" />
+              الرسائل
+              {unread > 0 && (
+                <span className="mr-auto rounded-full bg-sky-600 px-2 py-0.5 text-[10px] font-extrabold text-white tabular-nums">{unread}</span>
+              )}
+            </Link>
+          )}
           {exams && exams.length > 0 && (
             <>
-              <p className="mb-1 mt-3 px-2 text-[11px] font-extrabold text-slate-400">الوحدات</p>
               <Link
                 id="child-nav-exams"
                 href="/child/exams"

@@ -7,9 +7,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
-  CalendarCheck, Star, ChevronLeft, School, Layers, Church, Sparkles, Database, GraduationCap,
+  CalendarCheck, Star, ChevronLeft, School, Layers, Church, Sparkles, Database, GraduationCap, MessageCircle,
 } from 'lucide-react';
-import ChildShell, { useChildExams } from '@/components/child/ChildShell';
+import ChildShell, { useChildExams, useChildMessages } from '@/components/child/ChildShell';
 import { Avatar, Kpi, fmtDateTime, usePortalList } from '@/components/child/ChildBits';
 import { useChild } from '@/lib/child-context';
 import { createClient } from '@/lib/supabase/client';
@@ -33,6 +33,7 @@ function HomeContent() {
   const { token, profile } = useChild();
   const supabase = useMemo(() => createClient(), []);
   const { exams, openCount, pendingCount } = useChildExams();
+  const { conversations, unread } = useChildMessages();
 
   const { rows: attendance } = usePortalList<ChildAttendanceRow>(
     token ? () => fetchChildAttendance(supabase, token) : null,
@@ -136,6 +137,23 @@ function HomeContent() {
           )}
         </div>
       </section>
+
+      {/* Messages (الرسائل) — only when the module is granted to one of his classes */}
+      {conversations && conversations.length > 0 && (
+        <section className="mb-4">
+          <Link id="child-home-messages" href="/child/messages" className={`card flex items-center gap-3 !p-3 transition hover:bg-sky-50/40 ${unread > 0 ? 'ring-2 ring-sky-200' : ''}`}>
+            <span className="rounded-xl bg-sky-600 p-2.5 text-white"><MessageCircle className="h-6 w-6" /></span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-extrabold">الرسائل</span>
+              <span className="block truncate text-xs text-slate-500">
+                {unread > 0 ? `لديك ${unread} رسالة جديدة من خدامك` : 'اكتب لخدامك أو اقرأ إعلانات فصلك'}
+              </span>
+            </span>
+            {unread > 0 && <span className="rounded-full bg-sky-600 px-2.5 py-1 text-xs font-extrabold text-white tabular-nums">{unread}</span>}
+            <ChevronLeft className="h-4 w-4 text-slate-300" />
+          </Link>
+        </section>
+      )}
 
       {/* Exams (الامتحانات) — only when the module is granted and something is published */}
       {exams && exams.length > 0 && (

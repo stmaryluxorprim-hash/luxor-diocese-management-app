@@ -93,6 +93,7 @@ In the settings hub **إدارة المناسبات** sits directly after **إد
 - ✅ **وحدة إستبدال النقاط (0026)**: نقطة بيع بالنقاط (`/store`) — **المخزون** (`/store/inventory`: كود = ملصق QR، اسم، صورة، السعر بالنقاط، الكمية، متاح/غير متاح، نطاق كنيسة → خدمة → فصل، +/− كمية سريع، **طباعة ملصقات QR** بثلاث مقاسات وعدد نسخ), **الكاشير** (`/store/pos`: مسح كارت المخدوم أو البحث عنه → سلة باسمه وصورته و**رصيده الحي** → مسح ملصقات الأصناف أو اختيارها من الشبكة مع الكمية → مجموع لحظي والمتبقي بعد الشراء — **لا يمكن إضافة صنف يتجاوز الرصيد أو الكمية المتاحة** → «إتمام العملية» مع تأكيد → الفاتورة تُحفظ ويُخصم الرصيد), **الأرشيف** (`/store/archive`: كل الفواتير مع البنود والرصيد قبل/بعد والكاشير؛ المسؤولون يلغون فاتورة فتُستردّ النقاط والكمية). العملية تظهر للمخدوم في **صفحة النقاط ببوابة المخدوم** (مصدر «إستبدال النقاط» + فاتورة قابلة للفتح). مُقيَّدة بصلاحيات الوحدات (`module_visible('store')`) وواقعية
 - ✅ **وحدة الامتحانات (0027)**: امتحانات اختيار من متعدد (`/exams`) — الخادم ينشئ الامتحان (عنوان · نطاق كنيسة → خدمة → فصل · فترة إتاحة · وقت افتراضي ودرجة افتراضية للسؤال · **شرط النجاح** نسبة ٪ أو درجة · **نقاط النجاح ونقاط الدرجة الكاملة** · **كل الأسئلة أو عدد عشوائي** (مثلاً 10 من 20 لكل مخدوم) · ترتيب عشوائي للأسئلة والاختيارات · عدد المحاولات · ما يراه المخدوم بعد الانتهاء)، يضيف الأسئلة (نص · صورة · 2–6 اختيارات · الإجابة الصحيحة · الدرجة · الوقت لكل سؤال) ثم **ينشر**. تبويب **النتائج**: كل مخدوم حل الامتحان مع الدرجة والنسبة و**فلتر ناجح / لم ينجح** و**ترتيب بالدرجة أو الاسم أو التاريخ**، تفاصيل كل سؤال بإجابته، إلغاء محاولة (استرداد النقاط + إعادة)، تصدير Excel. في **بوابة المخدوم** يظهر «الامتحانات» في القائمة الجانبية والرئيسية: **سؤال واحد كل مرة مع عدّاد مرتبط بوقت السيرفر**، ينتقل تلقائياً عند انتهاء الوقت أو بالضغط على «التالي»، **لا يمكن الرجوع**، المتابعة من حيث توقف عند إغلاق التطبيق، شاشة نتيجة، والنقاط تُضاف لرصيده فوراً وتظهر في صفحة النقاط. مُقيَّدة بصلاحيات الوحدات (`module_visible('exams')`) وواقعية
 - ✅ **وحدة أعياد الميلاد (0028)**: `/birthdays` — **من عيد ميلاده هذا الشهر يوماً بيوم** مع ◀ ▶ لتغيير الشهر (والسنة) وشريط الشهور، ونطاق كنيسة → خدمة → فصل، واليوم الحالي مُضاء. لكل مخدوم: **اتصال** · **واتساب / SMS** بنص تهنئة فيه متغيرات ([الاسم الأول] · [السن] · [تاريخ العيد] · [اسم الفصل] …) · **هدية نقاط** (مرة واحدة في السنة، NumPad، تُسجَّل في سجل النقاط وتظهر للمخدوم) · **كارت تهنئة** (معاينة → **إرسال كصورة** عبر قائمة المشاركة/واتساب · تنزيل PNG بدقة 300dpi · طباعة) · **سجل التهاني** (مكالمة / واتساب / SMS / كارت مطبوع / كارت مُرسَل / هدية / ملاحظة — مع تراجع). جماعياً: **تهنئة الجميع** (يفتح محادثة كل مخدوم بدوره بالنص المكتوب مع تخطّي)، **هدية للجميع**، **طباعة كروت الشهر**، تصدير **تقويم ICS** (تذكير سنوي) و**Excel**، فلاتر (لم يُهنَّأ / هُنِّئ / بلا هدية / بلا هاتف) وبحث. **كروت التهنئة** (`/birthdays/cards`): قوالب بنفس محرك تصميم الكروت + بيانات عيد الميلاد (الاسم الأول · السن الجديدة · يوم وشهر العيد · نقاط الهدية)، افتراضي لكل نطاق، وتبويب طباعة مصدره مواليد الشهر. **الإعدادات** (`/birthdays/settings`): نقاط الهدية ونص التهنئة الافتراضي لكل كنيسة / عام. **الرئيسية**: بطاقة «أعياد الميلاد» بمواليد اليوم والأسبوع القادم. **بوابة المخدوم**: يوم عيد ميلاده يرى تهنئة وكارته (يحفظه كصورة) وهديته، وقبله بأسبوع عدّاد. مُقيَّدة بصلاحيات الوحدات (`module_visible('birthdays')`) وواقعية
+- ✅ **وحدة الرسائل (0029)**: محادثات داخل التطبيق. **المخدوم** يكتب من بوابته (`/child/messages`) في محادثة فصله فتظهر لكل الخدام المسموح لهم على هذا الفصل / الخدمة / الكنيسة، ويردّون عليه هناك. **الخادم** (`/messages`) يرسل لمخدوم أو لمخدومين محددين، أو **إعلاناً** لفصل / خدمة / كنيسة / كل الكنائس (كل واحد في حدود صلاحيته — «كل الكنائس» للمالك فقط)، وللخدام **التابعين له في التسلسل** (خادم / خدام محددون أو كل خدام فصل / خدمة / كنيسة) — ومن راسلك يمكنك الرد عليه دائماً. صندوق وارد بالمحادثات وعدد غير المقروء، دلو **الإعلانات**، محادثة بصور وتجميع بالأيام وتحميل أقدم، حذف (المرسل أو المسؤول)، **جرس في الهيدر** بعدد غير المقروء (الخادم والمخدوم)، وقناة **«رسالة داخلية»** في صفحة المخدومين ترسل نص القالب إلى محادثة المخدوم. مُقيَّدة بصلاحيات الوحدات (`module_visible('messages')`) وواقعية
 - ✅ **طلبات تعديل البيانات** (`/settings/data-requests`): class servant, service manager, church manager or owner of the child's scope reviews pending requests (photo before/after or field diff), approves (applied to `persons`) or rejects with a note — realtime, with a pending-count badge on الإعدادات and in the side menu
 
 ## Functional Entry Points
@@ -133,6 +134,11 @@ In the settings hub **إدارة المناسبات** sits directly after **إد
 | `/birthdays` | **وحدة أعياد الميلاد** — month view day by day (◀ ▶ month / year, scope), per-child call / WhatsApp-SMS / gift / card / log, greet-all stepper, gift-all, ICS + Excel; module-gated (`birthdays`) |
 | `/birthdays/cards` | birthday card templates (scoped, default per scope) → `/birthdays/cards/[id]` design (birthday variables) + print the month's children |
 | `/birthdays/settings` | default gift points + greeting template per church / global |
+| `/messages` | **وحدة الرسائل** — inbox: children + staff conversations with unread counts, announcements bucket, filters; module-gated (`messages`) |
+| `/messages/new` | compose: المخدومين / الخدام → selected recipients or a scope announcement (class / service / church / all — within the sender's scope) with audience preview |
+| `/messages/[bucket]` | thread — `e:<enrollment>` child conversation (child + every servant of the tenant + announcements he received), `s:<profile>` direct staff chat, `b` announcements |
+| `/child/messages` | child portal — one conversation per enrollment with unread counts |
+| `/child/messages/[enrollment]` | child portal — the conversation: write to the servants, read replies + announcements |
 
 ## Data Models & Storage
 - **Tables**: `churches`, `services`, `classes`, `profiles`, `children`, `attendance` — all with RLS + realtime
@@ -144,7 +150,7 @@ In the settings hub **إدارة المناسبات** sits directly after **إد
 
 ### 1. Supabase
 1. Create a project at supabase.com
-2. SQL Editor → run **all** migrations in `supabase/migrations/` in numeric order (`0001` → `0028`); `0002_bootstrap_owner.sql` runs after step 5
+2. SQL Editor → run **all** migrations in `supabase/migrations/` in numeric order (`0001` → `0029`); `0002_bootstrap_owner.sql` runs after step 5
    ⚠️ In `0005` the `alter type ... add value 'suspended'` must run in its own query before the rest of the file
    ⚠️ `0019_performance_rls_indexes_rpc.sql` is **required** by the current frontend (home / scanner call its RPCs). It is safe to re-run (idempotent).
    ⚠️ `0020_statistics_rpcs.sql` is **required** by the الإحصائيات tab (all `stats_*` RPCs). Idempotent; depends on 0019 (`my_scope()`, `enrollment_visible()`).
@@ -156,6 +162,7 @@ In the settings hub **إدارة المناسبات** sits directly after **إد
    ⚠️ `0026_points_store.sql` is **required** by وحدة إستبدال النقاط (`/store/*`) and by the store rows in the child portal points page. Adds `store_items`, `store_orders`, `store_order_items` (RLS gated by `module_visible('store')`), the `store_checkout` / `store_cancel_order` / `store_lookup_item` RPCs, replaces `child_portal_points` (new `source = 'store'` + `order_id` columns) and adds `child_portal_store_orders`. **No grant is seeded** — enable the module per scope in وحدة المالك → صلاحيات الوحدات. Idempotent; run after 0025.
    ⚠️ `0027_exams.sql` is **required** by وحدة الامتحانات (`/exams/*`, `/child/exams/*`) and by the exam rows in the points pages. Adds `exams`, `exam_questions`, `exam_attempts`, `exam_answers` (RLS gated by `module_visible('exams')`; attempts / answers are read-only through the API), the anon child RPCs `child_portal_exams` / `child_exam_start` / `child_exam_current` / `child_exam_answer` / `child_exam_result`, the servant RPCs `exam_attempt_detail` / `exam_cancel_attempt` / `exam_duplicate`, the helper `module_granted_for`, and replaces `child_portal_points` (new `source = 'exam'` + `attempt_id`). **No grant is seeded** — enable the module per scope in وحدة المالك → صلاحيات الوحدات. Idempotent; run after 0026.
    ⚠️ `0028_birthdays.sql` is **required** by وحدة أعياد الميلاد (`/birthdays/*`), the home birthdays widget and the birthday banner in the child portal. Adds `birthday_greetings` (person × year × kind, RLS gated by `module_visible('birthdays')`, scope filled by trigger, one gift per person per year), `birthday_card_templates` (same JSON design engine, scoped, one default per scope), `birthday_settings` (per church / global), the RPCs `birthdays_in_month` / `birthdays_upcoming` (security invoker → RLS) and `birthday_gift` / `birthday_gift_cancel` (SECURITY DEFINER; the gift is ONE `points_log` row), `next_birthday()` (Feb 29 → Feb 28), the anon `child_portal_birthday`, replaces `child_portal_points` (new `source = 'birthday'`) and an expression index on `persons(month, day)`. **No grant is seeded** — enable the module per scope in وحدة المالك → صلاحيات الوحدات. Idempotent; run after 0027.
+   ⚠️ `0029_chat_messages.sql` is **required** by وحدة الرسائل (`/messages/*`, `/child/messages/*`, the header bells and the «رسالة داخلية» channel on the children page). Adds `chat_messages` (kinds `child | staff | broadcast_children | broadcast_staff`, scope denormalized, RLS gated by `module_visible('messages')`, writes only through RPCs) and `chat_read_state` (per reader × bucket), the servant RPCs `chat_send` / `chat_inbox` / `chat_thread` / `chat_mark_read` / `chat_staff_recipients` / `chat_audience_count` / `chat_unread_total`, the anon child RPCs `child_chat_overview` / `child_chat_messages` / `child_chat_send` / `child_chat_mark_read` / `child_chat_unread`, a storage policy for `photos/child-messages/`, realtime. **No grant is seeded** — enable the module per scope in وحدة المالك → صلاحيات الوحدات. Idempotent; run after 0028. (This replaces the reverted PR #51 module; it does **not** depend on it — if the old `0029_messaging.sql` was applied, run `supabase/rollbacks/0029_messaging_rollback.sql` first.)
 3. **Authentication → Providers → Email**: disable "Confirm email"
 4. Authentication → Users → Add user: `owner@diocese.app` + password
 5. Copy that user's UUID into `supabase/migrations/0002_bootstrap_owner.sql` and run it
@@ -637,9 +644,79 @@ it (`/owner/modules` → أعياد الميلاد).
   publication. Validated on PostgreSQL 17 with all 28 migrations →
   «BIRTHDAY TESTS PASSED» (store + exam suites still pass).
 
+## Messages module — migration 0029 (وحدة الرسائل)
+In-app conversations between children and their servants, and between
+servants. Optional module, visible only where the owner grants it
+(`/owner/modules` → الرسائل).
+
+- **Model** — ONE table `chat_messages` with four kinds:
+  `child` (the conversation of ONE enrollment — the child + every servant
+  whose scope covers it), `staff` (direct chat between two servants, grouped
+  by a generated `staff_pair`), `broadcast_children` (an announcement to a
+  scope: class / service / church / all churches, null = all) and
+  `broadcast_staff` (an announcement to the servants inside a scope). Exactly
+  one sender (`sender_profile_id` or `sender_person_id`, trigger-checked),
+  `body` ≤ 4000 chars and/or `image_url`. `chat_read_state (reader × bucket →
+  last_read_at)` where the bucket is `e:<enrollment>` / `s:<profile>` / `b`.
+- **Who sees what** — `chat_message_visible(...)` (one IMMUTABLE expression,
+  InitPlan pattern from 0019): `child` rows follow `enrollment_visible`, so a
+  child's message reaches **all servants allowed on that tenant**; `staff`
+  rows only the two parties; `broadcast_children` reaches the servants of the
+  audience scope (the owner and the sender always); `broadcast_staff` reaches
+  the servants **inside** the scope (a service manager's broadcast to his
+  service does not go up to the church manager). RLS select uses it; there
+  are no insert / update policies (writes only via RPCs); delete = own
+  messages, or any child / broadcast message inside a manager's scope.
+- **Who may send** — `chat_send(p jsonb)` (SECURITY DEFINER, module checked):
+  to **selected children** → each enrollment must be `enrollment_visible`;
+  to a **children scope** → `scope_contains` (class servant → his class,
+  service manager → his service or a class in it, church manager → his
+  church / service / class, owner → anything incl. «كل الكنائس»), chain
+  validated; to **selected servants** → `chat_staff_reachable`: the target's
+  scope is *contained* in mine (below me in the hierarchy, never the owner)
+  **or** he already wrote to me (reply always allowed); to a **staff scope** →
+  `scope_contains`. Sending marks the bucket read for the sender.
+- **Reading** — `chat_inbox()` returns every conversation (last message,
+  names, unread per bucket) + `broadcasts_unread` / `broadcasts_last` /
+  `total_unread`; `chat_thread(bucket, before, limit)` pages a conversation
+  (the `e:` bucket merges the child's direct messages with the announcements
+  that reached him — exactly what the child sees); `chat_unread_total()`
+  feeds the header bell; `chat_staff_recipients()` lists the servants I may
+  write to; `chat_audience_count()` previews a scope.
+- **Child portal** (anon, token = national id, pattern of 0021) —
+  `child_chat_overview` (one row per enrollment where the module is granted
+  via `module_granted_for`, last message + unread), `child_chat_messages`,
+  `child_chat_send` (own enrollments only, 30 msgs / 10 min rate limit),
+  `child_chat_mark_read`, `child_chat_unread`. Storage policy lets the portal
+  upload pictures into `photos/child-messages/`.
+- **Frontend** — registry entry `messages` (`src/lib/modules.ts`), gate
+  `src/app/messages/layout.tsx`, data layer `src/lib/chat.ts` (types, Arabic
+  error mapping, RPC wrappers, day grouping), shared bits
+  `src/components/messages/ChatBits.tsx` (header, avatar, bubble, day
+  divider, composer with picture compression + upload, image viewer),
+  `MessagesBell` in `AppHeader` (realtime unread), pages `/messages`
+  (inbox), `/messages/new` (3-step composer), `/messages/[bucket]` (thread).
+  Child portal: `useChildMessages` hook in `ChildShell` (header bell,
+  side-menu entry, realtime), `/child/messages`, `/child/messages/[enrollment]`,
+  home card. Children page: the «رسالة داخلية» channel now sends the
+  template text as an in-app message (`chat_send`) and logs it in
+  `contact_log` like WhatsApp / SMS.
+- **Tests** — `supabase/tests/messages_module_test.sql`: module gate
+  (servant + child), child message visible to class / service servants only
+  (no leak to another class or church), reply + read state (servant and
+  child), broadcasts per role (class servant ✓ class ✗ service; service
+  manager ✓ service ✗ church; church manager ✓ church ✗ all; owner ✓ all;
+  chain check), what each child receives (4 / 3 / 1), staff hierarchy (class
+  servant can't write up or sideways, service manager reaches his 2 servants
+  not the church manager, reply after being written to, staff broadcast not
+  delivered upwards), deletes (author / manager / none), direct table writes
+  blocked, realtime publication. Validated on PostgreSQL 17 with all 29
+  migrations → «MESSAGES TESTS PASSED» (store / exam / birthday suites still
+  pass).
+
 ## Rolled back: Messaging module — migration 0029 (وحدة الرسائل والإشعارات)
 The messaging & notifications module (PR #51, `0029_messaging.sql`) was
-**reverted** — the code is back to the 0028 state. If `0029_messaging.sql`
+**reverted** — the code is back to the 0028 state; the new, simpler messages module above (`0029_chat_messages.sql`) replaces it. If `0029_messaging.sql`
 was already applied to your Supabase project, run
 `supabase/rollbacks/0029_messaging_rollback.sql` once in the SQL editor.
 It drops everything 0029 created (10 tables, ~60 `msg_*` / `child_portal_*`
@@ -658,11 +735,11 @@ Vercel if they were added.
 - PDF report export (Excel is done in الإحصائيات)
 
 ## Recommended Next Steps
-1. Run migrations `0017` → `0028` (`0028_birthdays.sql` powers وحدة أعياد الميلاد; `0027_exams.sql` powers وحدة الامتحانات; `0026_points_store.sql` powers وحدة إستبدال النقاط; `0022` powers event-bound points / calls / messages; `0023_call_feedbacks.sql` powers the call-feedback badge & إدارة نتائج الافتقاد; `0024_owner_module_access.sql` powers وحدة المالك & module visibility; `0025_shepherd_groups.sql` powers وحدة الأشابين) in Supabase SQL editor, then grant الأشابين from وحدة المالك → صلاحيات الوحدات
+1. Run migrations `0017` → `0029` (`0029_chat_messages.sql` powers وحدة الرسائل; `0028_birthdays.sql` powers وحدة أعياد الميلاد; `0027_exams.sql` powers وحدة الامتحانات; `0026_points_store.sql` powers وحدة إستبدال النقاط; `0022` powers event-bound points / calls / messages; `0023_call_feedbacks.sql` powers the call-feedback badge & إدارة نتائج الافتقاد; `0024_owner_module_access.sql` powers وحدة المالك & module visibility; `0025_shepherd_groups.sql` powers وحدة الأشابين) in Supabase SQL editor, then grant الأشابين from وحدة المالك → صلاحيات الوحدات
 2. Deploy to Vercel and test the full approval flow
 3. Per-person attendance history view
 
 ## Deployment
 - **Platform**: Vercel + Supabase
-- **Status**: ✅ Code complete for Phase 1 + performance/scale hardening (0019) + statistics tab (0020) + child portal & data change requests (0021) + event as 4th scope level with status badge (0022) + call-feedback badge & إدارة نتائج الافتقاد (0023) + owner module & per-scope module visibility (0024) + shepherds module الأشابين & «مجموعتي» (0025) + points store module إستبدال النقاط (0026) + exams module الامتحانات (0027) + birthdays module أعياد الميلاد (0028) — awaiting Supabase project + Vercel connect
-- **Last Updated**: 2026-09-07
+- **Status**: ✅ Code complete for Phase 1 + performance/scale hardening (0019) + statistics tab (0020) + child portal & data change requests (0021) + event as 4th scope level with status badge (0022) + call-feedback badge & إدارة نتائج الافتقاد (0023) + owner module & per-scope module visibility (0024) + shepherds module الأشابين & «مجموعتي» (0025) + points store module إستبدال النقاط (0026) + exams module الامتحانات (0027) + birthdays module أعياد الميلاد (0028) + messages module الرسائل (0029) — awaiting Supabase project + Vercel connect
+- **Last Updated**: 2026-09-08
