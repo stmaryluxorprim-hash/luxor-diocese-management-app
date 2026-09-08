@@ -380,3 +380,330 @@ create table if not exists public.outbound_queue (
 comment on table public.outbound_queue is 'قائمة الإرسال — رسائل واتساب / SMS جاهزة يرسلها الخادم من هاتفه بضغطة أو يسحبها مزود خارجي';
 create index if not exists idx_outbound_queue_pending on public.outbound_queue(class_id, created_at) where status = 'pending';
 create index if not exists idx_outbound_queue_created on public.outbound_queue(created_at desc);
+
+-- ---------------------------------------------------------------------
+-- 7. HELPERS — settings lookup, Cairo clock, quiet hours, rendering,
+--    per-recipient context, visibility
+-- ---------------------------------------------------------------------
+create or replace function public.msg_settings_for(p_church uuid)
+returns public.messaging_settings language sql stable security definer set search_path = public as $$
+  select s from public.messaging_settings s
+   where s.church_id = p_church or s.church_id is null
+   order by (s.church_id is not null) desc
+   limit 1
+$$;
+revoke all on function public.msg_settings_for(uuid) from public, anon, authenticated;
+
+create or replace function public.msg_cairo(p_at timestamptz default now())
+returns timestamp language sql immutable as $$ select p_at at time zone 'Africa/Cairo' $$;
+
+create or replace function public.msg_arabic_weekday(p_date date)
+returns text language sql immutable as $$
+  select (array['الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'])[extract(dow from p_date)::int + 1]
+$$;
+
+create or replace function public.msg_fmt_time(p_time time)
+returns text language sql immutable as $$
+  select case when p_time is null then ''
+              else to_char(p_time, 'HH12:MI') || case when p_time < '12:00' then ' ص' else ' م' end end
+$$;
+
+-- When quiet hours are active for this church → the instant they end (Cairo);
+-- otherwise null. Handles windows that cross midnight (22:00 → 08:00).
+create or replace function public.msg_quiet_until(p_church uuid, p_at timestamptz default now())
+returns timestamptz language plpgsql stable security definer set search_path = public as $$
+declare
+  s public.messaging_settings;
+  loc timestamp := public.msg_cairo(p_at);
+  t time := loc::time;
+  d date := loc::date;
+  end_local timestamp;
+begin
+  s := public.msg_settings_for(p_church);
+  if s.id is null or s.quiet_hours_start is null or s.quiet_hours_end is null or s.quiet_hours_start = s.quiet_hours_end then
+    return null;
+  end if;
+  if s.quiet_hours_start < s.quiet_hours_end then           -- same day window (e.g. 13:00 → 16:00)
+    if t >= s.quiet_hours_start and t < s.quiet_hours_end then end_local := d + s.quiet_hours_end; end if;
+  else                                                       -- crosses midnight (e.g. 22:00 → 08:00)
+    if t >= s.quiet_hours_start then end_local := (d + 1) + s.quiet_hours_end;
+    elsif t < s.quiet_hours_end then end_local := d + s.quiet_hours_end; end if;
+  end if;
+  if end_local is null then return null; end if;
+  return end_local at time zone 'Africa/Cairo';
+end $$;
+revoke all on function public.msg_quiet_until(uuid, timestamptz) from public, anon, authenticated;
+
+-- [variable] substitution — every key of the context replaces "[key]"
+create or replace function public.msg_render(p_template text, p_ctx jsonb)
+returns text language plpgsql immutable as $$
+declare
+  out text := coalesce(p_template, '');
+  k text; v text;
+begin
+  if p_ctx is null then return out; end if;
+  for k, v in select key, value from jsonb_each_text(p_ctx) loop
+    out := replace(out, '[' || k || ']', coalesce(v, ''));
+  end loop;
+  return out;
+end $$;
+
+-- generic date / time variables (Cairo)
+create or replace function public.msg_clock_context(p_at timestamptz default now())
+returns jsonb language sql stable as $$
+  select jsonb_build_object(
+    'التاريخ', to_char(public.msg_cairo(p_at)::date, 'DD/MM/YYYY'),
+    'اليوم',   public.msg_arabic_weekday(public.msg_cairo(p_at)::date),
+    'الوقت',   public.msg_fmt_time(public.msg_cairo(p_at)::time))
+$$;
+
+-- the child's variables (from one enrollment)
+create or replace function public.msg_child_context(p_enrollment uuid)
+returns jsonb language sql stable security definer set search_path = public as $$
+  select public.msg_clock_context() || jsonb_build_object(
+    'الاسم',          split_part(trim(p.name), ' ', 1),
+    'الاسم الأول',    split_part(trim(p.name), ' ', 1),
+    'الاسم الكامل',   p.name,
+    'السن',           coalesce(extract(year from age((now() at time zone 'Africa/Cairo')::date, p.birthdate))::int::text, ''),
+    'تاريخ الميلاد',  coalesce(to_char(p.birthdate, 'DD/MM/YYYY'), ''),
+    'رقم الهاتف',     coalesce(p.phone, ''),
+    'الرقم القومي',   p.national_id,
+    'اسم الفصل',      cl.name,
+    'اسم الخدمة',     sv.name,
+    'اسم الكنيسة',    ch.name,
+    'النقاط',         e.points::text,
+    'عدد الحضور',     e.attendance_count::text,
+    'آخر حضور',       coalesce((select to_char(max(a.attended_on), 'DD/MM/YYYY') from public.attendance_log a where a.enrollment_id = e.id), '—'),
+    'أيام الغياب',    coalesce(((now() at time zone 'Africa/Cairo')::date
+                        - coalesce((select max(a.attended_on) from public.attendance_log a where a.enrollment_id = e.id), e.created_at::date))::text, ''),
+    'ضمير',           case when p.gender = 'female' then 'ة' else '' end)
+    from public.enrollments e
+    join public.persons p on p.id = e.person_id
+    join public.classes cl on cl.id = e.class_id
+    join public.services sv on sv.id = e.service_id
+    join public.churches ch on ch.id = e.church_id
+   where e.id = p_enrollment
+$$;
+revoke all on function public.msg_child_context(uuid) from public, anon, authenticated;
+
+-- a servant's variables
+create or replace function public.msg_profile_context(p_profile uuid)
+returns jsonb language sql stable security definer set search_path = public as $$
+  select public.msg_clock_context() || jsonb_build_object(
+    'اسم الخادم',    pr.full_name,
+    'اسم المستلم',   pr.full_name,
+    'الاسم',         split_part(trim(pr.full_name), ' ', 1),
+    'الاسم الأول',   split_part(trim(pr.full_name), ' ', 1),
+    'الاسم الكامل',  pr.full_name,
+    'الدور',         case pr.role when 'owner' then 'مالك التطبيق' when 'church_manager' then 'مدير كنيسة'
+                                  when 'service_manager' then 'مسؤول خدمة' else 'خادم فصل' end,
+    'اسم الكنيسة',   coalesce(ch.name, ''),
+    'اسم الخدمة',    coalesce(sv.name, ''),
+    'اسم الفصل',     coalesce(cl.name, ''))
+    from public.profiles pr
+    left join public.churches ch on ch.id = pr.church_id
+    left join public.services sv on sv.id = pr.service_id
+    left join public.classes  cl on cl.id = pr.class_id
+   where pr.id = p_profile
+$$;
+revoke all on function public.msg_profile_context(uuid) from public, anon, authenticated;
+
+-- can the CALLER see this scope (enrollment semantics, InitPlan-friendly)
+create or replace function public.msg_scope_visible(p_church uuid, p_service uuid, p_class uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select coalesce((
+    select public.enrollment_visible(p_church, p_service, p_class, s.role, s.church_id, s.service_id, s.class_id)
+      from public.my_scope() s), false)
+$$;
+grant execute on function public.msg_scope_visible(uuid, uuid, uuid) to authenticated;
+
+-- is this conversation visible to the caller? member OR (direct / group) inside his scope
+create or replace function public.msg_conversation_visible(p_conv uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.conversations c
+     where c.id = p_conv
+       and (exists (select 1 from public.conversation_members m where m.conversation_id = c.id and m.profile_id = auth.uid())
+            or (c.kind in ('direct', 'group') and public.msg_scope_visible(c.church_id, c.service_id, c.class_id)))
+  )
+$$;
+grant execute on function public.msg_conversation_visible(uuid) to authenticated;
+
+-- can the caller reach servant B? = their scopes overlap; the owner is reachable by everyone
+create or replace function public.msg_profile_reachable(p_target uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select coalesce((
+    select case
+      when t.status <> 'approved' then false
+      when s.role = 'owner' or t.role = 'owner' then true
+      when t.church_id <> s.church_id then false
+      when s.role = 'church_manager' or t.role = 'church_manager' then true
+      when s.service_id is not null and t.service_id is not null and s.service_id <> t.service_id then false
+      when s.role = 'service_manager' or t.role = 'service_manager' then true
+      when s.class_id is not null and t.class_id is not null and s.class_id <> t.class_id then false
+      else true end
+      from public.profiles t, public.my_scope() s
+     where t.id = p_target), false)
+$$;
+grant execute on function public.msg_profile_reachable(uuid) to authenticated;
+
+-- ---------------------------------------------------------------------
+-- 8. RLS — the database is the wall; the UI mostly goes through RPCs
+-- ---------------------------------------------------------------------
+alter table public.messaging_settings   enable row level security;
+alter table public.message_templates    enable row level security;
+alter table public.message_automations  enable row level security;
+alter table public.message_campaigns    enable row level security;
+alter table public.notifications        enable row level security;
+alter table public.conversations        enable row level security;
+alter table public.conversation_members enable row level security;
+alter table public.messages             enable row level security;
+alter table public.message_deliveries   enable row level security;
+alter table public.outbound_queue       enable row level security;
+
+drop policy if exists messaging_settings_select on public.messaging_settings;
+create policy messaging_settings_select on public.messaging_settings for select using (
+  (select public.module_visible('messaging'))
+  and (church_id is null or (select public.scope_overlaps(church_id, null, null)))
+);
+drop policy if exists messaging_settings_write on public.messaging_settings;
+create policy messaging_settings_write on public.messaging_settings for all using (
+  (select public.module_visible('messaging'))
+  and ((church_id is null and (select public.is_owner()))
+       or (church_id is not null and (select role from public.my_scope()) in ('owner', 'church_manager')
+           and (select public.scope_contains(church_id, null, null))))
+) with check (
+  (select public.module_visible('messaging'))
+  and ((church_id is null and (select public.is_owner()))
+       or (church_id is not null and (select role from public.my_scope()) in ('owner', 'church_manager')
+           and (select public.scope_contains(church_id, null, null))))
+);
+
+drop policy if exists message_templates_select on public.message_templates;
+create policy message_templates_select on public.message_templates for select using (
+  (select public.module_visible('messaging'))
+  and (church_id is null or (select public.scope_overlaps(church_id, service_id, class_id)))
+);
+drop policy if exists message_templates_write on public.message_templates;
+create policy message_templates_write on public.message_templates for all using (
+  (select public.module_visible('messaging'))
+  and ((church_id is null and (select public.is_owner())) or (church_id is not null and (select public.scope_contains(church_id, service_id, class_id))))
+) with check (
+  (select public.module_visible('messaging'))
+  and ((church_id is null and (select public.is_owner())) or (church_id is not null and (select public.scope_contains(church_id, service_id, class_id))))
+);
+
+drop policy if exists message_automations_select on public.message_automations;
+create policy message_automations_select on public.message_automations for select using (
+  (select public.module_visible('messaging'))
+  and (church_id is null or (select public.scope_overlaps(church_id, service_id, class_id)))
+);
+drop policy if exists message_automations_write on public.message_automations;
+create policy message_automations_write on public.message_automations for all using (
+  (select public.module_visible('messaging'))
+  and ((church_id is null and (select public.is_owner())) or (church_id is not null and (select public.scope_contains(church_id, service_id, class_id))))
+) with check (
+  (select public.module_visible('messaging'))
+  and ((church_id is null and (select public.is_owner())) or (church_id is not null and (select public.scope_contains(church_id, service_id, class_id))))
+);
+
+drop policy if exists message_campaigns_select on public.message_campaigns;
+create policy message_campaigns_select on public.message_campaigns for select using (
+  (select public.module_visible('messaging'))
+  and (created_by = auth.uid()
+       or (church_id is null and (select public.is_owner()))
+       or (church_id is not null and (select public.scope_overlaps(church_id, service_id, class_id))))
+);
+
+-- notifications: mine always; the module lets me see what I sent and what the children in my scope received
+drop policy if exists notifications_select on public.notifications;
+create policy notifications_select on public.notifications for select using (
+  recipient_profile_id = auth.uid()
+  or ((select public.module_visible('messaging'))
+      and (sender_id = auth.uid()
+           or (recipient_person_id is not null and (select public.msg_scope_visible(church_id, service_id, class_id)))))
+);
+drop policy if exists notifications_update_own on public.notifications;
+create policy notifications_update_own on public.notifications for update using (
+  recipient_profile_id = auth.uid()
+) with check (
+  recipient_profile_id = auth.uid()
+);
+drop policy if exists notifications_delete on public.notifications;
+create policy notifications_delete on public.notifications for delete using (
+  recipient_profile_id = auth.uid()
+  or ((select public.module_visible('messaging')) and sender_id = auth.uid())
+  or ((select public.module_visible('messaging')) and (select role from public.my_scope()) in ('owner', 'church_manager', 'service_manager')
+      and recipient_person_id is not null and (select public.msg_scope_visible(church_id, service_id, class_id)))
+);
+
+drop policy if exists conversations_select on public.conversations;
+create policy conversations_select on public.conversations for select using (
+  (select public.module_visible('messaging')) and (select public.msg_conversation_visible(id))
+);
+drop policy if exists conversations_update on public.conversations;
+create policy conversations_update on public.conversations for update using (
+  (select public.module_visible('messaging')) and (select public.msg_conversation_visible(id))
+) with check (
+  (select public.module_visible('messaging')) and (select public.msg_conversation_visible(id))
+);
+drop policy if exists conversations_delete on public.conversations;
+create policy conversations_delete on public.conversations for delete using (
+  (select public.module_visible('messaging'))
+  and (created_by = auth.uid() or (select role from public.my_scope()) in ('owner', 'church_manager', 'service_manager'))
+  and (select public.msg_conversation_visible(id))
+);
+
+drop policy if exists conversation_members_select on public.conversation_members;
+create policy conversation_members_select on public.conversation_members for select using (
+  (select public.module_visible('messaging')) and (select public.msg_conversation_visible(conversation_id))
+);
+drop policy if exists conversation_members_update_own on public.conversation_members;
+create policy conversation_members_update_own on public.conversation_members for update using (
+  profile_id = auth.uid()
+) with check (
+  profile_id = auth.uid()
+);
+
+drop policy if exists messages_select on public.messages;
+create policy messages_select on public.messages for select using (
+  (select public.module_visible('messaging')) and (select public.msg_conversation_visible(conversation_id))
+);
+drop policy if exists messages_insert on public.messages;
+create policy messages_insert on public.messages for insert with check (
+  (select public.module_visible('messaging'))
+  and sender_type = 'servant' and sender_profile_id = auth.uid()
+  and (select public.msg_conversation_visible(conversation_id))
+);
+drop policy if exists messages_update_own on public.messages;
+create policy messages_update_own on public.messages for update using (
+  sender_profile_id = auth.uid()
+) with check (
+  sender_profile_id = auth.uid()
+);
+
+drop policy if exists message_deliveries_select on public.message_deliveries;
+create policy message_deliveries_select on public.message_deliveries for select using (
+  (select public.module_visible('messaging'))
+  and (profile_id = auth.uid()
+       or (church_id is null and (select public.is_owner()))
+       or (select public.msg_scope_visible(church_id, service_id, class_id)))
+);
+drop policy if exists outbound_queue_select on public.outbound_queue;
+create policy outbound_queue_select on public.outbound_queue for select using (
+  (select public.module_visible('messaging'))
+  and ((church_id is null and (select public.is_owner())) or (select public.msg_scope_visible(church_id, service_id, class_id)))
+);
+drop policy if exists outbound_queue_update on public.outbound_queue;
+create policy outbound_queue_update on public.outbound_queue for update using (
+  (select public.module_visible('messaging'))
+  and ((church_id is null and (select public.is_owner())) or (select public.msg_scope_visible(church_id, service_id, class_id)))
+) with check (
+  (select public.module_visible('messaging'))
+  and ((church_id is null and (select public.is_owner())) or (select public.msg_scope_visible(church_id, service_id, class_id)))
+);
+drop policy if exists outbound_queue_delete on public.outbound_queue;
+create policy outbound_queue_delete on public.outbound_queue for delete using (
+  (select public.module_visible('messaging'))
+  and ((church_id is null and (select public.is_owner())) or (select public.msg_scope_visible(church_id, service_id, class_id)))
+);
