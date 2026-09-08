@@ -707,3 +707,484 @@ create policy outbound_queue_delete on public.outbound_queue for delete using (
   (select public.module_visible('messaging'))
   and ((church_id is null and (select public.is_owner())) or (select public.msg_scope_visible(church_id, service_id, class_id)))
 );
+
+-- ---------------------------------------------------------------------
+-- 9. DISPATCH ENGINE — msg_deliver(): ONE recipient, rendered text,
+--    channels → notification / chat message / outbound queue, logged in
+--    message_deliveries with a dedupe key. Quiet hours → deferred.
+--    Returns 'sent' | 'queued' | 'deferred' | 'skipped' | 'duplicate'.
+-- ---------------------------------------------------------------------
+create or replace function public.msg_ensure_direct_conversation(p_enrollment uuid, p_creator uuid default null)
+returns uuid language plpgsql volatile security definer set search_path = public as $$
+declare
+  e public.enrollments;
+  v_id uuid;
+begin
+  select * into e from public.enrollments where id = p_enrollment;
+  if e.id is null then raise exception 'enrollment_not_found'; end if;
+  select id into v_id from public.conversations where kind = 'direct' and person_id = e.person_id and enrollment_id = e.id;
+  if v_id is null then
+    insert into public.conversations (kind, mode, church_id, service_id, class_id, person_id, enrollment_id, created_by)
+    values ('direct', 'two_way', e.church_id, e.service_id, e.class_id, e.person_id, e.id, p_creator)
+    on conflict (person_id, enrollment_id) where kind = 'direct' do update set is_archived = false
+    returning id into v_id;
+    insert into public.conversation_members (conversation_id, person_id) values (v_id, e.person_id)
+    on conflict do nothing;
+  end if;
+  if p_creator is not null then
+    insert into public.conversation_members (conversation_id, profile_id) values (v_id, p_creator)
+    on conflict do nothing;
+  end if;
+  return v_id;
+end $$;
+revoke all on function public.msg_ensure_direct_conversation(uuid, uuid) from public, anon, authenticated;
+
+create or replace function public.msg_deliver(
+  p_dedupe_key   text,
+  p_channels     text[],
+  p_title        text,
+  p_body         text,
+  p_kind         text,
+  p_link         text,
+  p_ctx          jsonb,                 -- variables for rendering
+  p_person       uuid,                  -- child recipient (or null)
+  p_enrollment   uuid,                  -- child's enrollment (scope + chat)
+  p_profile      uuid,                  -- servant recipient (or null)
+  p_source       text,                  -- manual | automation | campaign | system
+  p_automation   uuid default null,
+  p_campaign     uuid default null,
+  p_sender       uuid default null,
+  p_respect_quiet boolean default true,
+  p_icon         text default null,
+  p_color        text default null,
+  p_extra        jsonb default '{}'::jsonb,
+  p_when         timestamptz default now()
+)
+returns text language plpgsql volatile security definer set search_path = public as $$
+declare
+  v_title text; v_body text;
+  v_church uuid; v_service uuid; v_class uuid;
+  v_phone text; v_name text;
+  v_result jsonb := '{}'::jsonb;
+  v_status text := 'skipped';
+  v_quiet timestamptz;
+  v_delivery uuid;
+  v_conv uuid;
+  s public.messaging_settings;
+  ch text;
+  v_channels text[] := coalesce(p_channels, array['in_app']);
+begin
+  if p_person is null and p_profile is null then return 'skipped'; end if;
+
+  if p_person is not null then
+    select e.church_id, e.service_id, e.class_id, p.phone, p.name
+      into v_church, v_service, v_class, v_phone, v_name
+      from public.enrollments e join public.persons p on p.id = e.person_id
+     where e.id = p_enrollment and e.person_id = p_person;
+    if v_name is null then
+      select p.phone, p.name into v_phone, v_name from public.persons p where p.id = p_person;
+      if v_name is null then return 'skipped'; end if;
+    end if;
+  else
+    select pr.church_id, pr.service_id, pr.class_id, pr.phone, pr.full_name
+      into v_church, v_service, v_class, v_phone, v_name
+      from public.profiles pr where pr.id = p_profile and pr.status = 'approved';
+    if v_name is null then return 'skipped'; end if;
+    -- servants have no direct conversation → "chat" becomes in_app
+    if 'chat' = any(v_channels) then v_channels := array_remove(v_channels, 'chat') || array['in_app']; end if;
+  end if;
+
+  v_title := nullif(trim(public.msg_render(p_title, p_ctx)), '');
+  v_body  := public.msg_render(p_body, p_ctx);
+
+  begin
+    insert into public.message_deliveries (automation_id, campaign_id, person_id, profile_id, enrollment_id,
+      church_id, service_id, class_id, dedupe_key, channels, title, body, kind, link, extra, status, deliver_at)
+    values (p_automation, p_campaign, p_person, p_profile, p_enrollment,
+      v_church, v_service, v_class, p_dedupe_key, v_channels, v_title, v_body, coalesce(p_kind, 'info'), p_link,
+      coalesce(p_extra, '{}'::jsonb) || jsonb_build_object('source', p_source, 'sender', p_sender, 'icon', p_icon, 'color', p_color,
+                                                          'respect_quiet', p_respect_quiet),
+      'pending', null)
+    returning id into v_delivery;
+  exception when unique_violation then
+    return 'duplicate';
+  end;
+
+  if p_respect_quiet and v_church is not null then
+    v_quiet := public.msg_quiet_until(v_church, p_when);
+    if v_quiet is not null and v_quiet > now() then
+      update public.message_deliveries set status = 'deferred', deliver_at = v_quiet where id = v_delivery;
+      return 'deferred';
+    end if;
+  end if;
+
+  s := public.msg_settings_for(v_church);
+
+  foreach ch in array (select array(select distinct unnest(v_channels))) loop
+    if ch = 'in_app' then
+      insert into public.notifications (recipient_profile_id, recipient_person_id, enrollment_id, church_id, service_id, class_id,
+        title, body, kind, icon, color, link, data, source, automation_id, campaign_id, sender_id)
+      values (p_profile, p_person, p_enrollment, v_church, v_service, v_class,
+        coalesce(v_title, left(v_body, 60)), case when v_title is null then null else v_body end,
+        coalesce(p_kind, 'info'), p_icon, p_color, p_link,
+        jsonb_build_object('delivery_id', v_delivery) || coalesce(p_extra, '{}'::jsonb), p_source, p_automation, p_campaign, p_sender);
+      v_result := v_result || jsonb_build_object('in_app', 'sent'); v_status := 'sent';
+    elsif ch = 'chat' and p_person is not null and p_enrollment is not null then
+      v_conv := public.msg_ensure_direct_conversation(p_enrollment, p_sender);
+      insert into public.messages (conversation_id, church_id, service_id, class_id, sender_type, sender_profile_id, body, kind, via, automation_id)
+      values (v_conv, v_church, v_service, v_class,
+              case when p_sender is null then 'system' else 'servant' end, p_sender,
+              case when v_title is null then v_body else v_title || E'\n' || v_body end,
+              'text', case when p_automation is not null then 'automation' when p_campaign is not null then 'campaign' else null end, p_automation);
+      v_result := v_result || jsonb_build_object('chat', 'sent'); v_status := 'sent';
+    elsif ch in ('whatsapp', 'sms') then
+      if v_phone is null or length(regexp_replace(v_phone, '\D', '', 'g')) < 10 then
+        v_result := v_result || jsonb_build_object(ch, 'skipped:no_phone');
+      else
+        insert into public.outbound_queue (delivery_id, automation_id, campaign_id, person_id, profile_id, church_id, service_id, class_id,
+          channel, phone, recipient_name, body)
+        values (v_delivery, p_automation, p_campaign, p_person, p_profile, v_church, v_service, v_class,
+          ch, v_phone, v_name,
+          case when v_title is null then v_body else v_title || E'\n' || v_body end
+            || case when s.signature is not null and length(trim(s.signature)) > 0 then E'\n' || s.signature else '' end);
+        v_result := v_result || jsonb_build_object(ch, 'queued');
+        if v_status <> 'sent' then v_status := 'queued'; end if;
+      end if;
+    end if;
+  end loop;
+
+  update public.message_deliveries
+     set status = v_status, result = v_result, delivered_at = now(), deliver_at = null
+   where id = v_delivery;
+  return v_status;
+end $$;
+revoke all on function public.msg_deliver(text, text[], text, text, text, text, jsonb, uuid, uuid, uuid, text, uuid, uuid, uuid, boolean, text, text, jsonb, timestamptz)
+  from public, anon, authenticated;
+
+-- re-deliver DEFERRED rows whose quiet hours are over (text already rendered → ctx null)
+create or replace function public.msg_release_deferred(p_limit integer default 500)
+returns integer language plpgsql volatile security definer set search_path = public as $$
+declare
+  d public.message_deliveries;
+  n integer := 0;
+begin
+  for d in select * from public.message_deliveries where status = 'deferred' and deliver_at <= now() order by deliver_at limit p_limit loop
+    delete from public.message_deliveries where id = d.id;
+    perform public.msg_deliver(d.dedupe_key, d.channels, d.title, d.body, d.kind, d.link, null,
+      d.person_id, d.enrollment_id, d.profile_id, coalesce(d.extra->>'source', 'automation'),
+      d.automation_id, d.campaign_id, nullif(d.extra->>'sender', '')::uuid, false,
+      d.extra->>'icon', d.extra->>'color', d.extra - 'source' - 'sender' - 'icon' - 'color' - 'respect_quiet', now());
+    n := n + 1;
+  end loop;
+  return n;
+end $$;
+revoke all on function public.msg_release_deferred(integer) from public, anon, authenticated;
+
+-- ---------------------------------------------------------------------
+-- 10. AUDIENCE — which enrollments / profiles a scope + filter covers
+--     filter: {gender, has_phone, min_age, max_age, enrollment_ids[], shepherd_of, roles[], profile_ids[], exclude_self}
+-- ---------------------------------------------------------------------
+create or replace function public.msg_audience_children(
+  p_church uuid, p_service uuid, p_class uuid, p_filter jsonb default '{}'::jsonb)
+returns table (enrollment_id uuid, person_id uuid, church_id uuid, service_id uuid, class_id uuid, name text, phone text, image_url text)
+language sql stable security definer set search_path = public as $$
+  select distinct on (e.person_id) e.id, e.person_id, e.church_id, e.service_id, e.class_id, p.name, p.phone, p.image_url
+    from public.enrollments e
+    join public.persons p on p.id = e.person_id
+   where (p_church  is null or e.church_id  = p_church)
+     and (p_service is null or e.service_id = p_service)
+     and (p_class   is null or e.class_id   = p_class)
+     and (coalesce(p_filter->>'gender', '') = '' or p.gender::text = p_filter->>'gender')
+     and (not coalesce((p_filter->>'has_phone')::boolean, false)
+          or (p.phone is not null and length(regexp_replace(p.phone, '\D', '', 'g')) >= 10))
+     and (coalesce(p_filter->>'min_age', '') = ''
+          or (p.birthdate is not null and extract(year from age(p.birthdate))::int >= (p_filter->>'min_age')::int))
+     and (coalesce(p_filter->>'max_age', '') = ''
+          or (p.birthdate is not null and extract(year from age(p.birthdate))::int <= (p_filter->>'max_age')::int))
+     and (jsonb_typeof(p_filter->'enrollment_ids') is distinct from 'array' or jsonb_array_length(p_filter->'enrollment_ids') = 0
+          or e.id::text in (select jsonb_array_elements_text(p_filter->'enrollment_ids')))
+     and (coalesce(p_filter->>'shepherd_of', '') = ''
+          or exists (select 1 from public.shepherd_groups g where g.enrollment_id = e.id and g.servant_id = (p_filter->>'shepherd_of')::uuid))
+   order by e.person_id, e.created_at, e.id
+$$;
+revoke all on function public.msg_audience_children(uuid, uuid, uuid, jsonb) from public, anon, authenticated;
+
+create or replace function public.msg_audience_servants(
+  p_church uuid, p_service uuid, p_class uuid, p_filter jsonb default '{}'::jsonb)
+returns table (profile_id uuid, church_id uuid, service_id uuid, class_id uuid, name text, phone text, role text, photo_url text)
+language sql stable security definer set search_path = public as $$
+  select pr.id, pr.church_id, pr.service_id, pr.class_id, pr.full_name, pr.phone, pr.role::text, pr.photo_url
+    from public.profiles pr
+   where pr.status = 'approved'
+     and (p_church  is null or pr.church_id = p_church or pr.role = 'owner')
+     and (p_service is null or pr.service_id is null or pr.service_id = p_service)
+     and (p_class   is null or pr.class_id   is null or pr.class_id   = p_class)
+     and (jsonb_typeof(p_filter->'roles') is distinct from 'array' or jsonb_array_length(p_filter->'roles') = 0
+          or pr.role::text in (select jsonb_array_elements_text(p_filter->'roles')))
+     and (jsonb_typeof(p_filter->'profile_ids') is distinct from 'array' or jsonb_array_length(p_filter->'profile_ids') = 0
+          or pr.id::text in (select jsonb_array_elements_text(p_filter->'profile_ids')))
+     and (not coalesce((p_filter->>'exclude_self')::boolean, false) or pr.id <> auth.uid())
+   order by pr.role, pr.full_name
+$$;
+revoke all on function public.msg_audience_servants(uuid, uuid, uuid, jsonb) from public, anon, authenticated;
+
+create or replace function public.msg_audience_preview(
+  p_church uuid, p_service uuid, p_class uuid, p_audience text, p_filter jsonb default '{}'::jsonb)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare
+  s record;
+  kids jsonb := '[]'::jsonb; staff jsonb := '[]'::jsonb;
+  n_kids int := 0; n_staff int := 0; n_phone int := 0;
+begin
+  select * into s from public.my_scope();
+  if s.role is null or not public.module_visible('messaging') then raise exception 'forbidden'; end if;
+  if p_church is null and s.role <> 'owner' then p_church := s.church_id; end if;
+  if p_church is not null and not public.msg_scope_visible(p_church, p_service, p_class) then raise exception 'forbidden'; end if;
+  if p_audience in ('children', 'both') then
+    select count(*), count(*) filter (where phone is not null and length(regexp_replace(phone, '\D', '', 'g')) >= 10),
+           coalesce(jsonb_agg(jsonb_build_object('enrollment_id', enrollment_id, 'person_id', person_id, 'name', name, 'phone', phone, 'image_url', image_url)
+                    order by name) filter (where rn <= 400), '[]'::jsonb)
+      into n_kids, n_phone, kids
+      from (select a.*, row_number() over (order by a.name) rn from public.msg_audience_children(p_church, p_service, p_class, coalesce(p_filter, '{}'::jsonb)) a) x;
+  end if;
+  if p_audience in ('servants', 'both') then
+    select count(*), coalesce(jsonb_agg(jsonb_build_object('profile_id', profile_id, 'name', name, 'phone', phone, 'role', role, 'photo_url', photo_url) order by role, name), '[]'::jsonb)
+      into n_staff, staff from public.msg_audience_servants(p_church, p_service, p_class, coalesce(p_filter, '{}'::jsonb));
+  end if;
+  return jsonb_build_object('children_count', n_kids, 'children_with_phone', n_phone, 'servants_count', n_staff,
+                            'children', kids, 'servants', staff);
+end $$;
+grant execute on function public.msg_audience_preview(uuid, uuid, uuid, text, jsonb) to authenticated;
+
+-- ---------------------------------------------------------------------
+-- 11. SERVANT RPC: msg_send — manual notification / campaign
+-- ---------------------------------------------------------------------
+create or replace function public.msg_send(
+  p_church uuid, p_service uuid, p_class uuid,
+  p_audience text, p_filter jsonb,
+  p_channels text[], p_title text, p_body text,
+  p_kind text default 'info', p_link text default null, p_name text default null,
+  p_respect_quiet boolean default true, p_icon text default null, p_color text default null
+)
+returns jsonb language plpgsql volatile security definer set search_path = public as $$
+declare
+  s record;
+  a record;
+  v_campaign uuid;
+  v_res text;
+  n_total int := 0; n_sent int := 0; n_queued int := 0; n_skipped int := 0; n_deferred int := 0;
+begin
+  select * into s from public.my_scope();
+  if s.role is null then raise exception 'forbidden'; end if;
+  if not public.module_visible('messaging') then raise exception 'module_not_visible'; end if;
+  if p_body is null or length(trim(p_body)) = 0 then raise exception 'empty_body'; end if;
+  if p_channels is null or array_length(p_channels, 1) is null then raise exception 'no_channels'; end if;
+  if p_church is null and s.role <> 'owner' then p_church := s.church_id; end if;
+  if p_church is not null and not public.msg_scope_visible(p_church, p_service, p_class) then raise exception 'forbidden'; end if;
+  if p_audience not in ('children', 'servants', 'both') then raise exception 'invalid_audience'; end if;
+
+  insert into public.message_campaigns (church_id, service_id, class_id, name, audience, audience_filter, channels, title, body, kind, link, created_by)
+  values (p_church, p_service, p_class, coalesce(nullif(trim(p_name), ''), nullif(trim(p_title), ''), left(p_body, 40)),
+          p_audience, coalesce(p_filter, '{}'::jsonb), p_channels, p_title, p_body, coalesce(p_kind, 'info'), p_link, auth.uid())
+  returning id into v_campaign;
+
+  if p_audience in ('children', 'both') then
+    for a in select * from public.msg_audience_children(p_church, p_service, p_class, coalesce(p_filter, '{}'::jsonb)) loop
+      n_total := n_total + 1;
+      v_res := public.msg_deliver('campaign:' || v_campaign || ':p:' || a.person_id, p_channels, p_title, p_body, p_kind, p_link,
+                 public.msg_child_context(a.enrollment_id), a.person_id, a.enrollment_id, null, 'campaign', null, v_campaign, auth.uid(),
+                 p_respect_quiet, p_icon, p_color);
+      if v_res = 'sent' then n_sent := n_sent + 1; elsif v_res = 'queued' then n_queued := n_queued + 1;
+      elsif v_res = 'deferred' then n_deferred := n_deferred + 1; else n_skipped := n_skipped + 1; end if;
+    end loop;
+  end if;
+  if p_audience in ('servants', 'both') then
+    for a in select * from public.msg_audience_servants(p_church, p_service, p_class, coalesce(p_filter, '{}'::jsonb)) loop
+      n_total := n_total + 1;
+      v_res := public.msg_deliver('campaign:' || v_campaign || ':u:' || a.profile_id, p_channels, p_title, p_body, p_kind, p_link,
+                 public.msg_profile_context(a.profile_id), null, null, a.profile_id, 'campaign', null, v_campaign, auth.uid(),
+                 p_respect_quiet, p_icon, p_color);
+      if v_res = 'sent' then n_sent := n_sent + 1; elsif v_res = 'queued' then n_queued := n_queued + 1;
+      elsif v_res = 'deferred' then n_deferred := n_deferred + 1; else n_skipped := n_skipped + 1; end if;
+    end loop;
+  end if;
+
+  update public.message_campaigns
+     set recipients_count = n_total, sent_count = n_sent, queued_count = n_queued, skipped_count = n_skipped
+   where id = v_campaign;
+  return jsonb_build_object('campaign_id', v_campaign, 'recipients', n_total, 'sent', n_sent, 'queued', n_queued,
+                            'deferred', n_deferred, 'skipped', n_skipped);
+end $$;
+grant execute on function public.msg_send(uuid, uuid, uuid, text, jsonb, text[], text, text, text, text, text, boolean, text, text) to authenticated;
+
+-- ---------------------------------------------------------------------
+-- 12. SERVANT RPCs — conversations
+-- ---------------------------------------------------------------------
+create or replace function public.msg_open_direct(p_enrollment uuid)
+returns uuid language plpgsql volatile security definer set search_path = public as $$
+declare e public.enrollments; s record;
+begin
+  select * into s from public.my_scope();
+  if s.role is null then raise exception 'forbidden'; end if;
+  if not public.module_visible('messaging') then raise exception 'module_not_visible'; end if;
+  select * into e from public.enrollments where id = p_enrollment;
+  if e.id is null then raise exception 'enrollment_not_found'; end if;
+  if not public.enrollment_visible(e.church_id, e.service_id, e.class_id, s.role, s.church_id, s.service_id, s.class_id) then
+    raise exception 'forbidden';
+  end if;
+  return public.msg_ensure_direct_conversation(p_enrollment, auth.uid());
+end $$;
+grant execute on function public.msg_open_direct(uuid) to authenticated;
+
+create or replace function public.msg_open_staff(p_profile uuid)
+returns uuid language plpgsql volatile security definer set search_path = public as $$
+declare v_key text; v_id uuid; me record; t public.profiles;
+begin
+  select * into me from public.my_scope();
+  if me.role is null then raise exception 'forbidden'; end if;
+  if not public.module_visible('messaging') then raise exception 'module_not_visible'; end if;
+  if p_profile = auth.uid() then raise exception 'self'; end if;
+  if not public.msg_profile_reachable(p_profile) then raise exception 'forbidden'; end if;
+  select * into t from public.profiles where id = p_profile;
+  v_key := least(auth.uid()::text, p_profile::text) || ':' || greatest(auth.uid()::text, p_profile::text);
+  select id into v_id from public.conversations where kind = 'staff' and pair_key = v_key;
+  if v_id is null then
+    insert into public.conversations (kind, mode, church_id, service_id, class_id, pair_key, created_by)
+    values ('staff', 'two_way', coalesce(me.church_id, t.church_id), null, null, v_key, auth.uid())
+    returning id into v_id;
+    insert into public.conversation_members (conversation_id, profile_id, role) values (v_id, auth.uid(), 'owner'), (v_id, p_profile, 'member')
+    on conflict do nothing;
+  end if;
+  return v_id;
+end $$;
+grant execute on function public.msg_open_staff(uuid) to authenticated;
+
+create or replace function public.msg_create_group(
+  p_subject text, p_mode text, p_church uuid, p_service uuid, p_class uuid, p_filter jsonb default '{}'::jsonb,
+  p_first_message text default null)
+returns jsonb language plpgsql volatile security definer set search_path = public as $$
+declare s record; v_id uuid; a record; n int := 0;
+begin
+  select * into s from public.my_scope();
+  if s.role is null then raise exception 'forbidden'; end if;
+  if not public.module_visible('messaging') then raise exception 'module_not_visible'; end if;
+  if p_mode not in ('one_way', 'two_way') then raise exception 'invalid_mode'; end if;
+  if p_church is null and s.role <> 'owner' then p_church := s.church_id; end if;
+  if p_church is null then raise exception 'church_required'; end if;
+  if not public.msg_scope_visible(p_church, p_service, p_class) then raise exception 'forbidden'; end if;
+
+  insert into public.conversations (kind, mode, subject, church_id, service_id, class_id, created_by)
+  values ('group', p_mode, coalesce(nullif(trim(p_subject), ''), 'مجموعة'), p_church, p_service, p_class, auth.uid())
+  returning id into v_id;
+  insert into public.conversation_members (conversation_id, profile_id, role) values (v_id, auth.uid(), 'owner');
+  for a in select * from public.msg_audience_children(p_church, p_service, p_class, coalesce(p_filter, '{}'::jsonb)) loop
+    insert into public.conversation_members (conversation_id, person_id) values (v_id, a.person_id) on conflict do nothing;
+    n := n + 1;
+  end loop;
+  if p_first_message is not null and length(trim(p_first_message)) > 0 then
+    perform public.msg_post(v_id, p_first_message, null);
+  end if;
+  return jsonb_build_object('conversation_id', v_id, 'members', n);
+end $$;
+
+create or replace function public.msg_post(p_conversation uuid, p_body text, p_attachment_url text default null)
+returns uuid language plpgsql volatile security definer set search_path = public as $$
+declare c public.conversations; v_id uuid; m record; me public.profiles;
+begin
+  if not public.module_visible('messaging') then raise exception 'module_not_visible'; end if;
+  select * into c from public.conversations where id = p_conversation;
+  if c.id is null then raise exception 'not_found'; end if;
+  if not public.msg_conversation_visible(c.id) then raise exception 'forbidden'; end if;
+  if (p_body is null or length(trim(p_body)) = 0) and p_attachment_url is null then raise exception 'empty_body'; end if;
+  select * into me from public.profiles where id = auth.uid();
+  insert into public.messages (conversation_id, church_id, service_id, class_id, sender_type, sender_profile_id, body, attachment_url, kind)
+  values (c.id, c.church_id, c.service_id, c.class_id, 'servant', auth.uid(), nullif(trim(p_body), ''), p_attachment_url,
+          case when p_attachment_url is not null and nullif(trim(p_body), '') is null then 'image' else 'text' end)
+  returning id into v_id;
+  for m in select * from public.conversation_members cm where cm.conversation_id = c.id and not cm.muted
+             and (cm.person_id is not null or (cm.profile_id is not null and cm.profile_id <> auth.uid())) loop
+    insert into public.notifications (recipient_profile_id, recipient_person_id, enrollment_id, church_id, service_id, class_id,
+      title, body, kind, link, source, sender_id, data)
+    values (m.profile_id, m.person_id, c.enrollment_id, c.church_id, c.service_id, c.class_id,
+      case c.kind when 'group' then coalesce(c.subject, 'المجموعة') else coalesce(me.full_name, 'رسالة جديدة') end,
+      left(coalesce(nullif(trim(p_body), ''), '📷 صورة'), 140), 'message',
+      case when m.person_id is not null then '/child/messages/' || c.id else '/messaging/chat/' || c.id end,
+      'manual', auth.uid(), jsonb_build_object('conversation_id', c.id, 'message_id', v_id));
+  end loop;
+  return v_id;
+end $$;
+grant execute on function public.msg_post(uuid, text, text) to authenticated;
+grant execute on function public.msg_create_group(text, text, uuid, uuid, uuid, jsonb, text) to authenticated;
+
+create or replace function public.msg_mark_read(p_conversation uuid)
+returns void language plpgsql volatile security definer set search_path = public as $$
+begin
+  if not public.msg_conversation_visible(p_conversation) then raise exception 'forbidden'; end if;
+  insert into public.conversation_members (conversation_id, profile_id, last_read_at) values (p_conversation, auth.uid(), now())
+  on conflict (conversation_id, profile_id) where profile_id is not null do update set last_read_at = now();
+  update public.notifications set read_at = now()
+   where recipient_profile_id = auth.uid() and read_at is null and (data->>'conversation_id') = p_conversation::text;
+end $$;
+grant execute on function public.msg_mark_read(uuid) to authenticated;
+
+create or replace function public.msg_inbox(p_limit integer default 200, p_kind text default null)
+returns table (
+  id uuid, kind text, mode text, subject text, church_id uuid, service_id uuid, class_id uuid,
+  person_id uuid, enrollment_id uuid, created_by uuid,
+  last_message_at timestamptz, last_message_preview text, last_sender_type text, messages_count integer, is_archived boolean,
+  title text, image_url text, phone text, class_name text, unread integer, members_count integer
+)
+language sql stable security definer set search_path = public as $$
+  with me as (select auth.uid() uid),
+  vis as (
+    select c.* from public.conversations c
+     where public.module_visible('messaging')
+       and (p_kind is null or c.kind = p_kind)
+       and public.msg_conversation_visible(c.id)
+  )
+  select v.id, v.kind, v.mode, v.subject, v.church_id, v.service_id, v.class_id, v.person_id, v.enrollment_id, v.created_by,
+         v.last_message_at, v.last_message_preview, v.last_sender_type, v.messages_count, v.is_archived,
+         case v.kind
+           when 'direct' then (select p.name from public.persons p where p.id = v.person_id)
+           when 'staff'  then (select pr.full_name from public.conversation_members m join public.profiles pr on pr.id = m.profile_id
+                                where m.conversation_id = v.id and m.profile_id <> (select uid from me) limit 1)
+           else coalesce(v.subject, 'مجموعة') end as title,
+         case v.kind
+           when 'direct' then (select p.image_url from public.persons p where p.id = v.person_id)
+           when 'staff'  then (select pr.photo_url from public.conversation_members m join public.profiles pr on pr.id = m.profile_id
+                                where m.conversation_id = v.id and m.profile_id <> (select uid from me) limit 1)
+           else null end as image_url,
+         case v.kind when 'direct' then (select p.phone from public.persons p where p.id = v.person_id) else null end as phone,
+         (select cl.name from public.classes cl where cl.id = v.class_id) as class_name,
+         (select count(*)::int from public.messages m
+           where m.conversation_id = v.id and m.deleted_at is null
+             and (m.sender_profile_id is null or m.sender_profile_id <> (select uid from me))
+             and m.created_at > coalesce((select cm.last_read_at from public.conversation_members cm
+                                            where cm.conversation_id = v.id and cm.profile_id = (select uid from me)), '-infinity'::timestamptz)) as unread,
+         (select count(*)::int from public.conversation_members cm where cm.conversation_id = v.id) as members_count
+    from vis v
+   order by v.last_message_at desc nulls last, v.created_at desc
+   limit p_limit
+$$;
+grant execute on function public.msg_inbox(integer, text) to authenticated;
+
+create or replace function public.msg_badge()
+returns jsonb language sql stable security definer set search_path = public as $$
+  select jsonb_build_object(
+    'unread_notifications', (select count(*) from public.notifications n where n.recipient_profile_id = auth.uid() and n.read_at is null),
+    'unread_messages', case when public.module_visible('messaging') then coalesce((select sum(unread) from public.msg_inbox(500)), 0) else 0 end,
+    'pending_queue', case when public.module_visible('messaging') then (select count(*) from public.outbound_queue q where q.status = 'pending'
+                            and ((q.church_id is null and public.is_owner()) or public.msg_scope_visible(q.church_id, q.service_id, q.class_id))) else 0 end,
+    'module_visible', public.module_visible('messaging'))
+$$;
+grant execute on function public.msg_badge() to authenticated;
+
+create or replace function public.msg_notifications_read(p_ids uuid[] default null)
+returns integer language sql volatile security definer set search_path = public as $$
+  with u as (
+    update public.notifications set read_at = now()
+     where recipient_profile_id = auth.uid() and read_at is null and (p_ids is null or id = any(p_ids))
+    returning 1)
+  select count(*)::int from u
+$$;
+grant execute on function public.msg_notifications_read(uuid[]) to authenticated;
