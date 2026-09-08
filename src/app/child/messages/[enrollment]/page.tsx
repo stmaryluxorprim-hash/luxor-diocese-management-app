@@ -14,6 +14,7 @@ import ChildShell, { useChildMessages } from '@/components/child/ChildShell';
 import { MessagesHeader, MessageBubble, DayDivider, Composer, ImageViewer, EmptyChat, Toast } from '@/components/messages/ChatBits';
 import { useChild } from '@/lib/child-context';
 import { createClient } from '@/lib/supabase/client';
+import { uniqueTopic } from '@/lib/realtime';
 import {
   fetchChildChatMessages, childSendMessage, childMarkRead, chatErrorMessage, groupByDay, type ChatMessage,
 } from '@/lib/chat';
@@ -65,7 +66,7 @@ function ThreadContent() {
   useEffect(() => {
     if (!token) return;
     let timer: ReturnType<typeof setTimeout> | null = null;
-    const channel = supabase.channel(`child-thread-${enrollmentId}`)
+    const channel = supabase.channel(uniqueTopic(`child-thread-${enrollmentId}`))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_messages' }, () => {
         if (timer) clearTimeout(timer);
         timer = setTimeout(load, 500);

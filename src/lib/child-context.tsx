@@ -10,8 +10,10 @@ import {
 import { createClient } from '@/lib/supabase/client';
 import {
   clearChildToken, fetchChildProfile, getChildToken, setChildToken,
-  childErrorMessage, type ChildProfile,
+  childErrorMessage, fetchChildExams, type ChildProfile, type ChildExam,
 } from '@/lib/child-portal';
+import { fetchChildChatOverview, type ChildChatOverview } from '@/lib/chat';
+import { uniqueTopic } from '@/lib/realtime';
 
 interface ChildState {
   token: string | null;
@@ -23,6 +25,14 @@ interface ChildState {
   /** validate a scanned code, store it and load the profile; returns error text or null */
   login: (code: string) => Promise<string | null>;
   logout: () => void;
+  /**
+   * Modules data shared by every child page (fetched ONCE here, not by each
+   * header / menu / page — see useChildExams / useChildMessages).
+   * `null` while loading; `[]` when the module isn't granted.
+   */
+  exams: ChildExam[] | null;
+  conversations: ChildChatOverview[] | null;
+  reloadMessages: () => void;
 }
 
 const ChildContext = createContext<ChildState>({
@@ -33,6 +43,9 @@ const ChildContext = createContext<ChildState>({
   refresh: async () => {},
   login: async () => null,
   logout: () => {},
+  exams: null,
+  conversations: null,
+  reloadMessages: () => {},
 });
 
 export function ChildProvider({ children }: { children: ReactNode }) {
@@ -110,7 +123,7 @@ export function ChildProvider({ children }: { children: ReactNode }) {
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => load(token), 1200);
     };
-    const channel = supabase.channel(`child-${profile.person.id}`);
+    const channel = supabase.channel(uniqueTopic(`child-${profile.person.id}`));
     ids.forEach((id) => {
       channel.on(
         'postgres_changes',
@@ -135,9 +148,57 @@ export function ChildProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, profile?.person.id, supabase, load]);
 
+  // ---- modules: exams (0027) — one fetch for the whole portal, refetch on focus
+  const [exams, setExams] = useState<ChildExam[] | null>(null);
+  useEffect(() => {
+    if (!token) { setExams(null); return; }
+    let cancelled = false;
+    const run = () => fetchChildExams(supabase, token)
+      .then((r) => { if (!cancelled) setExams(r); })
+      .catch(() => { if (!cancelled) setExams([]); });
+    run();
+    const onVis = () => { if (document.visibilityState === 'visible') run(); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { cancelled = true; document.removeEventListener('visibilitychange', onVis); };
+  }, [token, supabase]);
+
+  // ---- modules: messages (0029) — one fetch + ONE realtime subscription.
+  // Before, header + side menu + home page each opened `child-msgs-<token>`;
+  // the shared browser client returned the same (already subscribed) channel
+  // and `.on()` threw → the portal crashed on open.
+  const [conversations, setConversations] = useState<ChildChatOverview[] | null>(null);
+  const [msgTick, setMsgTick] = useState(0);
+  const reloadMessages = useCallback(() => setMsgTick((t) => t + 1), []);
+  useEffect(() => {
+    if (!token) { setConversations(null); return; }
+    let cancelled = false;
+    const run = () => fetchChildChatOverview(supabase, token)
+      .then((r) => { if (!cancelled) setConversations(r); })
+      .catch(() => { if (!cancelled) setConversations([]); });
+    run();
+    const onVis = () => { if (document.visibilityState === 'visible') run(); };
+    document.addEventListener('visibilitychange', onVis);
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const channel = supabase.channel(uniqueTopic('child-msgs'));
+    try {
+      channel
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages' }, () => {
+          if (timer) clearTimeout(timer);
+          timer = setTimeout(run, 700);
+        })
+        .subscribe();
+    } catch { /* realtime unavailable → polling on focus only */ }
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVis);
+      supabase.removeChannel(channel);
+    };
+  }, [token, supabase, msgTick]);
+
   const value = useMemo(
-    () => ({ token, profile, loading, error, refresh, login, logout }),
-    [token, profile, loading, error, refresh, login, logout]
+    () => ({ token, profile, loading, error, refresh, login, logout, exams, conversations, reloadMessages }),
+    [token, profile, loading, error, refresh, login, logout, exams, conversations, reloadMessages]
   );
 
   return <ChildContext.Provider value={value}>{children}</ChildContext.Provider>;
