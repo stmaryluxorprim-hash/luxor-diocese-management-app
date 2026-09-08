@@ -192,27 +192,29 @@ end $$;
 reset role;
 
 -- ---------- 6. child portal (anon) ----------
+create temp table t_ids as select (select id from public.conversations where kind = 'direct') cid, (select id from public.conversations where kind = 'group') gid;
+grant select on t_ids to anon, authenticated;
 select pg_temp.as_anon();
 do $$
 declare convs jsonb; msgs jsonb; b jsonb; cid uuid; gid uuid;
 begin
+  select t.cid, t.gid into cid, gid from t_ids t;
   if (select count(*) from public.child_portal_notifications('29901010000001')) < 2 then raise exception 'child notifications'; end if;
   b := public.child_portal_badge('29901010000001');
   if (b->>'unread_notifications')::int < 2 then raise exception 'child badge %', b; end if;
   convs := public.child_portal_conversations('29901010000001');
   if jsonb_array_length(convs) <> 2 then raise exception 'child should see direct + group, got %', convs; end if;
-  select id into cid from public.conversations where kind = 'direct';
-  select id into gid from public.conversations where kind = 'group';
   msgs := public.child_portal_messages('29901010000001', cid);
   if jsonb_array_length(msgs->'messages') <> 1 then raise exception 'child messages %', msgs; end if;
   if not (msgs->>'can_reply')::boolean then raise exception 'child should be able to reply in two-way'; end if;
   perform public.child_portal_send('29901010000001', cid, 'شكراً يا أبونا');
-  if (select count(*) from public.messages where conversation_id = cid and sender_type = 'child') <> 1 then raise exception 'child send'; end if;
+  msgs := public.child_portal_messages('29901010000001', cid);
+  if jsonb_array_length(msgs->'messages') <> 2 or not (msgs->'messages'->1->>'mine')::boolean then raise exception 'child send %', msgs; end if;
   begin
     perform public.child_portal_send('29901010000001', gid, 'رد على إعلان');
     raise exception 'child replied to one-way group';
   exception when others then
-    if sqlerrm not like '%one_way%' and sqlerrm not like '%cannot_reply%' then raise; end if;
+    if sqlerrm not like '%read_only%' and sqlerrm not like '%one_way%' and sqlerrm not like '%cannot_reply%' then raise; end if;
   end;
   -- another child cannot read مينا's conversation
   begin
@@ -248,18 +250,18 @@ begin
   returning id into a_new;
 
   -- +5 points → 95, no milestone crossed
-  insert into public.points_log (enrollment_id, delta) values ('50000000-0000-0000-0000-000000000001', 5);
+  insert into public.points_log (enrollment_id, delta, recorded_by) values ('50000000-0000-0000-0000-000000000001', 5, '00000000-0000-0000-0000-000000000001');
   if (select count(*) from public.message_deliveries where automation_id = a_pts) <> 0 then raise exception 'milestone fired too early'; end if;
   -- +10 → 105 crosses 100
-  insert into public.points_log (enrollment_id, delta) values ('50000000-0000-0000-0000-000000000001', 10);
+  insert into public.points_log (enrollment_id, delta, recorded_by) values ('50000000-0000-0000-0000-000000000001', 10, '00000000-0000-0000-0000-000000000001');
   if (select count(*) from public.message_deliveries where automation_id = a_pts and status = 'sent') <> 1 then raise exception 'milestone did not fire'; end if;
   if (select body from public.notifications where automation_id = a_pts) <> 'وصلت 100 نقطة' then raise exception 'milestone body: %', (select body from public.notifications where automation_id = a_pts); end if;
   -- +3 → 108, same milestone bucket → nothing
-  insert into public.points_log (enrollment_id, delta) values ('50000000-0000-0000-0000-000000000001', 3);
+  insert into public.points_log (enrollment_id, delta, recorded_by) values ('50000000-0000-0000-0000-000000000001', 3, '00000000-0000-0000-0000-000000000001');
   if (select count(*) from public.message_deliveries where automation_id = a_pts) <> 1 then raise exception 'milestone re-fired'; end if;
 
   -- attendance → servants of class A scope (servant A, svc manager, owner) get in_app
-  insert into public.attendance_log (enrollment_id, points_delta) values ('50000000-0000-0000-0000-000000000001', 1);
+  insert into public.attendance_log (enrollment_id, points_delta, recorded_by) values ('50000000-0000-0000-0000-000000000001', 1, '00000000-0000-0000-0000-000000000001');
   if (select count(*) from public.notifications where automation_id = a_att) < 2 then raise exception 'attendance servants notified: %', (select count(*) from public.notifications where automation_id = a_att); end if;
   if (select count(*) from public.notifications where automation_id = a_att and recipient_profile_id = '00000000-0000-0000-0000-000000000003') <> 0 then raise exception 'servant B (class B) should not be notified'; end if;
 
