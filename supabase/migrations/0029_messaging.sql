@@ -1126,8 +1126,8 @@ create or replace function public.msg_mark_read(p_conversation uuid)
 returns void language plpgsql volatile security definer set search_path = public as $$
 begin
   if not public.msg_conversation_visible(p_conversation) then raise exception 'forbidden'; end if;
-  insert into public.conversation_members (conversation_id, profile_id, last_read_at) values (p_conversation, auth.uid(), now())
-  on conflict (conversation_id, profile_id) where profile_id is not null do update set last_read_at = now();
+  insert into public.conversation_members (conversation_id, profile_id, last_read_at) values (p_conversation, auth.uid(), clock_timestamp())
+  on conflict (conversation_id, profile_id) where profile_id is not null do update set last_read_at = clock_timestamp();
   update public.notifications set read_at = now()
    where recipient_profile_id = auth.uid() and read_at is null and (data->>'conversation_id') = p_conversation::text;
 end $$;
@@ -1821,7 +1821,7 @@ begin
   select c2.* into c from public.conversations c2 join public.conversation_members cm on cm.conversation_id = c2.id
    where c2.id = p_conversation and cm.person_id = p.id;
   if c.id is null then raise exception 'forbidden' using errcode = 'P0001'; end if;
-  update public.conversation_members set last_read_at = now() where conversation_id = c.id and person_id = p.id;
+  update public.conversation_members set last_read_at = clock_timestamp() where conversation_id = c.id and person_id = p.id;
   update public.notifications set read_at = now() where recipient_person_id = p.id and read_at is null and (data->>'conversation_id') = c.id::text;
   select coalesce(jsonb_agg(jsonb_build_object(
            'id', m.id, 'sender_type', m.sender_type, 'mine', m.sender_person_id = p.id,

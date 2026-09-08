@@ -70,10 +70,13 @@ reset role;
 -- ---------- 2. owner grants the module; seeds visible; render works ----------
 select pg_temp.as_user('00000000-0000-0000-0000-000000000001');
 insert into public.module_access (module_key, church_id) values ('messaging', null);
+do $$ begin
+  if (select count(*) from public.message_templates) < 5 then raise exception 'seed templates missing'; end if;
+end $$;
+reset role;   -- internal helpers are revoked from clients → exercise them as superuser
 do $$
 declare ctx jsonb; r text;
 begin
-  if (select count(*) from public.message_templates) < 5 then raise exception 'seed templates missing'; end if;
   ctx := public.msg_child_context('50000000-0000-0000-0000-000000000001');
   if ctx->>'الاسم الأول' <> 'مينا' then raise exception 'first name ctx: %', ctx->>'الاسم الأول'; end if;
   if ctx->>'اسم الفصل' <> 'فصل أ' then raise exception 'class ctx: %', ctx->>'اسم الفصل'; end if;
@@ -83,6 +86,7 @@ begin
   ctx := public.msg_child_context('50000000-0000-0000-0000-000000000002');
   if ctx->>'ضمير' <> 'ة' then raise exception 'female suffix expected, got %', ctx->>'ضمير'; end if;
 end $$;
+select pg_temp.as_user('00000000-0000-0000-0000-000000000001');
 
 -- ---------- 3. audience preview + bulk send (in_app + whatsapp) ----------
 do $$
@@ -104,12 +108,15 @@ begin
   if (select count(*) from public.outbound_queue where status = 'pending') <> 2 then raise exception 'queue should hold 2 (children with phone)'; end if;
   if (select count(*) from public.message_campaigns) <> 1 then raise exception 'campaign row'; end if;
   if (select count(*) from public.message_deliveries where status = 'sent') <> 3 then raise exception 'deliveries'; end if;
-  -- same campaign id twice is impossible; dedupe engine check via msg_deliver directly
+end $$;
+reset role;
+do $$ begin
+  -- dedupe engine check via msg_deliver directly (internal → superuser)
   if public.msg_deliver('dup-test', array['in_app'], 't', 'b', 'info', null, '{}', '40000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000001', null, 'manual') <> 'sent' then raise exception 'first deliver'; end if;
   if public.msg_deliver('dup-test', array['in_app'], 't', 'b', 'info', null, '{}', '40000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000001', null, 'manual') <> 'duplicate' then raise exception 'dedupe failed'; end if;
 end $$;
 
--- ---------- 4. quiet hours defer + release ----------
+-- ---------- 4. quiet hours defer + release (internal engine → superuser) ----------
 do $$
 declare r text; d record;
 begin
@@ -132,6 +139,7 @@ begin
   if r <> 'sent' then raise exception 'respect_quiet=false should send, got %', r; end if;
   update public.messaging_settings set quiet_hours_start = null, quiet_hours_end = null;
 end $$;
+select pg_temp.as_user('00000000-0000-0000-0000-000000000001');
 
 -- ---------- 5. conversations: direct (two-way), staff, group one-way ----------
 do $$
@@ -163,10 +171,13 @@ do $$ declare b jsonb; begin
   if (select count(*) from public.msg_inbox(200, null)) <> 3 then raise exception 'servant A inbox should be 3, got %', (select count(*) from public.msg_inbox(200, null)); end if;
   b := public.msg_badge();
   if (b->>'unread_messages')::int < 1 then raise exception 'servant A should have unread staff message: %', b; end if;
-  if (b->>'pending_queue')::int <> 2 then raise exception 'pending queue badge %', b; end if;
+  if (b->>'pending_queue')::int <> 1 then raise exception 'pending queue badge (only class A child) %', b; end if;
   -- mark read
   perform public.msg_mark_read((select id from public.conversations where kind = 'staff' limit 1));
-  if (public.msg_badge()->>'unread_messages')::int <> 0 then raise exception 'mark read failed'; end if;
+  if (public.msg_badge()->>'unread_messages')::int <> (b->>'unread_messages')::int - 1 then raise exception 'mark read should drop unread by 1: %', public.msg_badge(); end if;
+  perform public.msg_mark_read((select id from public.conversations where kind = 'direct' limit 1));
+  perform public.msg_mark_read((select id from public.conversations where kind = 'group' limit 1));
+  if (public.msg_badge()->>'unread_messages')::int <> 0 then raise exception 'all read → 0: %', public.msg_badge(); end if;
 end $$;
 select pg_temp.as_user('00000000-0000-0000-0000-000000000003');
 do $$ begin
@@ -291,7 +302,7 @@ do $$ begin
   insert into public.message_automations (church_id, service_id, class_id, name, trigger, audience, body)
   values ('10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001', 'فصلي', 'schedule', 'children', 'x');
   -- queue: mark own scope items as sent
-  if public.msg_queue_mark(array(select id from public.outbound_queue where status = 'pending'), 'sent') <> 2 then raise exception 'queue mark'; end if;
+  if public.msg_queue_mark(array(select id from public.outbound_queue where status = 'pending'), 'sent') <> 1 then raise exception 'queue mark (class A only)'; end if;
   if (public.msg_badge()->>'pending_queue')::int <> 0 then raise exception 'queue badge after mark'; end if;
 end $$;
 reset role;
