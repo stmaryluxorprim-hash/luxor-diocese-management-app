@@ -8,10 +8,10 @@
 // To add a module later: add one entry here + guard its pages with
 // `useModuleVisible(key)` (or `<ModuleGate module="key">`).
 
-import { IdCard, Crown, HeartHandshake, ShoppingBag, GraduationCap, Cake, MessageCircle, Video, Trophy, type LucideIcon } from 'lucide-react';
+import { IdCard, Crown, HeartHandshake, ShoppingBag, GraduationCap, Cake, MessageCircle, Video, Trophy, Tent, type LucideIcon } from 'lucide-react';
 import type { Profile } from '@/lib/types';
 
-export type ModuleKey = 'cards' | 'shepherds' | 'store' | 'exams' | 'birthdays' | 'messages' | 'online' | 'achievements';
+export type ModuleKey = 'cards' | 'shepherds' | 'store' | 'exams' | 'birthdays' | 'messages' | 'online' | 'achievements' | 'occasions';
 
 export interface AppModule {
   key: ModuleKey;
@@ -96,6 +96,15 @@ export const MODULES: AppModule[] = [
     icon: Trophy,
     color: 'text-amber-600',
     paths: ['/achievements'],
+  },
+  {
+    key: 'occasions',
+    label: 'الفعاليات',
+    desc: 'رحلات · مؤتمرات · احتفالات · أنشطة: لوحة فعاليات، المخدوم يسجّل «أنا مشارك» من بوابته، الخادم يدير المشاركين وقائمة التحقق، تذكرة إلكترونية QR وتسجيل دخول بالمسح',
+    href: '/occasions',
+    icon: Tent,
+    color: 'text-cyan-600',
+    paths: ['/occasions'],
   },
 ];
 

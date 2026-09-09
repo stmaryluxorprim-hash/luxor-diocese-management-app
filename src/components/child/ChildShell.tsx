@@ -11,13 +11,14 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   Home, CalendarCheck, Star, Database, SlidersHorizontal, Menu, X, LogOut,
-  CalendarDays, Clock, User, GraduationCap, MessageCircle, Video, Trophy, type LucideIcon,
+  CalendarDays, Clock, User, GraduationCap, MessageCircle, Video, Trophy, Tent, type LucideIcon,
 } from 'lucide-react';
 import { useChild } from '@/lib/child-context';
 import type { ChildExam, ChildOnlineClass } from '@/lib/child-portal';
 import { formatCairoDate, formatCairoTime } from '@/lib/time';
 import type { ChildChatOverview } from '@/lib/chat';
 import type { ChildAchievements } from '@/lib/achievements';
+import { childOccasionHighlights, type ChildOccasion } from '@/lib/occasions';
 import { Loader2 } from 'lucide-react';
 
 export const CHILD_NAV: { href: string; label: string; icon: LucideIcon; id: string }[] = [
@@ -90,6 +91,17 @@ export function useChildAchievements(): { data: ChildAchievements | null; earned
   return { data: achievements, earnedCount: earned, inProgress: prog, hasAny: earned + prog > 0 };
 }
 
+/**
+ * The child's occasions (module الفعاليات, migration 0032) — from the shared
+ * ChildProvider. `null` while loading; `[]` when the module isn't granted
+ * (menu entry + home card stay hidden). `open` = I can still register.
+ */
+export function useChildOccasions(): { list: ChildOccasion[] | null; upcoming: number; open: number; withTicket: number } {
+  const { occasions } = useChild();
+  const h = childOccasionHighlights(occasions ?? []);
+  return { list: occasions, ...h };
+}
+
 // ---------- Header ----------
 function ChildHeader({ onMenu }: { onMenu: () => void }) {
   const { profile } = useChild();
@@ -157,6 +169,8 @@ function ChildSideMenu({ open, onClose }: { open: boolean; onClose: () => void }
   const { classes: onlineList, liveCount } = useChildOnline();
   const hasOnline = !!onlineList && onlineList.length > 0;
   const { hasAny: hasAchievements, earnedCount } = useChildAchievements();
+  const { list: occList, open: occOpen, withTicket } = useChildOccasions();
+  const hasOccasions = !!occList && occList.length > 0;
   const [now, setNow] = useState<Date | null>(null);
 
   useEffect(() => {
@@ -239,8 +253,24 @@ function ChildSideMenu({ open, onClose }: { open: boolean; onClose: () => void }
             );
           })}
 
-          {((exams && exams.length > 0) || hasMessages || hasOnline || hasAchievements) && (
+          {((exams && exams.length > 0) || hasMessages || hasOnline || hasAchievements || hasOccasions) && (
             <p className="mb-1 mt-3 px-2 text-[11px] font-extrabold text-slate-400">الوحدات</p>
+          )}
+          {hasOccasions && (
+            <Link
+              id="child-nav-occasions"
+              href="/child/occasions"
+              onClick={onClose}
+              className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-bold transition ${
+                isActive(pathname, '/child/occasions') ? 'bg-cyan-100 text-cyan-700' : 'text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              <Tent className="h-5 w-5 text-cyan-600" />
+              الفعاليات
+              {(occOpen > 0 || withTicket > 0) && (
+                <span className="mr-auto rounded-full bg-cyan-600 px-2 py-0.5 text-[10px] font-extrabold text-white tabular-nums">{occOpen > 0 ? occOpen : withTicket}</span>
+              )}
+            </Link>
           )}
           {hasOnline && (
             <Link
