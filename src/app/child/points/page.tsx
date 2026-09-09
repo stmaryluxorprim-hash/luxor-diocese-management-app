@@ -10,7 +10,7 @@
 import { useMemo, useState } from 'react';
 import Image from 'next/image';
 import {
-  Star, Loader2, Clock, User, Layers, Plus, Minus, CalendarCheck, Award, ShoppingBag, X, Receipt, Ban, Check, ChevronLeft, ImageIcon, GraduationCap, Cake,
+  Star, Loader2, Clock, User, Layers, Plus, Minus, CalendarCheck, Award, ShoppingBag, X, Receipt, Ban, Check, ChevronLeft, ImageIcon, GraduationCap, Cake, Trophy,
 } from 'lucide-react';
 import Link from 'next/link';
 import ChildShell from '@/components/child/ChildShell';
@@ -22,7 +22,7 @@ import {
 } from '@/lib/child-portal';
 import { APP_TZ } from '@/lib/time';
 
-type Filter = 'all' | 'cause' | 'attendance' | 'store' | 'exam' | 'birthday';
+type Filter = 'all' | 'cause' | 'attendance' | 'store' | 'exam' | 'birthday' | 'achievement';
 const FILTERS: { value: Filter; label: string }[] = [
   { value: 'all', label: 'الكل' },
   { value: 'cause', label: 'أسباب النقاط' },
@@ -30,6 +30,7 @@ const FILTERS: { value: Filter; label: string }[] = [
   { value: 'store', label: 'إستبدال النقاط' },
   { value: 'exam', label: 'الامتحانات' },
   { value: 'birthday', label: 'أعياد الميلاد' },
+  { value: 'achievement', label: 'الإنجازات' },
 ];
 
 const dayKey = (iso: string) =>
@@ -61,7 +62,8 @@ function PointsContent() {
   const hasStore = (rows ?? []).some((r) => r.source === 'store');
   const hasExam = (rows ?? []).some((r) => r.source === 'exam');
   const hasBirthday = (rows ?? []).some((r) => r.source === 'birthday');
-  const filters = FILTERS.filter((f) => (f.value !== 'store' || hasStore) && (f.value !== 'exam' || hasExam) && (f.value !== 'birthday' || hasBirthday));
+  const hasAchievement = (rows ?? []).some((r) => r.source === 'achievement');
+  const filters = FILTERS.filter((f) => (f.value !== 'store' || hasStore) && (f.value !== 'exam' || hasExam) && (f.value !== 'birthday' || hasBirthday) && (f.value !== 'achievement' || hasAchievement));
 
   const visible = useMemo(
     () => (rows ?? []).filter((r) => filter === 'all' || r.source === filter),
@@ -92,6 +94,7 @@ function PointsContent() {
     if (r.source === 'store') return { cls: pos ? 'bg-orange-100 text-orange-600' : 'bg-orange-500 text-white', icon: <ShoppingBag className="h-5 w-5" /> };
     if (r.source === 'exam') return { cls: pos ? 'bg-violet-100 text-violet-600' : 'bg-violet-500 text-white', icon: <GraduationCap className="h-5 w-5" /> };
     if (r.source === 'birthday') return { cls: 'bg-pink-100 text-pink-600', icon: <Cake className="h-5 w-5" /> };
+    if (r.source === 'achievement') return { cls: pos ? 'bg-amber-100 text-amber-600' : 'bg-amber-500 text-white', icon: <Trophy className="h-5 w-5" /> };
     return pos ? { cls: 'bg-gold-100 text-gold-600', icon: <Plus className="h-5 w-5" /> } : { cls: 'bg-red-100 text-red-500', icon: <Minus className="h-5 w-5" /> };
   };
 
@@ -169,12 +172,12 @@ function PointsContent() {
                         <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${ic.cls}`}>{ic.icon}</span>
                         <div className="min-w-0 flex-1 text-right">
                           <p className="truncate text-sm font-extrabold">
-                            {r.reason ?? (r.source === 'attendance' ? 'حضور' : r.source === 'store' ? 'إستبدال نقاط' : r.source === 'exam' ? 'امتحان' : r.source === 'birthday' ? 'هدية عيد ميلاد' : 'نقاط')}
+                            {r.reason ?? (r.source === 'attendance' ? 'حضور' : r.source === 'store' ? 'إستبدال نقاط' : r.source === 'exam' ? 'امتحان' : r.source === 'birthday' ? 'هدية عيد ميلاد' : r.source === 'achievement' ? 'إنجاز' : 'نقاط')}
                           </p>
                           <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] font-bold text-slate-400">
                             <span className="flex items-center gap-1">
-                              {r.source === 'attendance' ? <CalendarCheck className="h-3 w-3" /> : r.source === 'store' ? <ShoppingBag className="h-3 w-3" /> : r.source === 'exam' ? <GraduationCap className="h-3 w-3" /> : <Award className="h-3 w-3" />}
-                              {r.source === 'attendance' ? 'حضور' : r.source === 'store' ? 'المتجر' : r.source === 'exam' ? 'امتحان' : 'سبب'}
+                              {r.source === 'attendance' ? <CalendarCheck className="h-3 w-3" /> : r.source === 'store' ? <ShoppingBag className="h-3 w-3" /> : r.source === 'exam' ? <GraduationCap className="h-3 w-3" /> : r.source === 'achievement' ? <Trophy className="h-3 w-3" /> : <Award className="h-3 w-3" />}
+                              {r.source === 'attendance' ? 'حضور' : r.source === 'store' ? 'المتجر' : r.source === 'exam' ? 'امتحان' : r.source === 'achievement' ? 'إنجاز' : 'سبب'}
                             </span>
                             <span className="flex items-center gap-1">
                               <Clock className="h-3 w-3" /> {fmtDate(r.created_at)} · {fmtTime(r.created_at)}

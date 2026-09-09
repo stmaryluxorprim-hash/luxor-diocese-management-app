@@ -11,12 +11,13 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   Home, CalendarCheck, Star, Database, SlidersHorizontal, Menu, X, LogOut,
-  CalendarDays, Clock, User, GraduationCap, MessageCircle, Video, type LucideIcon,
+  CalendarDays, Clock, User, GraduationCap, MessageCircle, Video, Trophy, type LucideIcon,
 } from 'lucide-react';
 import { useChild } from '@/lib/child-context';
 import type { ChildExam, ChildOnlineClass } from '@/lib/child-portal';
 import { formatCairoDate, formatCairoTime } from '@/lib/time';
 import type { ChildChatOverview } from '@/lib/chat';
+import type { ChildAchievements } from '@/lib/achievements';
 import { Loader2 } from 'lucide-react';
 
 export const CHILD_NAV: { href: string; label: string; icon: LucideIcon; id: string }[] = [
@@ -75,6 +76,18 @@ export function useChildOnline(): { classes: ChildOnlineClass[] | null; liveCoun
     liveCount: list.filter((c) => c.status === 'live').length,
     upcomingCount: list.filter((c) => c.status === 'scheduled').length,
   };
+}
+
+/**
+ * The child's achievements (module الإنجازات, migration 0031) — from the
+ * shared ChildProvider. `null` while loading; empty lists when the module
+ * isn't granted (menu entry + home card stay hidden).
+ */
+export function useChildAchievements(): { data: ChildAchievements | null; earnedCount: number; inProgress: number; hasAny: boolean } {
+  const { achievements } = useChild();
+  const earned = achievements?.earned.length ?? 0;
+  const prog = achievements?.progress.length ?? 0;
+  return { data: achievements, earnedCount: earned, inProgress: prog, hasAny: earned + prog > 0 };
 }
 
 // ---------- Header ----------
@@ -143,6 +156,7 @@ function ChildSideMenu({ open, onClose }: { open: boolean; onClose: () => void }
   const hasMessages = !!conversations && conversations.length > 0;
   const { classes: onlineList, liveCount } = useChildOnline();
   const hasOnline = !!onlineList && onlineList.length > 0;
+  const { hasAny: hasAchievements, earnedCount } = useChildAchievements();
   const [now, setNow] = useState<Date | null>(null);
 
   useEffect(() => {
@@ -225,7 +239,7 @@ function ChildSideMenu({ open, onClose }: { open: boolean; onClose: () => void }
             );
           })}
 
-          {((exams && exams.length > 0) || hasMessages || hasOnline) && (
+          {((exams && exams.length > 0) || hasMessages || hasOnline || hasAchievements) && (
             <p className="mb-1 mt-3 px-2 text-[11px] font-extrabold text-slate-400">الوحدات</p>
           )}
           {hasOnline && (
@@ -241,6 +255,22 @@ function ChildSideMenu({ open, onClose }: { open: boolean; onClose: () => void }
               الفصول الأونلاين
               {liveCount > 0 && (
                 <span className="mr-auto flex items-center gap-1 rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-extrabold text-white"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" /> مباشر</span>
+              )}
+            </Link>
+          )}
+          {hasAchievements && (
+            <Link
+              id="child-nav-achievements"
+              href="/child/achievements"
+              onClick={onClose}
+              className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-bold transition ${
+                isActive(pathname, '/child/achievements') ? 'bg-amber-100 text-amber-700' : 'text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              <Trophy className="h-5 w-5 text-amber-600" />
+              الإنجازات
+              {earnedCount > 0 && (
+                <span className="mr-auto rounded-full bg-amber-600 px-2 py-0.5 text-[10px] font-extrabold text-white tabular-nums">{earnedCount}</span>
               )}
             </Link>
           )}

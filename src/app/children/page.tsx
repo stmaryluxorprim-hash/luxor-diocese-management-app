@@ -8,7 +8,7 @@ import {
   SlidersHorizontal, ChevronDown, School, Check, Minus,
   MessageSquare, Inbox, PenSquare, ArrowUpDown, ArrowUp, ArrowDown,
   Eye, Pencil, Trash2, Database, Printer, IdCard, CalendarDays, UserCheck, UserX, CircleDashed,
-  HeartHandshake,
+  HeartHandshake, Trophy,
 } from 'lucide-react';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
@@ -35,6 +35,7 @@ import {
   ViewPersonModal, EditPersonModal, DeletePersonModal,
 } from '@/components/PersonDataModals';
 import { AttendanceLogModal, PointsLogModal } from '@/components/LogModals';
+import AwardModal from '@/components/achievements/AwardModal';
 import { useDebouncedRealtime, scopeFilter } from '@/lib/realtime';
 import { sendMessage as sendChatMessage, chatErrorMessage } from '@/lib/chat';
 import {
@@ -129,13 +130,17 @@ export default function ChildrenPage() {
   const cardsModuleOn = moduleVisible('cards');
   // «رسالة داخلية» belongs to the MESSAGES MODULE (migration 0029)
   const messagesModuleOn = moduleVisible('messages');
+  // «الإنجازات» job belongs to the ACHIEVEMENTS MODULE (migration 0031)
+  const achievementsModuleOn = moduleVisible('achievements');
   const availableJobs = useMemo(
-    () => JOBS.filter((j) => j.value !== 'print_card' || cardsModuleOn),
-    [cardsModuleOn]
+    () => JOBS.filter((j) => (j.value !== 'print_card' || cardsModuleOn) && (j.value !== 'achievement' || achievementsModuleOn)),
+    [cardsModuleOn, achievementsModuleOn]
   );
   useEffect(() => {
     if (job === 'print_card' && !cardsModuleOn) setJob('attendance');
-  }, [job, cardsModuleOn]);
+    if (job === 'achievement' && !achievementsModuleOn) setJob('attendance');
+  }, [job, cardsModuleOn, achievementsModuleOn]);
+  const [awardTarget, setAwardTarget] = useState<EnrollmentWithPerson | null>(null);
 
   // ---------- الأشابين (shepherds module, 0025): «مجموعتي» ----------
   // When the module is granted to my scope a «مجموعتي» button sits under the
@@ -748,6 +753,9 @@ export default function ChildrenPage() {
     } else if (job === 'data') {
       // Opens the view / edit / delete modal per the armed data mode
       setDataTarget(e);
+    } else if (job === 'achievement') {
+      // Opens the per-child achievements modal (award / revoke / progress)
+      setAwardTarget(e);
     } else if (job === 'print_card') {
       // Send a card print request → appears in the requested list on the
       // print page. Duplicate (already pending) → unique violation 23505.
@@ -969,6 +977,18 @@ export default function ChildrenPage() {
         </button>
       );
     }
+    if (job === 'achievement') {
+      return (
+        <button
+          id={`job-btn-${child.id}`}
+          aria-label="الإنجازات"
+          onClick={() => doJob(child)}
+          className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-500 text-white shadow transition hover:bg-amber-600 active:scale-95"
+        >
+          <Trophy className="h-5 w-5" />
+        </button>
+      );
+    }
     if (job === 'print_card') {
       return (
         <button
@@ -1134,7 +1154,7 @@ export default function ChildrenPage() {
             id="event-selector"
             aria-label="اختيار المناسبة"
             className={`input-field appearance-none !px-2 text-xs font-bold ${
-              !eventId && job !== 'print_card' ? '!border-violet-300 !bg-violet-50 text-violet-700' : ''
+              !eventId && job !== 'print_card' && job !== 'achievement' ? '!border-violet-300 !bg-violet-50 text-violet-700' : ''
             }`}
             value={eventId}
             onChange={(e) => setEventId(e.target.value)}
@@ -1192,7 +1212,7 @@ export default function ChildrenPage() {
       </div>
 
       {/* ---------- Row 4: Mode buttons (attendance) / cause selector + mode buttons (points) ---------- */}
-      {job !== 'call' && job !== 'print_card' && (
+      {job !== 'call' && job !== 'print_card' && job !== 'achievement' && (
       <div className="mb-3 flex items-stretch gap-2">
         {/* Attendance: register / remove / event points buttons (event chosen in Row 2) */}
         {job === 'attendance' && (
@@ -1446,6 +1466,14 @@ export default function ChildrenPage() {
             : dataMode === 'edit'
               ? 'اضغط زر المخدوم لتعديل بياناته الشخصية'
               : 'اضغط زر المخدوم لحذفه — من الفصل والخدمة والكنيسة أو حذفًا نهائيًا من قاعدة البيانات'}
+        </p>
+      )}
+
+      {/* Achievements job hint */}
+      {job === 'achievement' && (
+        <p id="achievement-hint" className="mb-3 flex items-center gap-1.5 rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">
+          <Trophy className="h-3.5 w-3.5 shrink-0" />
+          اضغط زر الكأس بجانب المخدوم لمنحه إنجازاً أو متابعة تقدمه — إنجازات الحضور تُمنح تلقائياً عند تسجيل الحضور. إدارة الإنجازات في <Link href="/achievements" className="underline">وحدة الإنجازات</Link>.
         </p>
       )}
 
@@ -1885,6 +1913,13 @@ export default function ChildrenPage() {
           events={events}
           selectedEvent={selectedEvent}
           onClose={() => setLogTarget(null)}
+        />
+      )}
+      {awardTarget && (
+        <AwardModal
+          enrollment={awardTarget}
+          onClose={() => setAwardTarget(null)}
+          onAwarded={(bal) => patchEnrollment(awardTarget.id, { points: bal })}
         />
       )}
       {logTarget?.kind === 'points' && (

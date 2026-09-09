@@ -7,9 +7,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
-  CalendarCheck, Star, ChevronLeft, School, Layers, Church, Sparkles, Database, GraduationCap, MessageCircle, Video,
+  CalendarCheck, Star, ChevronLeft, School, Layers, Church, Sparkles, Database, GraduationCap, MessageCircle, Video, Trophy,
 } from 'lucide-react';
-import ChildShell, { useChildExams, useChildMessages, useChildOnline } from '@/components/child/ChildShell';
+import ChildShell, { useChildExams, useChildMessages, useChildOnline, useChildAchievements } from '@/components/child/ChildShell';
 import { Avatar, Kpi, fmtDateTime, usePortalList } from '@/components/child/ChildBits';
 import { useChild } from '@/lib/child-context';
 import { createClient } from '@/lib/supabase/client';
@@ -35,6 +35,7 @@ function HomeContent() {
   const { exams, openCount, pendingCount } = useChildExams();
   const { conversations, unread } = useChildMessages();
   const { classes: onlineList, liveCount, upcomingCount } = useChildOnline();
+  const { hasAny: hasAchievements, earnedCount, inProgress, data: achData } = useChildAchievements();
 
   const { rows: attendance } = usePortalList<ChildAttendanceRow>(
     token ? () => fetchChildAttendance(supabase, token) : null,
@@ -152,6 +153,27 @@ function HomeContent() {
               </span>
             </span>
             {liveCount > 0 && <span className="flex items-center gap-1 rounded-full bg-red-600 px-2.5 py-1 text-xs font-extrabold text-white"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" /> مباشر</span>}
+            <ChevronLeft className="h-4 w-4 text-slate-300" />
+          </Link>
+        </section>
+      )}
+
+      {/* Achievements (الإنجازات) — only when the module is granted and there is something to show */}
+      {hasAchievements && (
+        <section className="mb-4">
+          <Link id="child-home-achievements" href="/child/achievements" className="card flex items-center gap-3 !p-3 transition hover:bg-amber-50/40">
+            <span className="rounded-xl bg-amber-500 p-2.5 text-white"><Trophy className="h-6 w-6" /></span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-extrabold">الإنجازات</span>
+              <span className="block truncate text-xs text-slate-500">
+                {earnedCount > 0
+                  ? `حصلت على ${earnedCount} ${earnedCount === 1 ? 'إنجاز' : earnedCount === 2 ? 'إنجازين' : earnedCount <= 10 ? 'إنجازات' : 'إنجازاً'}${inProgress > 0 ? ` · ${inProgress} في الطريق` : ''}`
+                  : achData?.progress[0]
+                    ? `${achData.progress[0].name}: ${Math.min(achData.progress[0].current, achData.progress[0].target)} / ${achData.progress[0].target}`
+                    : 'إنجازاتك وتقدمك في الحضور'}
+              </span>
+            </span>
+            {earnedCount > 0 && <span className="rounded-full bg-amber-500 px-2.5 py-1 text-xs font-extrabold text-white tabular-nums">{earnedCount}</span>}
             <ChevronLeft className="h-4 w-4 text-slate-300" />
           </Link>
         </section>
