@@ -7,9 +7,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
-  CalendarCheck, Star, ChevronLeft, School, Layers, Church, Sparkles, Database, GraduationCap, MessageCircle,
+  CalendarCheck, Star, ChevronLeft, School, Layers, Church, Sparkles, Database, GraduationCap, MessageCircle, Video,
 } from 'lucide-react';
-import ChildShell, { useChildExams, useChildMessages } from '@/components/child/ChildShell';
+import ChildShell, { useChildExams, useChildMessages, useChildOnline } from '@/components/child/ChildShell';
 import { Avatar, Kpi, fmtDateTime, usePortalList } from '@/components/child/ChildBits';
 import { useChild } from '@/lib/child-context';
 import { createClient } from '@/lib/supabase/client';
@@ -34,6 +34,7 @@ function HomeContent() {
   const supabase = useMemo(() => createClient(), []);
   const { exams, openCount, pendingCount } = useChildExams();
   const { conversations, unread } = useChildMessages();
+  const { classes: onlineList, liveCount, upcomingCount } = useChildOnline();
 
   const { rows: attendance } = usePortalList<ChildAttendanceRow>(
     token ? () => fetchChildAttendance(supabase, token) : null,
@@ -137,6 +138,24 @@ function HomeContent() {
           )}
         </div>
       </section>
+
+      {/* Online classes (الفصول الأونلاين) — only when the module is granted and there is something */}
+      {onlineList && onlineList.length > 0 && (
+        <section className="mb-4">
+          <Link id="child-home-online" href={liveCount > 0 ? `/child/online/${onlineList.find((c) => c.status === 'live')!.id}` : '/child/online'}
+            className={`card flex items-center gap-3 !p-3 transition hover:bg-red-50/40 ${liveCount > 0 ? 'ring-2 ring-red-300' : ''}`}>
+            <span className={`rounded-xl p-2.5 text-white ${liveCount > 0 ? 'bg-red-600' : 'bg-slate-500'}`}><Video className="h-6 w-6" /></span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-extrabold">الفصول الأونلاين</span>
+              <span className="block truncate text-xs text-slate-500">
+                {liveCount > 0 ? `فصل مباشر الآن — ادخل!` : upcomingCount > 0 ? `${upcomingCount} فصل قادم` : 'فصولك السابقة ونتائج حضورك'}
+              </span>
+            </span>
+            {liveCount > 0 && <span className="flex items-center gap-1 rounded-full bg-red-600 px-2.5 py-1 text-xs font-extrabold text-white"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" /> مباشر</span>}
+            <ChevronLeft className="h-4 w-4 text-slate-300" />
+          </Link>
+        </section>
+      )}
 
       {/* Messages (الرسائل) — only when the module is granted to one of his classes */}
       {conversations && conversations.length > 0 && (

@@ -11,10 +11,10 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   Home, CalendarCheck, Star, Database, SlidersHorizontal, Menu, X, LogOut,
-  CalendarDays, Clock, User, GraduationCap, MessageCircle, type LucideIcon,
+  CalendarDays, Clock, User, GraduationCap, MessageCircle, Video, type LucideIcon,
 } from 'lucide-react';
 import { useChild } from '@/lib/child-context';
-import type { ChildExam } from '@/lib/child-portal';
+import type { ChildExam, ChildOnlineClass } from '@/lib/child-portal';
 import { formatCairoDate, formatCairoTime } from '@/lib/time';
 import type { ChildChatOverview } from '@/lib/chat';
 import { Loader2 } from 'lucide-react';
@@ -59,6 +59,21 @@ export function useChildMessages(): { conversations: ChildChatOverview[] | null;
     conversations,
     unread: (conversations ?? []).reduce((a, c) => a + (c.unread ?? 0), 0),
     reload: reloadMessages,
+  };
+}
+
+
+/**
+ * The child's online classes (module الفصول الأونلاين, migration 0030) — from
+ * the shared ChildProvider. `liveCount` = classes live right now.
+ */
+export function useChildOnline(): { classes: ChildOnlineClass[] | null; liveCount: number; upcomingCount: number } {
+  const { onlineClasses } = useChild();
+  const list = onlineClasses ?? [];
+  return {
+    classes: onlineClasses,
+    liveCount: list.filter((c) => c.status === 'live').length,
+    upcomingCount: list.filter((c) => c.status === 'scheduled').length,
   };
 }
 
@@ -126,6 +141,8 @@ function ChildSideMenu({ open, onClose }: { open: boolean; onClose: () => void }
   const { exams, pendingCount } = useChildExams();
   const { conversations, unread } = useChildMessages();
   const hasMessages = !!conversations && conversations.length > 0;
+  const { classes: onlineList, liveCount } = useChildOnline();
+  const hasOnline = !!onlineList && onlineList.length > 0;
   const [now, setNow] = useState<Date | null>(null);
 
   useEffect(() => {
@@ -208,8 +225,24 @@ function ChildSideMenu({ open, onClose }: { open: boolean; onClose: () => void }
             );
           })}
 
-          {((exams && exams.length > 0) || hasMessages) && (
+          {((exams && exams.length > 0) || hasMessages || hasOnline) && (
             <p className="mb-1 mt-3 px-2 text-[11px] font-extrabold text-slate-400">الوحدات</p>
+          )}
+          {hasOnline && (
+            <Link
+              id="child-nav-online"
+              href="/child/online"
+              onClick={onClose}
+              className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-bold transition ${
+                isActive(pathname, '/child/online') ? 'bg-red-100 text-red-700' : 'text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              <Video className="h-5 w-5 text-red-600" />
+              الفصول الأونلاين
+              {liveCount > 0 && (
+                <span className="mr-auto flex items-center gap-1 rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-extrabold text-white"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" /> مباشر</span>
+              )}
+            </Link>
           )}
           {hasMessages && (
             <Link
