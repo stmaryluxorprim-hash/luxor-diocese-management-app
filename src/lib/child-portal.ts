@@ -63,7 +63,7 @@ export interface ChildAttendanceRow {
 export interface ChildPointsRow {
   id: string;
   enrollment_id: string;
-  source: 'cause' | 'attendance' | 'store' | 'exam' | 'birthday' | 'online' | 'achievement';   // 'achievement' = الإنجازات (0031)   // 'store' = إستبدال النقاط (0026) · 'exam' = الامتحانات (0027) · 'birthday' = هدية عيد الميلاد (0028) · 'online' = الفصول الأونلاين (0030)
+  source: 'cause' | 'attendance' | 'store' | 'exam' | 'birthday' | 'online' | 'achievement' | 'occasion';   // 'achievement' = الإنجازات (0031) · 'occasion' = الفعاليات (0032)   // 'store' = إستبدال النقاط (0026) · 'exam' = الامتحانات (0027) · 'birthday' = هدية عيد الميلاد (0028) · 'online' = الفصول الأونلاين (0030)
   reason: string | null;
   delta: number;
   created_at: string;

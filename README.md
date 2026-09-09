@@ -96,6 +96,7 @@ In the settings hub **إدارة المناسبات** sits directly after **إد
 - ✅ **وحدة الرسائل (0029)**: محادثات داخل التطبيق. **المخدوم** يكتب من بوابته (`/child/messages`) في محادثة فصله فتظهر لكل الخدام المسموح لهم على هذا الفصل / الخدمة / الكنيسة، ويردّون عليه هناك. **الخادم** (`/messages`) يرسل لمخدوم أو لمخدومين محددين، أو **إعلاناً** لفصل / خدمة / كنيسة / كل الكنائس (كل واحد في حدود صلاحيته — «كل الكنائس» للمالك فقط)، وللخدام **التابعين له في التسلسل** (خادم / خدام محددون أو كل خدام فصل / خدمة / كنيسة) — ومن راسلك يمكنك الرد عليه دائماً. صندوق وارد بالمحادثات وعدد غير المقروء، دلو **الإعلانات**، محادثة بصور وتجميع بالأيام وتحميل أقدم، حذف (المرسل أو المسؤول)، **جرس في الهيدر** بعدد غير المقروء (الخادم والمخدوم)، وقناة **«رسالة داخلية»** في صفحة المخدومين ترسل نص القالب إلى محادثة المخدوم. مُقيَّدة بصلاحيات الوحدات (`module_visible('messages')`) وواقعية
 - ✅ **وحدة الفصول الأونلاين (0030)**: فصول مباشرة عبر يوتيوب / فيسبوك / زووم / جوجل ميت / رابط آخر. **الخادم** (`/online`) ينشئ الفصل (التاريخ، من–إلى، الخدمة، الكنيسة، الفصل / الفئة، رابط البث، امتحان مربوط، مناسبة، تشغيل الدردشة) ويحدد **قواعد الحضور** لكل فصل (نسبة الوقت، عدد فحوص الانتباه المطلوبة والحد الأدنى للنجاح، مدة الفحص، حد أدنى للإجابات، نقاط الحضور)؛ ثم من **غرفة التحكم** (`/online/[id]`) يبدأ / ينهي الفصل، يشاهد البث ومن دخل الآن، يرسل **فحص انتباه** (نافذة لدى المخدوم بعدّاد)، يطرح **أسئلة مباشرة** (اختيار من متعدد مُصحَّح آلياً بنقاط أو نص حر) ويرى الإجابات لحظياً، يتابع الدردشة، ويرى إحصاءات الحضور/الانتباه لحظياً. **المخدوم** (`/child/online`) يرى الفصول القادمة والمباشرة والسابقة بنتيجته، و«ادخل الفصل» (`/child/online/[id]`) يسجّل وقت الدخول ويُبقي جلسة بنبض 30 ث، مع البث والفحوص والأسئلة والدردشة ورابط الامتحان. **الحضور لا يُحسب بالدخول فقط**: عند الإنهاء تُطبَّق القاعدة `نسبة الوقت ≥ الحد` **و** `الفحوص الناجحة ≥ الحد الأدنى` (**و** الإجابات ≥ الحد إن وُجد) → حاضر / غائب، ويُكتب سطر حضور + نقاط في `attendance_log` (يظهر في سجل الحضور والنقاط بالبوابة)، مع إمكانية **تعديل يدوي** لحالة أي مخدوم وإعادة فتح الفصل. مقيدة بصلاحيات الوحدات (`module_visible('online')`).
 - ✅ **وحدة الإنجازات (0031)**: إنجازات بسيطة بشارة وصورة ونقاط. **الخادم** (`/achievements`) ينشئ الإنجاز (الاسم، الوصف، الصورة، النقاط، النطاق: الكنيسة / الخدمة / الفصل / المناسبة — كلها اختيارية عدا الكنيسة، مفعّل / موقوف)، ويحدد **طريقة المنح** (مرة واحدة أو عدة مرات مع حد أقصى وفاصل زمني بالأيام) و**النوع**: عادي (يُمنح يدوياً من صفحة المخدومين → مهمة «الإنجازات») أو **حضور** (قاعدة «عدد حضور» N أو «حضور متتالٍ» N على التوالي) يُمنح **آلياً** عند تسجيل أي حضور (سكانر / حضور المناسبات / الفصول الأونلاين). النقاط تُضاف عبر `points_log` الحالي (وتُخصم عند الإلغاء). قائمة الحاصلين مع إمكانية الإلغاء. **المخدوم** (`/child/achievements`) يرى كروت إنجازاته 🏆 وشرائط تقدّم «3 / 5» لإنجازات الحضور، وتظهر نقاط الإنجازات بمصدرها في سجل النقاط. مقيدة بصلاحيات الوحدات (`module_visible('achievements')`) وبالنطاق (RLS).
+- ✅ **وحدة الفعاليات (0032)**: رحلات · مؤتمرات · احتفالات · أنشطة. **الخادم** (`/occasions`) يرى **لوحة الفعاليات** (صورة، عنوان، نوع، موعد، مكان، منظّم، آخر موعد للتسجيل، الأماكن المتاحة، عدّادات) وينشئ الفعالية بنطاق كنيسة → خدمة → فصل، سعة (أو بلا حد)، **تأكيد تلقائي أو مراجعة**، نقاط عند تسجيل الدخول، وقائمة تحقق أولية. صفحة الفعالية (`/occasions/[id]`): **لوحة معلومات** (مسجّل · قيد المراجعة · مؤكد · سجّل الدخول · ملغي · متاح)، **المشاركون** (بحث وفلاتر، إضافة من مخدومي نطاقه، ورقة المشارك: تغيير الحالة قيد المراجعة → مؤكد → سجّل الدخول → ملغي، **قائمة التحقق** ✓ لكل مشارك — الدفع، إذن ولي الأمر، المواصلات…، عرض تذكرته، ملاحظة، حذف، تصدير CSV)، **تسجيل الدخول** بمسح QR التذكرة **أو كارت المخدوم** (أو كود يدوي / بحث بالاسم) مع كارت نتيجة أخضر / كهرماني ونقاط الدخول، **قائمة التحقق** (تعريف العناصر وترتيبها ونسبة إنجاز كل عنصر)، **الإعلانات والتذكيرات** + سجل تلقائي لحالات المشاركين. **المخدوم** (`/child/occasions`) يرى الفعاليات القادمة لفصله / خدمته / كنيسته مع حالته على كل كارت، يفتح الفعالية ويضغط **«أنا مشارك!»** (أو يلغي مشاركته قبل البدء)، وعند التأكيد تظهر **تذكرته الإلكترونية** (QR فريد `T-XXXXXXXXXX` قابل للحفظ كصورة)، وقائمة التحقق الخاصة به، والإعلانات وإشعارات حالته. الحالات: قيد المراجعة → مؤكد → سجّل الدخول → ملغي. مقيدة بصلاحيات الوحدات (`module_visible('occasions')`) وبالنطاق (RLS): الخادم يدير مخدومي نطاقه فقط حتى على فعالية أوسع.
 - ✅ **طلبات تعديل البيانات** (`/settings/data-requests`): class servant, service manager, church manager or owner of the child's scope reviews pending requests (photo before/after or field diff), approves (applied to `persons`) or rejects with a note — realtime, with a pending-count badge on الإعدادات and in the side menu
 
 ## Functional Entry Points
@@ -147,6 +148,10 @@ In the settings hub **إدارة المناسبات** sits directly after **إد
 | `/child/online/[id]` | child portal — the live room: join (timestamp), 30 s heartbeat, attention-check popup, live questions, chat, exam link, final result |
 | `/achievements` | achievements module — list (picture, name, type, points, scope, award mode, status), add / edit, activate / deactivate, delete, earners (+ revoke) |
 | `/child/achievements` | child portal — earned achievement cards + progress bars for attendance achievements |
+| `/occasions` | occasions module — board (cover, title, kind, date, place, organizer, seats, counters), scope selectors, phase filters, add |
+| `/occasions/[id]` | occasion detail — stats, participants (add / status / checklist / ticket / remove / CSV), QR check-in, checklist editor, announcements |
+| `/child/occasions` | child portal — occasions board with my registration status |
+| `/child/occasions/[id]` | child portal — occasion detail: «أنا مشارك», cancel, e-ticket QR, my checklist, notifications |
 
 ## Data Models & Storage
 - **Tables**: `churches`, `services`, `classes`, `profiles`, `children`, `attendance` — all with RLS + realtime
@@ -881,6 +886,99 @@ and permission systems; nothing is duplicated.
   rules + refund, child portal earned / progress / points labels, portal
   and trigger module gates, realtime publication. Validated on PostgreSQL
   17 with all 31 migrations → «ACHIEVEMENT TESTS PASSED» (store / exam /
+  birthday / messages / online suites still pass).
+
+## Occasions module — migration 0032 (وحدة الفعاليات)
+Trips, conferences, celebrations, activities and special events for a
+church / service / class. Optional module, visible only where the owner
+grants it (`/owner/modules` → الفعاليات). Reuses persons / enrollments,
+the points system, the scope + module RBAC and the child-portal token
+pattern; nothing is duplicated.
+
+- **Model** — `occasions` (scope `church_id` → `service_id?` → `class_id?`
+  (null = all, chain trigger-checked), `title`, `description`, `image_url`
+  (webp ≤ 1024 px in the `occasions/` photo folder), `kind` `trip |
+  conference | celebration | activity | other`, `starts_at` / `ends_at`,
+  `location` + `location_url`, `organizer` + `organizer_phone`,
+  `registration_deadline`, `capacity` (null = unlimited), `auto_confirm`,
+  `checkin_points`, `status` `draft | published | cancelled | completed`).
+  `occasion_registrations` (one row per enrollment × occasion — unique;
+  denormalised person / scope filled by trigger; `status` `pending |
+  confirmed | checked_in | cancelled`; `ticket_code` unique `T-` + 10 hex
+  (the e-ticket QR); `source` `self | leader`; who / when for every step;
+  `note`; `points_log_id` of the check-in points). `occasion_checklist_items`
+  (label · required · order) + `occasion_checklist_marks` (✓ per
+  registration, who / when). `occasion_notifications` (`kind` `announcement
+  | reminder | status`; `registration_id` null = everyone who sees the
+  occasion, else one child's automatic status row).
+- **Rules** — every status change goes through ONE internal path
+  (`occasion_apply_status`): capacity is re-checked when a cancelled
+  registration becomes active again (`occasion_full`); moving to
+  `checked_in` inserts `+checkin_points` into `points_log` (existing
+  trigger updates the balance), leaving `checked_in` or deleting the row
+  inserts the compensating −points; every change writes a status
+  notification for the child. Children may register only while
+  `published`, before `starts_at`, before `registration_deadline` and
+  while seats remain; `auto_confirm` → `confirmed` directly, else
+  `pending`. They may cancel only before the start and not after
+  check-in. Leaders bypass the deadline, never the capacity.
+- **Permissions** — `occasion_permissions()` → `{view, create, edit,
+  delete, manage}`: view = module + `scope_overlaps`; create / edit =
+  `scope_contains` (RLS); delete additionally owner / church_manager /
+  service_manager; **manage** (register / status / check-in / checklist
+  marks) = the caller sees the occasion AND the child's enrollment
+  (`enrollment_visible`) — so a class servant handles his own children on
+  a service-wide trip; announcements need `scope_contains` on the
+  occasion. `occasion_registrations` is insert / update-protected: writes
+  only via RPCs. `anon` reads nothing directly.
+- **Leader RPCs** — `occasion_register(occasion, enrollment, status)`,
+  `occasion_set_status(registration, status, note)`,
+  `occasion_checkin(occasion, code)` (code = ticket **or** the child's
+  national id → `{result: checked_in | already_checked_in, person, points}`;
+  raises `unknown_code / not_registered / registration_cancelled`),
+  `occasion_checklist_mark(registration, item, done)`,
+  `occasion_participants(occasion)` (names / pictures / checklist done),
+  `occasion_counts(uuid[])` (pending · confirmed · checked_in · cancelled ·
+  active for the dashboard — whole occasion, so remaining seats are real).
+- **Child portal** (anon, token = national id) — `child_portal_occasions`
+  (board: published occasions covering one of my enrollments where the
+  module is granted, + recent ones I took part in; each with
+  `can_register`, `remaining`, `my_registration`, `last_notification`),
+  `child_portal_occasion(id)` (+ `checklist` with my marks +
+  `notifications` mine + broadcast), `child_portal_occasion_register`
+  («أنا مشارك»), `child_portal_occasion_cancel`. `child_portal_points`
+  learns source `occasion` («حضور فعالية 🎟️ …»).
+- **Frontend** — registry entry `occasions` (`src/lib/modules.ts`), gate
+  `src/app/occasions/layout.tsx`, data layer `src/lib/occasions.ts`
+  (types, labels, phase / registration helpers, Cairo datetime-local
+  conversion, Arabic error mapping, CRUD + RPC wrappers, child fetchers);
+  `src/components/occasions/*` (`OccasionBits` — header, cover, badges,
+  board card, info list, stats row, **TicketCard** QR, avatar;
+  `OccasionFormModal`; `AddParticipantModal` (server-paged scoped search);
+  `ParticipantSheet` (status stepper, checklist ✓, ticket, note, remove);
+  `CheckinTab` (camera QR via the shared `QrScanner`, manual code, name
+  fallback, result card, history); `ChecklistTab`; `AnnouncementsTab`);
+  pages `/occasions` (board, KPIs, filters, realtime) and
+  `/occasions/[id]` (4 tabs, realtime on all five tables, CSV export,
+  share). Child portal: `ChildProvider` fetches `child_portal_occasions`
+  once (realtime on occasions / registrations / notifications),
+  `useChildOccasions` in `ChildShell` (side-menu entry with a badge),
+  home card, `/child/occasions` (القادمة · مشاركاتي · السابقة),
+  `/child/occasions/[id]`, points page filter `الفعاليات`.
+- **Tests** — `supabase/tests/occasions_module_test.sql`: module gate
+  (servant + child), constraints / scope chain, RLS per role (class
+  servant vs service manager, announce / checklist write rights), leader
+  registration (direct insert blocked, duplicate, cross-class forbidden,
+  capacity, out-of-scope), counts, participant visibility per class,
+  child board / can_register / deadline / full / draft hidden /
+  cross-class hidden, detail checklist + notifications + ticket, self
+  cancel → seat freed → self register pending, confirm + note, checklist
+  marks (idempotent, unknown item), check-in by ticket (+points, case
+  insensitive, already), by national id, unknown code, cancelled child,
+  refund on leaving checked_in and on delete, status notifications,
+  portal points label, no cancel after check-in, started occasion, anon
+  direct reads blocked, realtime publication. Validated on PostgreSQL 17
+  with all 32 migrations → «OCCASION TESTS PASSED» (store / exam /
   birthday / messages / online suites still pass).
 
 ## Rolled back: Messaging module — migration 0029 (وحدة الرسائل والإشعارات)

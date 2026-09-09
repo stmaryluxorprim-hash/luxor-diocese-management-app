@@ -14,6 +14,7 @@ import {
 } from '@/lib/child-portal';
 import { fetchChildChatOverview, type ChildChatOverview } from '@/lib/chat';
 import { fetchChildAchievements, type ChildAchievements } from '@/lib/achievements';
+import { fetchChildOccasions, type ChildOccasion } from '@/lib/occasions';
 import { uniqueTopic } from '@/lib/realtime';
 
 interface ChildState {
@@ -40,6 +41,9 @@ interface ChildState {
   /** achievements (0031): earned cards + attendance progress — realtime on user_achievements */
   achievements: ChildAchievements | null;
   reloadAchievements: () => void;
+  /** occasions (0032): board of published occasions + my registrations — realtime on occasions / registrations / notifications */
+  occasions: ChildOccasion[] | null;
+  reloadOccasions: () => void;
 }
 
 const ChildContext = createContext<ChildState>({
@@ -57,6 +61,8 @@ const ChildContext = createContext<ChildState>({
   reloadOnline: () => {},
   achievements: null,
   reloadAchievements: () => {},
+  occasions: null,
+  reloadOccasions: () => {},
 });
 
 export function ChildProvider({ children }: { children: ReactNode }) {
@@ -274,9 +280,40 @@ export function ChildProvider({ children }: { children: ReactNode }) {
     };
   }, [token, supabase, achTick]);
 
+  // ---- modules: occasions (0032) — one fetch + realtime on occasions / registrations / notifications
+  const [occasions, setOccasions] = useState<ChildOccasion[] | null>(null);
+  const [occTick, setOccTick] = useState(0);
+  const reloadOccasions = useCallback(() => setOccTick((t) => t + 1), []);
+  useEffect(() => {
+    if (!token) { setOccasions(null); return; }
+    let cancelled = false;
+    const run = () => fetchChildOccasions(supabase, token)
+      .then((r) => { if (!cancelled) setOccasions(r); })
+      .catch(() => { if (!cancelled) setOccasions([]); });
+    run();
+    const onVis = () => { if (document.visibilityState === 'visible') run(); };
+    document.addEventListener('visibilitychange', onVis);
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const bump = () => { if (timer) clearTimeout(timer); timer = setTimeout(run, 800); };
+    const channel = supabase.channel(uniqueTopic('child-occasions'));
+    try {
+      channel
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'occasions' }, bump)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'occasion_registrations' }, bump)
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'occasion_notifications' }, bump)
+        .subscribe();
+    } catch { /* realtime unavailable → polling on focus only */ }
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVis);
+      supabase.removeChannel(channel);
+    };
+  }, [token, supabase, occTick]);
+
   const value = useMemo(
-    () => ({ token, profile, loading, error, refresh, login, logout, exams, conversations, reloadMessages, onlineClasses, reloadOnline, achievements, reloadAchievements }),
-    [token, profile, loading, error, refresh, login, logout, exams, conversations, reloadMessages, onlineClasses, reloadOnline, achievements, reloadAchievements]
+    () => ({ token, profile, loading, error, refresh, login, logout, exams, conversations, reloadMessages, onlineClasses, reloadOnline, achievements, reloadAchievements, occasions, reloadOccasions }),
+    [token, profile, loading, error, refresh, login, logout, exams, conversations, reloadMessages, onlineClasses, reloadOnline, achievements, reloadAchievements, occasions, reloadOccasions]
   );
 
   return <ChildContext.Provider value={value}>{children}</ChildContext.Provider>;

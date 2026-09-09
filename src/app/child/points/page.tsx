@@ -10,7 +10,7 @@
 import { useMemo, useState } from 'react';
 import Image from 'next/image';
 import {
-  Star, Loader2, Clock, User, Layers, Plus, Minus, CalendarCheck, Award, ShoppingBag, X, Receipt, Ban, Check, ChevronLeft, ImageIcon, GraduationCap, Cake, Trophy,
+  Star, Loader2, Clock, User, Layers, Plus, Minus, CalendarCheck, Award, ShoppingBag, X, Receipt, Ban, Check, ChevronLeft, ImageIcon, GraduationCap, Cake, Trophy, Tent,
 } from 'lucide-react';
 import Link from 'next/link';
 import ChildShell from '@/components/child/ChildShell';
@@ -22,7 +22,7 @@ import {
 } from '@/lib/child-portal';
 import { APP_TZ } from '@/lib/time';
 
-type Filter = 'all' | 'cause' | 'attendance' | 'store' | 'exam' | 'birthday' | 'achievement';
+type Filter = 'all' | 'cause' | 'attendance' | 'store' | 'exam' | 'birthday' | 'achievement' | 'occasion';
 const FILTERS: { value: Filter; label: string }[] = [
   { value: 'all', label: 'الكل' },
   { value: 'cause', label: 'أسباب النقاط' },
@@ -31,6 +31,7 @@ const FILTERS: { value: Filter; label: string }[] = [
   { value: 'exam', label: 'الامتحانات' },
   { value: 'birthday', label: 'أعياد الميلاد' },
   { value: 'achievement', label: 'الإنجازات' },
+  { value: 'occasion', label: 'الفعاليات' },
 ];
 
 const dayKey = (iso: string) =>
@@ -63,7 +64,8 @@ function PointsContent() {
   const hasExam = (rows ?? []).some((r) => r.source === 'exam');
   const hasBirthday = (rows ?? []).some((r) => r.source === 'birthday');
   const hasAchievement = (rows ?? []).some((r) => r.source === 'achievement');
-  const filters = FILTERS.filter((f) => (f.value !== 'store' || hasStore) && (f.value !== 'exam' || hasExam) && (f.value !== 'birthday' || hasBirthday) && (f.value !== 'achievement' || hasAchievement));
+  const hasOccasion = (rows ?? []).some((r) => r.source === 'occasion');
+  const filters = FILTERS.filter((f) => (f.value !== 'store' || hasStore) && (f.value !== 'exam' || hasExam) && (f.value !== 'birthday' || hasBirthday) && (f.value !== 'achievement' || hasAchievement) && (f.value !== 'occasion' || hasOccasion));
 
   const visible = useMemo(
     () => (rows ?? []).filter((r) => filter === 'all' || r.source === filter),
@@ -95,6 +97,7 @@ function PointsContent() {
     if (r.source === 'exam') return { cls: pos ? 'bg-violet-100 text-violet-600' : 'bg-violet-500 text-white', icon: <GraduationCap className="h-5 w-5" /> };
     if (r.source === 'birthday') return { cls: 'bg-pink-100 text-pink-600', icon: <Cake className="h-5 w-5" /> };
     if (r.source === 'achievement') return { cls: pos ? 'bg-amber-100 text-amber-600' : 'bg-amber-500 text-white', icon: <Trophy className="h-5 w-5" /> };
+    if (r.source === 'occasion') return { cls: pos ? 'bg-cyan-100 text-cyan-600' : 'bg-cyan-500 text-white', icon: <Tent className="h-5 w-5" /> };
     return pos ? { cls: 'bg-gold-100 text-gold-600', icon: <Plus className="h-5 w-5" /> } : { cls: 'bg-red-100 text-red-500', icon: <Minus className="h-5 w-5" /> };
   };
 

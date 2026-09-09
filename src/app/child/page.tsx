@@ -7,9 +7,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
-  CalendarCheck, Star, ChevronLeft, School, Layers, Church, Sparkles, Database, GraduationCap, MessageCircle, Video, Trophy,
+  CalendarCheck, Star, ChevronLeft, School, Layers, Church, Sparkles, Database, GraduationCap, MessageCircle, Video, Trophy, Tent,
 } from 'lucide-react';
-import ChildShell, { useChildExams, useChildMessages, useChildOnline, useChildAchievements } from '@/components/child/ChildShell';
+import ChildShell, { useChildExams, useChildMessages, useChildOnline, useChildAchievements, useChildOccasions } from '@/components/child/ChildShell';
 import { Avatar, Kpi, fmtDateTime, usePortalList } from '@/components/child/ChildBits';
 import { useChild } from '@/lib/child-context';
 import { createClient } from '@/lib/supabase/client';
@@ -36,6 +36,7 @@ function HomeContent() {
   const { conversations, unread } = useChildMessages();
   const { classes: onlineList, liveCount, upcomingCount } = useChildOnline();
   const { hasAny: hasAchievements, earnedCount, inProgress, data: achData } = useChildAchievements();
+  const { list: occList, upcoming: occUpcoming, open: occOpen, withTicket } = useChildOccasions();
 
   const { rows: attendance } = usePortalList<ChildAttendanceRow>(
     token ? () => fetchChildAttendance(supabase, token) : null,
@@ -153,6 +154,23 @@ function HomeContent() {
               </span>
             </span>
             {liveCount > 0 && <span className="flex items-center gap-1 rounded-full bg-red-600 px-2.5 py-1 text-xs font-extrabold text-white"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" /> مباشر</span>}
+            <ChevronLeft className="h-4 w-4 text-slate-300" />
+          </Link>
+        </section>
+      )}
+
+      {/* Occasions (الفعاليات) — only when the module is granted and there is something */}
+      {occList && occList.length > 0 && (
+        <section className="mb-4">
+          <Link id="child-home-occasions" href="/child/occasions" className={`card flex items-center gap-3 !p-3 transition hover:bg-cyan-50/40 ${occOpen > 0 ? 'ring-2 ring-cyan-200' : ''}`}>
+            <span className="rounded-xl bg-cyan-600 p-2.5 text-white"><Tent className="h-6 w-6" /></span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-extrabold">الفعاليات</span>
+              <span className="block truncate text-xs text-slate-500">
+                {occOpen > 0 ? `${occOpen} فعالية مفتوحة للتسجيل — أنا مشارك!` : withTicket > 0 ? `لديك ${withTicket} تذكرة جاهزة` : occUpcoming > 0 ? `${occUpcoming} فعالية قادمة` : 'رحلات ومؤتمرات وأنشطة فصلك'}
+              </span>
+            </span>
+            {(occOpen > 0 || withTicket > 0) && <span className="rounded-full bg-cyan-600 px-2.5 py-1 text-xs font-extrabold text-white tabular-nums">{occOpen > 0 ? occOpen : withTicket}</span>}
             <ChevronLeft className="h-4 w-4 text-slate-300" />
           </Link>
         </section>
