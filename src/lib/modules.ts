@@ -8,10 +8,10 @@
 // To add a module later: add one entry here + guard its pages with
 // `useModuleVisible(key)` (or `<ModuleGate module="key">`).
 
-import { IdCard, Crown, HeartHandshake, ShoppingBag, GraduationCap, Cake, MessageCircle, type LucideIcon } from 'lucide-react';
+import { IdCard, Crown, HeartHandshake, ShoppingBag, GraduationCap, Cake, MessageCircle, Video, type LucideIcon } from 'lucide-react';
 import type { Profile } from '@/lib/types';
 
-export type ModuleKey = 'cards' | 'shepherds' | 'store' | 'exams' | 'birthdays' | 'messages';
+export type ModuleKey = 'cards' | 'shepherds' | 'store' | 'exams' | 'birthdays' | 'messages' | 'online';
 
 export interface AppModule {
   key: ModuleKey;
@@ -78,6 +78,15 @@ export const MODULES: AppModule[] = [
     icon: MessageCircle,
     color: 'text-sky-600',
     paths: ['/messages'],
+  },
+  {
+    key: 'online',
+    label: 'الفصول الأونلاين',
+    desc: 'فصل ببث مباشر (YouTube · Facebook · Zoom · Meet): يدخل المخدوم من بوابته، فحوص انتباه وأسئلة ودردشة مباشرة، والحضور يُحسب تلقائياً بقواعد قابلة للتعديل',
+    href: '/online',
+    icon: Video,
+    color: 'text-red-600',
+    paths: ['/online'],
   },
 ];
 

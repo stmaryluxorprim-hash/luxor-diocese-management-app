@@ -10,7 +10,7 @@ import {
 import { createClient } from '@/lib/supabase/client';
 import {
   clearChildToken, fetchChildProfile, getChildToken, setChildToken,
-  childErrorMessage, fetchChildExams, type ChildProfile, type ChildExam,
+  childErrorMessage, fetchChildExams, fetchChildOnlineClasses, type ChildProfile, type ChildExam, type ChildOnlineClass,
 } from '@/lib/child-portal';
 import { fetchChildChatOverview, type ChildChatOverview } from '@/lib/chat';
 import { uniqueTopic } from '@/lib/realtime';
@@ -33,6 +33,9 @@ interface ChildState {
   exams: ChildExam[] | null;
   conversations: ChildChatOverview[] | null;
   reloadMessages: () => void;
+  /** online classes (0030): scheduled / live / recent — realtime on online_classes */
+  onlineClasses: ChildOnlineClass[] | null;
+  reloadOnline: () => void;
 }
 
 const ChildContext = createContext<ChildState>({
@@ -46,6 +49,8 @@ const ChildContext = createContext<ChildState>({
   exams: null,
   conversations: null,
   reloadMessages: () => {},
+  onlineClasses: null,
+  reloadOnline: () => {},
 });
 
 export function ChildProvider({ children }: { children: ReactNode }) {
@@ -196,9 +201,41 @@ export function ChildProvider({ children }: { children: ReactNode }) {
     };
   }, [token, supabase, msgTick]);
 
+  // ---- modules: online classes (0030) — one fetch + one realtime subscription
+  // on online_classes (status flips scheduled → live → ended), refetch on focus.
+  const [onlineClasses, setOnlineClasses] = useState<ChildOnlineClass[] | null>(null);
+  const [onlineTick, setOnlineTick] = useState(0);
+  const reloadOnline = useCallback(() => setOnlineTick((t) => t + 1), []);
+  useEffect(() => {
+    if (!token) { setOnlineClasses(null); return; }
+    let cancelled = false;
+    const run = () => fetchChildOnlineClasses(supabase, token)
+      .then((r) => { if (!cancelled) setOnlineClasses(r); })
+      .catch(() => { if (!cancelled) setOnlineClasses([]); });
+    run();
+    const onVis = () => { if (document.visibilityState === 'visible') run(); };
+    document.addEventListener('visibilitychange', onVis);
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const channel = supabase.channel(uniqueTopic('child-online'));
+    try {
+      channel
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'online_classes' }, () => {
+          if (timer) clearTimeout(timer);
+          timer = setTimeout(run, 600);
+        })
+        .subscribe();
+    } catch { /* realtime unavailable → polling on focus only */ }
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVis);
+      supabase.removeChannel(channel);
+    };
+  }, [token, supabase, onlineTick]);
+
   const value = useMemo(
-    () => ({ token, profile, loading, error, refresh, login, logout, exams, conversations, reloadMessages }),
-    [token, profile, loading, error, refresh, login, logout, exams, conversations, reloadMessages]
+    () => ({ token, profile, loading, error, refresh, login, logout, exams, conversations, reloadMessages, onlineClasses, reloadOnline }),
+    [token, profile, loading, error, refresh, login, logout, exams, conversations, reloadMessages, onlineClasses, reloadOnline]
   );
 
   return <ChildContext.Provider value={value}>{children}</ChildContext.Provider>;

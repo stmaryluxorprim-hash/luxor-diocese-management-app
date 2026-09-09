@@ -94,6 +94,7 @@ In the settings hub **إدارة المناسبات** sits directly after **إد
 - ✅ **وحدة الامتحانات (0027)**: امتحانات اختيار من متعدد (`/exams`) — الخادم ينشئ الامتحان (عنوان · نطاق كنيسة → خدمة → فصل · فترة إتاحة · وقت افتراضي ودرجة افتراضية للسؤال · **شرط النجاح** نسبة ٪ أو درجة · **نقاط النجاح ونقاط الدرجة الكاملة** · **كل الأسئلة أو عدد عشوائي** (مثلاً 10 من 20 لكل مخدوم) · ترتيب عشوائي للأسئلة والاختيارات · عدد المحاولات · ما يراه المخدوم بعد الانتهاء)، يضيف الأسئلة (نص · صورة · 2–6 اختيارات · الإجابة الصحيحة · الدرجة · الوقت لكل سؤال) ثم **ينشر**. تبويب **النتائج**: كل مخدوم حل الامتحان مع الدرجة والنسبة و**فلتر ناجح / لم ينجح** و**ترتيب بالدرجة أو الاسم أو التاريخ**، تفاصيل كل سؤال بإجابته، إلغاء محاولة (استرداد النقاط + إعادة)، تصدير Excel. في **بوابة المخدوم** يظهر «الامتحانات» في القائمة الجانبية والرئيسية: **سؤال واحد كل مرة مع عدّاد مرتبط بوقت السيرفر**، ينتقل تلقائياً عند انتهاء الوقت أو بالضغط على «التالي»، **لا يمكن الرجوع**، المتابعة من حيث توقف عند إغلاق التطبيق، شاشة نتيجة، والنقاط تُضاف لرصيده فوراً وتظهر في صفحة النقاط. مُقيَّدة بصلاحيات الوحدات (`module_visible('exams')`) وواقعية
 - ✅ **وحدة أعياد الميلاد (0028)**: `/birthdays` — **من عيد ميلاده هذا الشهر يوماً بيوم** مع ◀ ▶ لتغيير الشهر (والسنة) وشريط الشهور، ونطاق كنيسة → خدمة → فصل، واليوم الحالي مُضاء. لكل مخدوم: **اتصال** · **واتساب / SMS** بنص تهنئة فيه متغيرات ([الاسم الأول] · [السن] · [تاريخ العيد] · [اسم الفصل] …) · **هدية نقاط** (مرة واحدة في السنة، NumPad، تُسجَّل في سجل النقاط وتظهر للمخدوم) · **كارت تهنئة** (معاينة → **إرسال كصورة** عبر قائمة المشاركة/واتساب · تنزيل PNG بدقة 300dpi · طباعة) · **سجل التهاني** (مكالمة / واتساب / SMS / كارت مطبوع / كارت مُرسَل / هدية / ملاحظة — مع تراجع). جماعياً: **تهنئة الجميع** (يفتح محادثة كل مخدوم بدوره بالنص المكتوب مع تخطّي)، **هدية للجميع**، **طباعة كروت الشهر**، تصدير **تقويم ICS** (تذكير سنوي) و**Excel**، فلاتر (لم يُهنَّأ / هُنِّئ / بلا هدية / بلا هاتف) وبحث. **كروت التهنئة** (`/birthdays/cards`): قوالب بنفس محرك تصميم الكروت + بيانات عيد الميلاد (الاسم الأول · السن الجديدة · يوم وشهر العيد · نقاط الهدية)، افتراضي لكل نطاق، وتبويب طباعة مصدره مواليد الشهر. **الإعدادات** (`/birthdays/settings`): نقاط الهدية ونص التهنئة الافتراضي لكل كنيسة / عام. **الرئيسية**: بطاقة «أعياد الميلاد» بمواليد اليوم والأسبوع القادم. **بوابة المخدوم**: يوم عيد ميلاده يرى تهنئة وكارته (يحفظه كصورة) وهديته، وقبله بأسبوع عدّاد. مُقيَّدة بصلاحيات الوحدات (`module_visible('birthdays')`) وواقعية
 - ✅ **وحدة الرسائل (0029)**: محادثات داخل التطبيق. **المخدوم** يكتب من بوابته (`/child/messages`) في محادثة فصله فتظهر لكل الخدام المسموح لهم على هذا الفصل / الخدمة / الكنيسة، ويردّون عليه هناك. **الخادم** (`/messages`) يرسل لمخدوم أو لمخدومين محددين، أو **إعلاناً** لفصل / خدمة / كنيسة / كل الكنائس (كل واحد في حدود صلاحيته — «كل الكنائس» للمالك فقط)، وللخدام **التابعين له في التسلسل** (خادم / خدام محددون أو كل خدام فصل / خدمة / كنيسة) — ومن راسلك يمكنك الرد عليه دائماً. صندوق وارد بالمحادثات وعدد غير المقروء، دلو **الإعلانات**، محادثة بصور وتجميع بالأيام وتحميل أقدم، حذف (المرسل أو المسؤول)، **جرس في الهيدر** بعدد غير المقروء (الخادم والمخدوم)، وقناة **«رسالة داخلية»** في صفحة المخدومين ترسل نص القالب إلى محادثة المخدوم. مُقيَّدة بصلاحيات الوحدات (`module_visible('messages')`) وواقعية
+- ✅ **وحدة الفصول الأونلاين (0030)**: فصول مباشرة عبر يوتيوب / فيسبوك / زووم / جوجل ميت / رابط آخر. **الخادم** (`/online`) ينشئ الفصل (التاريخ، من–إلى، الخدمة، الكنيسة، الفصل / الفئة، رابط البث، امتحان مربوط، مناسبة، تشغيل الدردشة) ويحدد **قواعد الحضور** لكل فصل (نسبة الوقت، عدد فحوص الانتباه المطلوبة والحد الأدنى للنجاح، مدة الفحص، حد أدنى للإجابات، نقاط الحضور)؛ ثم من **غرفة التحكم** (`/online/[id]`) يبدأ / ينهي الفصل، يشاهد البث ومن دخل الآن، يرسل **فحص انتباه** (نافذة لدى المخدوم بعدّاد)، يطرح **أسئلة مباشرة** (اختيار من متعدد مُصحَّح آلياً بنقاط أو نص حر) ويرى الإجابات لحظياً، يتابع الدردشة، ويرى إحصاءات الحضور/الانتباه لحظياً. **المخدوم** (`/child/online`) يرى الفصول القادمة والمباشرة والسابقة بنتيجته، و«ادخل الفصل» (`/child/online/[id]`) يسجّل وقت الدخول ويُبقي جلسة بنبض 30 ث، مع البث والفحوص والأسئلة والدردشة ورابط الامتحان. **الحضور لا يُحسب بالدخول فقط**: عند الإنهاء تُطبَّق القاعدة `نسبة الوقت ≥ الحد` **و** `الفحوص الناجحة ≥ الحد الأدنى` (**و** الإجابات ≥ الحد إن وُجد) → حاضر / غائب، ويُكتب سطر حضور + نقاط في `attendance_log` (يظهر في سجل الحضور والنقاط بالبوابة)، مع إمكانية **تعديل يدوي** لحالة أي مخدوم وإعادة فتح الفصل. مقيدة بصلاحيات الوحدات (`module_visible('online')`).
 - ✅ **طلبات تعديل البيانات** (`/settings/data-requests`): class servant, service manager, church manager or owner of the child's scope reviews pending requests (photo before/after or field diff), approves (applied to `persons`) or rejects with a note — realtime, with a pending-count badge on الإعدادات and in the side menu
 
 ## Functional Entry Points
@@ -139,6 +140,10 @@ In the settings hub **إدارة المناسبات** sits directly after **إد
 | `/messages/[bucket]` | thread — `e:<enrollment>` child conversation (child + every servant of the tenant + announcements he received), `s:<profile>` direct staff chat, `b` announcements |
 | `/child/messages` | child portal — one conversation per enrollment with unread counts |
 | `/child/messages/[enrollment]` | child portal — the conversation: write to the servants, read replies + announcements |
+| `/online` | servants — الفصول الأونلاين hub: KPIs, search, scope filter, status filter, create / edit classes |
+| `/online/[id]` | control room — start / end / reopen, stream preview, send attention check, participants (live %, checks, answers, override), live questions & answers, chat, settings |
+| `/child/online` | child portal — live / upcoming / past online classes with my result |
+| `/child/online/[id]` | child portal — the live room: join (timestamp), 30 s heartbeat, attention-check popup, live questions, chat, exam link, final result |
 
 ## Data Models & Storage
 - **Tables**: `churches`, `services`, `classes`, `profiles`, `children`, `attendance` — all with RLS + realtime
@@ -150,7 +155,7 @@ In the settings hub **إدارة المناسبات** sits directly after **إد
 
 ### 1. Supabase
 1. Create a project at supabase.com
-2. SQL Editor → run **all** migrations in `supabase/migrations/` in numeric order (`0001` → `0029`); `0002_bootstrap_owner.sql` runs after step 5
+2. SQL Editor → run **all** migrations in `supabase/migrations/` in numeric order (`0001` → `0030`); `0002_bootstrap_owner.sql` runs after step 5
    ⚠️ In `0005` the `alter type ... add value 'suspended'` must run in its own query before the rest of the file
    ⚠️ `0019_performance_rls_indexes_rpc.sql` is **required** by the current frontend (home / scanner call its RPCs). It is safe to re-run (idempotent).
    ⚠️ `0020_statistics_rpcs.sql` is **required** by the الإحصائيات tab (all `stats_*` RPCs). Idempotent; depends on 0019 (`my_scope()`, `enrollment_visible()`).
@@ -163,6 +168,7 @@ In the settings hub **إدارة المناسبات** sits directly after **إد
    ⚠️ `0027_exams.sql` is **required** by وحدة الامتحانات (`/exams/*`, `/child/exams/*`) and by the exam rows in the points pages. Adds `exams`, `exam_questions`, `exam_attempts`, `exam_answers` (RLS gated by `module_visible('exams')`; attempts / answers are read-only through the API), the anon child RPCs `child_portal_exams` / `child_exam_start` / `child_exam_current` / `child_exam_answer` / `child_exam_result`, the servant RPCs `exam_attempt_detail` / `exam_cancel_attempt` / `exam_duplicate`, the helper `module_granted_for`, and replaces `child_portal_points` (new `source = 'exam'` + `attempt_id`). **No grant is seeded** — enable the module per scope in وحدة المالك → صلاحيات الوحدات. Idempotent; run after 0026.
    ⚠️ `0028_birthdays.sql` is **required** by وحدة أعياد الميلاد (`/birthdays/*`), the home birthdays widget and the birthday banner in the child portal. Adds `birthday_greetings` (person × year × kind, RLS gated by `module_visible('birthdays')`, scope filled by trigger, one gift per person per year), `birthday_card_templates` (same JSON design engine, scoped, one default per scope), `birthday_settings` (per church / global), the RPCs `birthdays_in_month` / `birthdays_upcoming` (security invoker → RLS) and `birthday_gift` / `birthday_gift_cancel` (SECURITY DEFINER; the gift is ONE `points_log` row), `next_birthday()` (Feb 29 → Feb 28), the anon `child_portal_birthday`, replaces `child_portal_points` (new `source = 'birthday'`) and an expression index on `persons(month, day)`. **No grant is seeded** — enable the module per scope in وحدة المالك → صلاحيات الوحدات. Idempotent; run after 0027.
    ⚠️ `0029_chat_messages.sql` is **required** by وحدة الرسائل (`/messages/*`, `/child/messages/*`, the header bells and the «رسالة داخلية» channel on the children page). Adds `chat_messages` (kinds `child | staff | broadcast_children | broadcast_staff`, scope denormalized, RLS gated by `module_visible('messages')`, writes only through RPCs) and `chat_read_state` (per reader × bucket), the servant RPCs `chat_send` / `chat_inbox` / `chat_thread` / `chat_mark_read` / `chat_staff_recipients` / `chat_audience_count` / `chat_unread_total`, the anon child RPCs `child_chat_overview` / `child_chat_messages` / `child_chat_send` / `child_chat_mark_read` / `child_chat_unread`, a storage policy for `photos/child-messages/`, realtime. **No grant is seeded** — enable the module per scope in وحدة المالك → صلاحيات الوحدات. Idempotent; run after 0028. (This replaces the reverted PR #51 module; it does **not** depend on it — if the old `0029_messaging.sql` was applied, run `supabase/rollbacks/0029_messaging_rollback.sql` first.)
+   ⚠️ `0030_online_classes.sql` is **required** by وحدة الفصول الأونلاين (`/online/*`, `/child/online/*`, the child home card and side-menu entry). Adds `online_classes` (+ per-class attendance rules), `online_class_participants`, `online_class_sessions`, `online_class_checks`, `online_class_check_responses`, `online_class_questions`, `online_class_answers`, `online_class_messages` — RLS gated by `module_visible('online')`; the servant RPCs `online_class_start` / `online_class_end` / `online_class_finalize` / `online_class_reopen` / `online_class_send_check` / `online_class_set_override` / `online_class_live_stats` / `online_class_messages_list`; the anon child RPCs `child_online_classes` / `child_online_class` / `child_online_join` / `child_online_heartbeat` / `child_online_leave` / `child_online_check_respond` / `child_online_answer` / `child_online_messages` / `child_online_chat_send`; recreates `child_portal_points` (new source `online`) and `child_portal_attendance` (labels online rows); realtime. **No grant is seeded** — enable the module per scope in وحدة المالك → صلاحيات الوحدات. Idempotent; run after 0029.
 3. **Authentication → Providers → Email**: disable "Confirm email"
 4. Authentication → Users → Add user: `owner@diocese.app` + password
 5. Copy that user's UUID into `supabase/migrations/0002_bootstrap_owner.sql` and run it
@@ -727,6 +733,83 @@ servants. Optional module, visible only where the owner grants it
   migrations → «MESSAGES TESTS PASSED» (store / exam / birthday suites still
   pass).
 
+## Online classes module — migration 0030 (وحدة الفصول الأونلاين)
+Live online lessons with a real attendance algorithm. Optional module,
+visible only where the owner grants it (`/owner/modules` → الفصول الأونلاين).
+
+- **Model** — `online_classes` (scope church → service? → class?, title,
+  `starts_at` / `ends_at`, platform `youtube | facebook | zoom | meet | other`
+  + `stream_url`, status `scheduled | live | ended | cancelled`, `started_at` /
+  `ended_at`, `chat_enabled`, optional `exam_id` and `event_id` — both must
+  cover the class scope, trigger-checked — and the **per-class rules**
+  `min_time_percent` (default 60), `checks_required` (3),
+  `checks_min_success` (2, ≤ required), `min_answers` (0), `check_seconds`
+  (60), `attendance_points`). `online_class_participants` (one row per
+  enrollment × class: `first_joined_at`, `last_seen_at`, `left_at`,
+  `total_seconds`, `sessions_count`, `checks_ok` / `checks_late`,
+  `answers_count` / `correct_count`, `messages_count`, `final_status` /
+  `final_percent`, `override_status`, `attendance_log_id`);
+  `online_class_sessions` (join → heartbeat every 30 s → leave; a gap > 90 s
+  closes the session); `online_class_checks` + `online_class_check_responses`
+  (unique per check × participant, `ok` / `latency_ms`, 5 s server grace —
+  late is recorded but not counted); `online_class_questions` (MCQ `options`
+  jsonb + `correct_index` + `points`, or free text; `draft | open | closed`)
+  + `online_class_answers` (once per participant, graded server-side, points
+  via `points_log`); `online_class_messages` (servant XOR participant sender).
+- **Attendance algorithm** — `online_evaluate(class, participant)`: presence
+  seconds = union of the sessions clipped to the live span
+  `[started_at, ended_at | now]`; `percent = seconds / span`;
+  **present ⇔ `percent ≥ min_time_percent` AND
+  `checks_ok ≥ least(checks_min_success, checks_sent)` AND
+  `answers_count ≥ min_answers`**; a servant `override_status` always wins.
+  Spec example (60 % / 3 required / 2 successful): أحمد 100 % 4/4 → حاضر,
+  مريم 83 % 3/4 → حاضر, يوسف 50 % 1/4 → غائب, مارك 33 % 2/4 → غائب.
+  `online_class_end` → `online_class_finalize` closes open sessions,
+  evaluates everyone and writes ONE `attendance_log` row per present child
+  (`points_delta = attendance_points`, `event_id`, `attended_on` = Cairo date
+  of the start) — idempotent (re-finalize updates / deletes rows);
+  `online_class_reopen` removes the written attendance and goes back to
+  live; `online_class_set_override` re-finalizes when the class is ended.
+- **Servant RPCs** (writer = `scope_contains` on the class scope) —
+  `online_class_start`, `online_class_send_check(class, prompt, seconds)`,
+  `online_class_live_stats(class)` (one jsonb: span, checks sent,
+  participants with live %, online flag, checks, answers, rule result,
+  totals), `online_class_messages_list`; questions are plain table CRUD
+  under RLS. Messages: insert only as self.
+- **Child portal** (anon, token = national id, pattern of 0021) —
+  `child_online_classes` (classes whose scope covers one of my enrollments
+  and where the module is granted via `module_granted_for`), `child_online_*`
+  join / heartbeat / leave / check_respond / answer / messages / chat_send
+  (rate 30 msgs / 5 min, `chat_disabled`, `class_not_live`). Every payload
+  carries `server_now` so the countdowns are anchored on the server clock;
+  `correct_index` is only revealed once a question is closed.
+  `child_portal_points` gains source `online`; `child_portal_attendance`
+  labels the online rows «فصل أونلاين — title».
+- **Frontend** — registry entry `online` (`src/lib/modules.ts`), gate
+  `src/app/online/layout.tsx`, data layer `src/lib/online-classes.ts`
+  (types, labels, Arabic error mapping, CRUD + RPC wrappers, platform
+  detection / embed builder, rules label), shared bits
+  `src/components/online/OnlineBits.tsx` (header, status / platform badges,
+  `StreamPlayer` iframe for YouTube / Facebook or «افتح البث» card, elapsed
+  label), `ClassFormModal`, `LiveQuestionModal`, `ParticipantsTab` (totals,
+  filters, per-child numbers, override, Excel), `QuestionsTab`, `LiveChat`
+  (shared with the child room), `SettingsTab`; pages `/online` (hub) and
+  `/online/[id]` (control room — realtime + 15 s stats poll). Child portal:
+  `useChildOnline` in `ChildShell` (side-menu entry, realtime), home card,
+  `/child/online` (list), `/child/online/[id]` (live room: join, heartbeat
+  while visible, leave on unmount, full-screen attention-check popup,
+  `ChildQuestionCard`, chat, final result).
+- **Tests** — `supabase/tests/online_classes_test.sql`: module gate (servant
+  + child), RLS per class scope, rule validations, exam / event scope
+  triggers, join / heartbeat / leave sessions, 4 checks with the spec
+  distribution + a late response, questions (draft rejected, grading,
+  points, no `correct_index` leak while open, reveal on close), chat +
+  rate limit + disabled, another servant's isolation, the 7:00–8:00
+  timeline of the spec → end → 2 attendance rows + points, portal labels,
+  override present / reset, reopen → re-end, realtime publication.
+  Validated on PostgreSQL 17 with all 30 migrations → «ONLINE TESTS PASSED»
+  (store / exam / birthday / messages suites still pass).
+
 ## Rolled back: Messaging module — migration 0029 (وحدة الرسائل والإشعارات)
 The messaging & notifications module (PR #51, `0029_messaging.sql`) was
 **reverted** — the code is back to the 0028 state; the new, simpler messages module above (`0029_chat_messages.sql`) replaces it. If `0029_messaging.sql`
@@ -748,11 +831,11 @@ Vercel if they were added.
 - PDF report export (Excel is done in الإحصائيات)
 
 ## Recommended Next Steps
-1. Run migrations `0017` → `0029` (`0029_chat_messages.sql` powers وحدة الرسائل; `0028_birthdays.sql` powers وحدة أعياد الميلاد; `0027_exams.sql` powers وحدة الامتحانات; `0026_points_store.sql` powers وحدة إستبدال النقاط; `0022` powers event-bound points / calls / messages; `0023_call_feedbacks.sql` powers the call-feedback badge & إدارة نتائج الافتقاد; `0024_owner_module_access.sql` powers وحدة المالك & module visibility; `0025_shepherd_groups.sql` powers وحدة الأشابين) in Supabase SQL editor, then grant الأشابين from وحدة المالك → صلاحيات الوحدات
+1. Run migrations `0017` → `0030` (`0030_online_classes.sql` powers وحدة الفصول الأونلاين; `0029_chat_messages.sql` powers وحدة الرسائل; `0028_birthdays.sql` powers وحدة أعياد الميلاد; `0027_exams.sql` powers وحدة الامتحانات; `0026_points_store.sql` powers وحدة إستبدال النقاط; `0022` powers event-bound points / calls / messages; `0023_call_feedbacks.sql` powers the call-feedback badge & إدارة نتائج الافتقاد; `0024_owner_module_access.sql` powers وحدة المالك & module visibility; `0025_shepherd_groups.sql` powers وحدة الأشابين) in Supabase SQL editor, then grant الأشابين from وحدة المالك → صلاحيات الوحدات
 2. Deploy to Vercel and test the full approval flow
 3. Per-person attendance history view
 
 ## Deployment
 - **Platform**: Vercel + Supabase
-- **Status**: ✅ Code complete for Phase 1 + performance/scale hardening (0019) + statistics tab (0020) + child portal & data change requests (0021) + event as 4th scope level with status badge (0022) + call-feedback badge & إدارة نتائج الافتقاد (0023) + owner module & per-scope module visibility (0024) + shepherds module الأشابين & «مجموعتي» (0025) + points store module إستبدال النقاط (0026) + exams module الامتحانات (0027) + birthdays module أعياد الميلاد (0028) + messages module الرسائل (0029) — awaiting Supabase project + Vercel connect
-- **Last Updated**: 2026-09-08
+- **Status**: ✅ Code complete for Phase 1 + performance/scale hardening (0019) + statistics tab (0020) + child portal & data change requests (0021) + event as 4th scope level with status badge (0022) + call-feedback badge & إدارة نتائج الافتقاد (0023) + owner module & per-scope module visibility (0024) + shepherds module الأشابين & «مجموعتي» (0025) + points store module إستبدال النقاط (0026) + exams module الامتحانات (0027) + birthdays module أعياد الميلاد (0028) + messages module الرسائل (0029) + online classes module الفصول الأونلاين (0030) — awaiting Supabase project + Vercel connect
+- **Last Updated**: 2026-09-09

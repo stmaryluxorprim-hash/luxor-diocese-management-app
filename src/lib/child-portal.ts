@@ -63,7 +63,7 @@ export interface ChildAttendanceRow {
 export interface ChildPointsRow {
   id: string;
   enrollment_id: string;
-  source: 'cause' | 'attendance' | 'store' | 'exam' | 'birthday';   // 'store' = إستبدال النقاط (0026) · 'exam' = الامتحانات (0027) · 'birthday' = هدية عيد الميلاد (0028)
+  source: 'cause' | 'attendance' | 'store' | 'exam' | 'birthday' | 'online';   // 'store' = إستبدال النقاط (0026) · 'exam' = الامتحانات (0027) · 'birthday' = هدية عيد الميلاد (0028) · 'online' = الفصول الأونلاين (0030)
   reason: string | null;
   delta: number;
   created_at: string;
@@ -128,6 +128,78 @@ export interface ChildExamStep {
   finished: boolean;
   question?: ChildExamQuestion;
   result?: ExamResult;
+}
+
+// ---------- Online classes (الفصول الأونلاين) — what the child sees (migration 0030) ----------
+import type { OnlineClassStatus, StreamPlatform, LiveQuestionStatus, AttendanceStatus, RoomMessage } from '@/lib/online-classes';
+
+export interface ChildOnlineParticipant {
+  id: string;
+  first_joined_at: string;
+  last_seen_at: string;
+  left_at: string | null;
+  seconds: number;
+  percent: number;
+  checks_ok: number;
+  checks_late: number;
+  checks_total: number;
+  answers_count: number;
+  correct_count: number;
+  final_status: AttendanceStatus | null;
+  final_percent: number | null;
+  live_status: AttendanceStatus | null;
+}
+
+export interface ChildPendingCheck {
+  id: string;
+  seq: number;
+  prompt: string | null;
+  sent_at: string;
+  expires_at: string;
+}
+
+export interface ChildLiveQuestion {
+  id: string;
+  text: string;
+  options: string[] | null;
+  points: number;
+  status: LiveQuestionStatus;
+  opened_at: string | null;
+  closed_at: string | null;
+  my_answer: { selected_index: number | null; answer_text: string | null; is_correct: boolean | null; points_granted: number; answered_at: string } | null;
+  correct_index: number | null;     // only revealed once the question is closed
+}
+
+/** online_class_child_payload() — the card in the list and the room payload */
+export interface ChildOnlineClass {
+  id: string;
+  title: string;
+  description: string | null;
+  starts_at: string;
+  ends_at: string;
+  platform: StreamPlatform;
+  stream_url: string | null;
+  status: OnlineClassStatus;
+  started_at: string | null;
+  ended_at: string | null;
+  chat_enabled: boolean;
+  exam_id: string | null;
+  exam_title: string | null;
+  event_name: string | null;
+  min_time_percent: number;
+  checks_required: number;
+  checks_min_success: number;
+  min_answers: number;
+  check_seconds: number;
+  attendance_points: number;
+  teacher_name: string | null;
+  enrollment_id: string;
+  class_name: string;
+  service_name: string;
+  server_now: string;
+  participant: ChildOnlineParticipant | null;
+  pending_check?: ChildPendingCheck | null;
+  questions?: ChildLiveQuestion[];
 }
 
 // ---------- Points store (إستبدال النقاط) — the child's bills ----------
@@ -245,6 +317,18 @@ const ERROR_MESSAGES: Record<string, string> = {
   question_not_served: 'السؤال لم يُعرض بعد',
   position_mismatch: 'لا يمكن تخطي الأسئلة أو الرجوع',
   invalid_option: 'اختيار غير صالح',
+  // online classes (0030)
+  class_not_found: 'الفصل غير موجود',
+  class_out_of_scope: 'هذا الفصل ليس لفصلك',
+  class_not_live: 'الفصل ليس مباشراً الآن — انتظر حتى يبدأه الخادم',
+  not_joined: 'ادخل الفصل أولاً',
+  check_not_found: 'انتهى فحص الانتباه',
+  question_closed: 'أُغلق هذا السؤال',
+  already_answered: 'أجبت على هذا السؤال بالفعل',
+  answer_blank: 'اكتب إجابتك أولاً',
+  chat_disabled: 'الدردشة مغلقة في هذا الفصل',
+  message_blank: 'اكتب رسالة أولاً',
+  rate_limited: 'رسائل كثيرة — انتظر قليلاً',
 };
 
 export function childErrorMessage(err: unknown, fallback = 'حدث خطأ، حاول مجدداً'): string {
@@ -371,6 +455,54 @@ export async function fetchChildExamResult(supabase: SupabaseClient, token: stri
   const { data, error } = await supabase.rpc('child_exam_result', { p_national_id: token, p_attempt: attemptId });
   if (error) throw error;
   return data as ExamResult;
+}
+
+// ---------- Online classes (migration 0030) ----------
+export async function fetchChildOnlineClasses(supabase: SupabaseClient, token: string): Promise<ChildOnlineClass[]> {
+  const { data, error } = await supabase.rpc('child_online_classes', { p_national_id: token });
+  if (error) throw error;
+  return (data ?? []) as ChildOnlineClass[];
+}
+export async function fetchChildOnlineClass(supabase: SupabaseClient, token: string, classId: string): Promise<ChildOnlineClass> {
+  const { data, error } = await supabase.rpc('child_online_class', { p_national_id: token, p_class: classId });
+  if (error) throw error;
+  return data as ChildOnlineClass;
+}
+export async function joinChildOnlineClass(supabase: SupabaseClient, token: string, classId: string): Promise<ChildOnlineClass> {
+  const { data, error } = await supabase.rpc('child_online_join', { p_national_id: token, p_class: classId });
+  if (error) throw error;
+  return data as ChildOnlineClass;
+}
+export async function heartbeatChildOnlineClass(supabase: SupabaseClient, token: string, classId: string): Promise<ChildOnlineClass> {
+  const { data, error } = await supabase.rpc('child_online_heartbeat', { p_national_id: token, p_class: classId });
+  if (error) throw error;
+  return data as ChildOnlineClass;
+}
+export async function leaveChildOnlineClass(supabase: SupabaseClient, token: string, classId: string): Promise<ChildOnlineClass> {
+  const { data, error } = await supabase.rpc('child_online_leave', { p_national_id: token, p_class: classId });
+  if (error) throw error;
+  return data as ChildOnlineClass;
+}
+export async function respondChildCheck(supabase: SupabaseClient, token: string, checkId: string): Promise<ChildOnlineClass> {
+  const { data, error } = await supabase.rpc('child_online_check_respond', { p_national_id: token, p_check: checkId });
+  if (error) throw error;
+  return data as ChildOnlineClass;
+}
+export async function answerChildLiveQuestion(
+  supabase: SupabaseClient, token: string, questionId: string, selected: number | null, text: string | null
+): Promise<ChildOnlineClass> {
+  const { data, error } = await supabase.rpc('child_online_answer', { p_national_id: token, p_question: questionId, p_selected: selected, p_text: text });
+  if (error) throw error;
+  return data as ChildOnlineClass;
+}
+export async function fetchChildRoomMessages(supabase: SupabaseClient, token: string, classId: string): Promise<RoomMessage[]> {
+  const { data, error } = await supabase.rpc('child_online_messages', { p_national_id: token, p_class: classId, p_before: null, p_limit: 150 });
+  if (error) throw error;
+  return (data ?? []) as RoomMessage[];
+}
+export async function sendChildRoomMessage(supabase: SupabaseClient, token: string, classId: string, body: string): Promise<void> {
+  const { error } = await supabase.rpc('child_online_chat_send', { p_national_id: token, p_class: classId, p_body: body });
+  if (error) throw error;
 }
 
 // ---------- Small helpers ----------
