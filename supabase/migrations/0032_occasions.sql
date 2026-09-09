@@ -168,13 +168,16 @@ create index if not exists idx_occ_reg_service    on public.occasion_registratio
 create index if not exists idx_occ_reg_class      on public.occasion_registrations(class_id);
 create index if not exists idx_occ_reg_points_log on public.occasion_registrations(points_log_id);
 
--- «T-» + 10 hex chars — unique, unguessable enough for a ticket
+-- «T-» + 10 hex chars — unique, unguessable enough for a ticket.
+-- Built on gen_random_uuid() (core PostgreSQL) — NOT pgcrypto: on Supabase
+-- pgcrypto lives in the `extensions` schema and is invisible from a
+-- function pinned to search_path = public.
 create or replace function public.occasion_new_ticket_code()
 returns text language plpgsql volatile security definer set search_path = public as $$
 declare v text; i integer := 0;
 begin
   loop
-    v := 'T-' || upper(substr(encode(gen_random_bytes(8), 'hex'), 1, 10));
+    v := 'T-' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 10));
     exit when not exists (select 1 from public.occasion_registrations r where r.ticket_code = v);
     i := i + 1;
     if i > 20 then raise exception 'ticket_code_collision'; end if;
