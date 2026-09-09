@@ -9,7 +9,7 @@ export async function uploadPhoto(
   supabase: SupabaseClient,
   // 'child-requests' is the only folder the anon role may write to
   // (child portal photo proposals — storage policy in migration 0021)
-  folder: 'servants' | 'services' | 'classes' | 'persons' | 'cards' | 'child-requests' | 'store' | 'exams' | 'messages' | 'child-messages',
+  folder: 'servants' | 'services' | 'classes' | 'persons' | 'cards' | 'child-requests' | 'store' | 'exams' | 'messages' | 'child-messages' | 'achievements',
   file: File | Blob,
   name?: string
 ): Promise<string> {

@@ -13,6 +13,7 @@ import {
   childErrorMessage, fetchChildExams, fetchChildOnlineClasses, type ChildProfile, type ChildExam, type ChildOnlineClass,
 } from '@/lib/child-portal';
 import { fetchChildChatOverview, type ChildChatOverview } from '@/lib/chat';
+import { fetchChildAchievements, type ChildAchievements } from '@/lib/achievements';
 import { uniqueTopic } from '@/lib/realtime';
 
 interface ChildState {
@@ -36,6 +37,9 @@ interface ChildState {
   /** online classes (0030): scheduled / live / recent — realtime on online_classes */
   onlineClasses: ChildOnlineClass[] | null;
   reloadOnline: () => void;
+  /** achievements (0031): earned cards + attendance progress — realtime on user_achievements */
+  achievements: ChildAchievements | null;
+  reloadAchievements: () => void;
 }
 
 const ChildContext = createContext<ChildState>({
@@ -51,6 +55,8 @@ const ChildContext = createContext<ChildState>({
   reloadMessages: () => {},
   onlineClasses: null,
   reloadOnline: () => {},
+  achievements: null,
+  reloadAchievements: () => {},
 });
 
 export function ChildProvider({ children }: { children: ReactNode }) {
@@ -233,9 +239,44 @@ export function ChildProvider({ children }: { children: ReactNode }) {
     };
   }, [token, supabase, onlineTick]);
 
+  // ---- modules: achievements (0031) — one fetch + realtime on user_achievements
+  const [achievements, setAchievements] = useState<ChildAchievements | null>(null);
+  const [achTick, setAchTick] = useState(0);
+  const reloadAchievements = useCallback(() => setAchTick((t) => t + 1), []);
+  useEffect(() => {
+    if (!token) { setAchievements(null); return; }
+    let cancelled = false;
+    const run = () => fetchChildAchievements(supabase, token)
+      .then((r) => { if (!cancelled) setAchievements(r); })
+      .catch(() => { if (!cancelled) setAchievements({ earned: [], progress: [] }); });
+    run();
+    const onVis = () => { if (document.visibilityState === 'visible') run(); };
+    document.addEventListener('visibilitychange', onVis);
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const channel = supabase.channel(uniqueTopic('child-achievements'));
+    try {
+      channel
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'user_achievements' }, () => {
+          if (timer) clearTimeout(timer);
+          timer = setTimeout(run, 800);
+        })
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'attendance_log' }, () => {
+          if (timer) clearTimeout(timer);
+          timer = setTimeout(run, 1500);
+        })
+        .subscribe();
+    } catch { /* realtime unavailable → polling on focus only */ }
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVis);
+      supabase.removeChannel(channel);
+    };
+  }, [token, supabase, achTick]);
+
   const value = useMemo(
-    () => ({ token, profile, loading, error, refresh, login, logout, exams, conversations, reloadMessages, onlineClasses, reloadOnline }),
-    [token, profile, loading, error, refresh, login, logout, exams, conversations, reloadMessages, onlineClasses, reloadOnline]
+    () => ({ token, profile, loading, error, refresh, login, logout, exams, conversations, reloadMessages, onlineClasses, reloadOnline, achievements, reloadAchievements }),
+    [token, profile, loading, error, refresh, login, logout, exams, conversations, reloadMessages, onlineClasses, reloadOnline, achievements, reloadAchievements]
   );
 
   return <ChildContext.Provider value={value}>{children}</ChildContext.Provider>;

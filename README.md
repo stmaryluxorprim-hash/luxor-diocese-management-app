@@ -95,6 +95,7 @@ In the settings hub **إدارة المناسبات** sits directly after **إد
 - ✅ **وحدة أعياد الميلاد (0028)**: `/birthdays` — **من عيد ميلاده هذا الشهر يوماً بيوم** مع ◀ ▶ لتغيير الشهر (والسنة) وشريط الشهور، ونطاق كنيسة → خدمة → فصل، واليوم الحالي مُضاء. لكل مخدوم: **اتصال** · **واتساب / SMS** بنص تهنئة فيه متغيرات ([الاسم الأول] · [السن] · [تاريخ العيد] · [اسم الفصل] …) · **هدية نقاط** (مرة واحدة في السنة، NumPad، تُسجَّل في سجل النقاط وتظهر للمخدوم) · **كارت تهنئة** (معاينة → **إرسال كصورة** عبر قائمة المشاركة/واتساب · تنزيل PNG بدقة 300dpi · طباعة) · **سجل التهاني** (مكالمة / واتساب / SMS / كارت مطبوع / كارت مُرسَل / هدية / ملاحظة — مع تراجع). جماعياً: **تهنئة الجميع** (يفتح محادثة كل مخدوم بدوره بالنص المكتوب مع تخطّي)، **هدية للجميع**، **طباعة كروت الشهر**، تصدير **تقويم ICS** (تذكير سنوي) و**Excel**، فلاتر (لم يُهنَّأ / هُنِّئ / بلا هدية / بلا هاتف) وبحث. **كروت التهنئة** (`/birthdays/cards`): قوالب بنفس محرك تصميم الكروت + بيانات عيد الميلاد (الاسم الأول · السن الجديدة · يوم وشهر العيد · نقاط الهدية)، افتراضي لكل نطاق، وتبويب طباعة مصدره مواليد الشهر. **الإعدادات** (`/birthdays/settings`): نقاط الهدية ونص التهنئة الافتراضي لكل كنيسة / عام. **الرئيسية**: بطاقة «أعياد الميلاد» بمواليد اليوم والأسبوع القادم. **بوابة المخدوم**: يوم عيد ميلاده يرى تهنئة وكارته (يحفظه كصورة) وهديته، وقبله بأسبوع عدّاد. مُقيَّدة بصلاحيات الوحدات (`module_visible('birthdays')`) وواقعية
 - ✅ **وحدة الرسائل (0029)**: محادثات داخل التطبيق. **المخدوم** يكتب من بوابته (`/child/messages`) في محادثة فصله فتظهر لكل الخدام المسموح لهم على هذا الفصل / الخدمة / الكنيسة، ويردّون عليه هناك. **الخادم** (`/messages`) يرسل لمخدوم أو لمخدومين محددين، أو **إعلاناً** لفصل / خدمة / كنيسة / كل الكنائس (كل واحد في حدود صلاحيته — «كل الكنائس» للمالك فقط)، وللخدام **التابعين له في التسلسل** (خادم / خدام محددون أو كل خدام فصل / خدمة / كنيسة) — ومن راسلك يمكنك الرد عليه دائماً. صندوق وارد بالمحادثات وعدد غير المقروء، دلو **الإعلانات**، محادثة بصور وتجميع بالأيام وتحميل أقدم، حذف (المرسل أو المسؤول)، **جرس في الهيدر** بعدد غير المقروء (الخادم والمخدوم)، وقناة **«رسالة داخلية»** في صفحة المخدومين ترسل نص القالب إلى محادثة المخدوم. مُقيَّدة بصلاحيات الوحدات (`module_visible('messages')`) وواقعية
 - ✅ **وحدة الفصول الأونلاين (0030)**: فصول مباشرة عبر يوتيوب / فيسبوك / زووم / جوجل ميت / رابط آخر. **الخادم** (`/online`) ينشئ الفصل (التاريخ، من–إلى، الخدمة، الكنيسة، الفصل / الفئة، رابط البث، امتحان مربوط، مناسبة، تشغيل الدردشة) ويحدد **قواعد الحضور** لكل فصل (نسبة الوقت، عدد فحوص الانتباه المطلوبة والحد الأدنى للنجاح، مدة الفحص، حد أدنى للإجابات، نقاط الحضور)؛ ثم من **غرفة التحكم** (`/online/[id]`) يبدأ / ينهي الفصل، يشاهد البث ومن دخل الآن، يرسل **فحص انتباه** (نافذة لدى المخدوم بعدّاد)، يطرح **أسئلة مباشرة** (اختيار من متعدد مُصحَّح آلياً بنقاط أو نص حر) ويرى الإجابات لحظياً، يتابع الدردشة، ويرى إحصاءات الحضور/الانتباه لحظياً. **المخدوم** (`/child/online`) يرى الفصول القادمة والمباشرة والسابقة بنتيجته، و«ادخل الفصل» (`/child/online/[id]`) يسجّل وقت الدخول ويُبقي جلسة بنبض 30 ث، مع البث والفحوص والأسئلة والدردشة ورابط الامتحان. **الحضور لا يُحسب بالدخول فقط**: عند الإنهاء تُطبَّق القاعدة `نسبة الوقت ≥ الحد` **و** `الفحوص الناجحة ≥ الحد الأدنى` (**و** الإجابات ≥ الحد إن وُجد) → حاضر / غائب، ويُكتب سطر حضور + نقاط في `attendance_log` (يظهر في سجل الحضور والنقاط بالبوابة)، مع إمكانية **تعديل يدوي** لحالة أي مخدوم وإعادة فتح الفصل. مقيدة بصلاحيات الوحدات (`module_visible('online')`).
+- ✅ **وحدة الإنجازات (0031)**: إنجازات بسيطة بشارة وصورة ونقاط. **الخادم** (`/achievements`) ينشئ الإنجاز (الاسم، الوصف، الصورة، النقاط، النطاق: الكنيسة / الخدمة / الفصل / المناسبة — كلها اختيارية عدا الكنيسة، مفعّل / موقوف)، ويحدد **طريقة المنح** (مرة واحدة أو عدة مرات مع حد أقصى وفاصل زمني بالأيام) و**النوع**: عادي (يُمنح يدوياً من صفحة المخدومين → مهمة «الإنجازات») أو **حضور** (قاعدة «عدد حضور» N أو «حضور متتالٍ» N على التوالي) يُمنح **آلياً** عند تسجيل أي حضور (سكانر / حضور المناسبات / الفصول الأونلاين). النقاط تُضاف عبر `points_log` الحالي (وتُخصم عند الإلغاء). قائمة الحاصلين مع إمكانية الإلغاء. **المخدوم** (`/child/achievements`) يرى كروت إنجازاته 🏆 وشرائط تقدّم «3 / 5» لإنجازات الحضور، وتظهر نقاط الإنجازات بمصدرها في سجل النقاط. مقيدة بصلاحيات الوحدات (`module_visible('achievements')`) وبالنطاق (RLS).
 - ✅ **طلبات تعديل البيانات** (`/settings/data-requests`): class servant, service manager, church manager or owner of the child's scope reviews pending requests (photo before/after or field diff), approves (applied to `persons`) or rejects with a note — realtime, with a pending-count badge on الإعدادات and in the side menu
 
 ## Functional Entry Points
@@ -144,6 +145,8 @@ In the settings hub **إدارة المناسبات** sits directly after **إد
 | `/online/[id]` | control room — start / end / reopen, stream preview, send attention check, participants (live %, checks, answers, override), live questions & answers, chat, settings |
 | `/child/online` | child portal — live / upcoming / past online classes with my result |
 | `/child/online/[id]` | child portal — the live room: join (timestamp), 30 s heartbeat, attention-check popup, live questions, chat, exam link, final result |
+| `/achievements` | achievements module — list (picture, name, type, points, scope, award mode, status), add / edit, activate / deactivate, delete, earners (+ revoke) |
+| `/child/achievements` | child portal — earned achievement cards + progress bars for attendance achievements |
 
 ## Data Models & Storage
 - **Tables**: `churches`, `services`, `classes`, `profiles`, `children`, `attendance` — all with RLS + realtime
@@ -155,7 +158,7 @@ In the settings hub **إدارة المناسبات** sits directly after **إد
 
 ### 1. Supabase
 1. Create a project at supabase.com
-2. SQL Editor → run **all** migrations in `supabase/migrations/` in numeric order (`0001` → `0030`); `0002_bootstrap_owner.sql` runs after step 5
+2. SQL Editor → run **all** migrations in `supabase/migrations/` in numeric order (`0001` → `0031`); `0002_bootstrap_owner.sql` runs after step 5
    ⚠️ In `0005` the `alter type ... add value 'suspended'` must run in its own query before the rest of the file
    ⚠️ `0019_performance_rls_indexes_rpc.sql` is **required** by the current frontend (home / scanner call its RPCs). It is safe to re-run (idempotent).
    ⚠️ `0020_statistics_rpcs.sql` is **required** by the الإحصائيات tab (all `stats_*` RPCs). Idempotent; depends on 0019 (`my_scope()`, `enrollment_visible()`).
@@ -169,6 +172,7 @@ In the settings hub **إدارة المناسبات** sits directly after **إد
    ⚠️ `0028_birthdays.sql` is **required** by وحدة أعياد الميلاد (`/birthdays/*`), the home birthdays widget and the birthday banner in the child portal. Adds `birthday_greetings` (person × year × kind, RLS gated by `module_visible('birthdays')`, scope filled by trigger, one gift per person per year), `birthday_card_templates` (same JSON design engine, scoped, one default per scope), `birthday_settings` (per church / global), the RPCs `birthdays_in_month` / `birthdays_upcoming` (security invoker → RLS) and `birthday_gift` / `birthday_gift_cancel` (SECURITY DEFINER; the gift is ONE `points_log` row), `next_birthday()` (Feb 29 → Feb 28), the anon `child_portal_birthday`, replaces `child_portal_points` (new `source = 'birthday'`) and an expression index on `persons(month, day)`. **No grant is seeded** — enable the module per scope in وحدة المالك → صلاحيات الوحدات. Idempotent; run after 0027.
    ⚠️ `0029_chat_messages.sql` is **required** by وحدة الرسائل (`/messages/*`, `/child/messages/*`, the header bells and the «رسالة داخلية» channel on the children page). Adds `chat_messages` (kinds `child | staff | broadcast_children | broadcast_staff`, scope denormalized, RLS gated by `module_visible('messages')`, writes only through RPCs) and `chat_read_state` (per reader × bucket), the servant RPCs `chat_send` / `chat_inbox` / `chat_thread` / `chat_mark_read` / `chat_staff_recipients` / `chat_audience_count` / `chat_unread_total`, the anon child RPCs `child_chat_overview` / `child_chat_messages` / `child_chat_send` / `child_chat_mark_read` / `child_chat_unread`, a storage policy for `photos/child-messages/`, realtime. **No grant is seeded** — enable the module per scope in وحدة المالك → صلاحيات الوحدات. Idempotent; run after 0028. (This replaces the reverted PR #51 module; it does **not** depend on it — if the old `0029_messaging.sql` was applied, run `supabase/rollbacks/0029_messaging_rollback.sql` first.)
    ⚠️ `0030_online_classes.sql` is **required** by وحدة الفصول الأونلاين (`/online/*`, `/child/online/*`, the child home card and side-menu entry). Adds `online_classes` (+ per-class attendance rules), `online_class_participants`, `online_class_sessions`, `online_class_checks`, `online_class_check_responses`, `online_class_questions`, `online_class_answers`, `online_class_messages` — RLS gated by `module_visible('online')`; the servant RPCs `online_class_start` / `online_class_end` / `online_class_finalize` / `online_class_reopen` / `online_class_send_check` / `online_class_set_override` / `online_class_live_stats` / `online_class_messages_list`; the anon child RPCs `child_online_classes` / `child_online_class` / `child_online_join` / `child_online_heartbeat` / `child_online_leave` / `child_online_check_respond` / `child_online_answer` / `child_online_messages` / `child_online_chat_send`; recreates `child_portal_points` (new source `online`) and `child_portal_attendance` (labels online rows); realtime. **No grant is seeded** — enable the module per scope in وحدة المالك → صلاحيات الوحدات. Idempotent; run after 0029.
+   ⚠️ `0031_achievements.sql` is **required** by وحدة الإنجازات (`/achievements`, `/child/achievements`, the «الإنجازات» job on the children page, the child home card and side-menu entry). Adds `achievements` (scope church → service? → class? → event?, `kind` `normal | attendance`, `award_mode` `once | multiple` + `max_awards` / `min_interval_days`, `attendance_rule` `count | streak` + `attendance_target`) and `user_achievements` (per enrollment: points, date, `awarded_by`, `source` `manual | attendance`, linked `attendance_log_id` / `event_id` / `points_log_id`) — RLS gated by `module_visible('achievements')`; the RPCs `achievement_permissions` / `achievement_progress` / `achievement_enrollment_progress` / `achievement_award` / `achievement_revoke` / `achievement_earners`; the **auto-award trigger** `zz_trg_achievements_on_attendance` on `attendance_log`; the anon child RPC `child_portal_achievements`; recreates `child_portal_points` (new source `achievement`); realtime. **No grant is seeded** — enable the module per scope in وحدة المالك → صلاحيات الوحدات. Idempotent; run after 0030.
 3. **Authentication → Providers → Email**: disable "Confirm email"
 4. Authentication → Users → Add user: `owner@diocese.app` + password
 5. Copy that user's UUID into `supabase/migrations/0002_bootstrap_owner.sql` and run it
@@ -810,6 +814,75 @@ visible only where the owner grants it (`/owner/modules` → الفصول الأ
   Validated on PostgreSQL 17 with all 30 migrations → «ONLINE TESTS PASSED»
   (store / exam / birthday / messages suites still pass).
 
+## Achievements module — migration 0031 (وحدة الإنجازات)
+Simple achievements (badge + picture + points) — no levels, tiers, leaderboards
+or quests. Optional module, visible only where the owner grants it
+(`/owner/modules` → الإنجازات). Reuses the existing points, attendance, scope
+and permission systems; nothing is duplicated.
+
+- **Model** — `achievements` (scope `church_id` → `service_id?` → `class_id?`
+  → `event_id?` (null = church-wide / any event; chain + event overlap
+  trigger-checked), `name`, `description`, `image_url` (webp ≤ 512 px in the
+  `achievements/` photo folder), `points ≥ 0`, `is_active`, `kind`
+  `normal | attendance`, `award_mode` `once | multiple` (+ `max_awards`,
+  `min_interval_days` — must be null for `once`), `attendance_rule`
+  `count | streak` + `attendance_target` (required for `attendance`, null for
+  `normal`)). `user_achievements` (one row per award: `enrollment_id` +
+  denormalised person / scope, `points_awarded`, `awarded_at`, `awarded_by`
+  (null = automatic), `source` `manual | attendance`, `attendance_log_id`,
+  `event_id`, `points_log_id`, `note`). Points always flow through
+  `points_log` (existing `on_points_log_insert` trigger updates
+  `enrollments.points`); revoking inserts a compensating −points row.
+- **Rules** — `achievement_progress(achievement, enrollment)` →
+  `current_value / target_value / awards_count / last_awarded_at / eligible /
+  block` (`inactive | out_of_scope | already_awarded | max_reached | too_soon |
+  not_found`). `count` = distinct attended days since the day of the last
+  award; `streak` = consecutive distinct attended days (a gap > 7 days breaks
+  it), restarting after each award. `once` → a second award is refused;
+  `multiple` → refused when `awards_count ≥ max_awards` or the last award is
+  younger than `min_interval_days`.
+- **Awarding** — manual: `achievement_award(achievement, enrollment, note)`
+  (caller must see the enrollment and the achievement, module granted) →
+  `{award_id, points, balance_after}`; `achievement_revoke(award, note)`
+  (owner / church / service manager of the scope, or the awarder).
+  Automatic: `zz_trg_achievements_on_attendance` (after insert on
+  `attendance_log`, only where `module_granted_for('achievements', …)`)
+  evaluates every active attendance achievement covering the enrollment
+  (and the event, if the achievement is event-bound) and grants non-strictly
+  — so scanner, event attendance and online-class finalisation all award
+  without any frontend change. Errors are downgraded to warnings so
+  attendance is never blocked.
+- **Permissions** — `achievement_permissions()` → `{view, create, edit,
+  delete, award}` from the existing roles: everyone with the module sees
+  achievements overlapping their scope; create / edit need `scope_contains`;
+  delete additionally owner / church_manager / service_manager; award needs a
+  visible enrollment. `user_achievements` is read-only from the client
+  (writes only through the RPCs).
+- **Frontend** — `src/lib/achievements.ts` (types, labels, fetchers,
+  `saveAchievement`, `awardAchievement`, `revokeAchievement`,
+  `fetchChildAchievements`); `src/components/achievements/*`
+  (`AchievementBits` — thumb, `ProgressBar`, `EarnedCard`, scope label;
+  `AchievementFormModal` (reuses the store `ScopeSelectors` / photo compress
+  + upload); `EarnersModal`; `AwardModal`); pages `/achievements`
+  (module-gated layout, KPIs, search, scope + kind filters, realtime).
+  Children page: «الإنجازات» job (only when the module is visible) opens the
+  per-child `AwardModal` and patches the balance; `PointsLogModal` labels
+  achievement points «🏆 إنجاز». Child portal: `ChildProvider` fetches
+  `child_portal_achievements` once (realtime on `user_achievements` /
+  `attendance_log`), `useChildAchievements` in `ChildShell` (side-menu entry),
+  home card, `/child/achievements` (KPIs, «في الطريق» progress bars, «حصلت
+  عليها» cards), points page filter `إنجازات`.
+- **Tests** — `supabase/tests/achievements_module_test.sql`: module gate,
+  constraint / scope-chain validation, RLS per role (class servant vs
+  service manager, delete rights), manual award once / too_soon /
+  max_reached / cross-class forbidden / direct insert blocked, auto award on
+  the 3rd attendance, streak progress 2/4 → award at 4 → restart after a
+  gap, other-class isolation, earners + enrollment progress RPCs, revoke
+  rules + refund, child portal earned / progress / points labels, portal
+  and trigger module gates, realtime publication. Validated on PostgreSQL
+  17 with all 31 migrations → «ACHIEVEMENT TESTS PASSED» (store / exam /
+  birthday / messages / online suites still pass).
+
 ## Rolled back: Messaging module — migration 0029 (وحدة الرسائل والإشعارات)
 The messaging & notifications module (PR #51, `0029_messaging.sql`) was
 **reverted** — the code is back to the 0028 state; the new, simpler messages module above (`0029_chat_messages.sql`) replaces it. If `0029_messaging.sql`
@@ -831,11 +904,11 @@ Vercel if they were added.
 - PDF report export (Excel is done in الإحصائيات)
 
 ## Recommended Next Steps
-1. Run migrations `0017` → `0030` (`0030_online_classes.sql` powers وحدة الفصول الأونلاين; `0029_chat_messages.sql` powers وحدة الرسائل; `0028_birthdays.sql` powers وحدة أعياد الميلاد; `0027_exams.sql` powers وحدة الامتحانات; `0026_points_store.sql` powers وحدة إستبدال النقاط; `0022` powers event-bound points / calls / messages; `0023_call_feedbacks.sql` powers the call-feedback badge & إدارة نتائج الافتقاد; `0024_owner_module_access.sql` powers وحدة المالك & module visibility; `0025_shepherd_groups.sql` powers وحدة الأشابين) in Supabase SQL editor, then grant الأشابين from وحدة المالك → صلاحيات الوحدات
+1. Run migrations `0017` → `0031` (`0031_achievements.sql` powers وحدة الإنجازات; `0030_online_classes.sql` powers وحدة الفصول الأونلاين; `0029_chat_messages.sql` powers وحدة الرسائل; `0028_birthdays.sql` powers وحدة أعياد الميلاد; `0027_exams.sql` powers وحدة الامتحانات; `0026_points_store.sql` powers وحدة إستبدال النقاط; `0022` powers event-bound points / calls / messages; `0023_call_feedbacks.sql` powers the call-feedback badge & إدارة نتائج الافتقاد; `0024_owner_module_access.sql` powers وحدة المالك & module visibility; `0025_shepherd_groups.sql` powers وحدة الأشابين) in Supabase SQL editor, then grant الأشابين from وحدة المالك → صلاحيات الوحدات
 2. Deploy to Vercel and test the full approval flow
 3. Per-person attendance history view
 
 ## Deployment
 - **Platform**: Vercel + Supabase
-- **Status**: ✅ Code complete for Phase 1 + performance/scale hardening (0019) + statistics tab (0020) + child portal & data change requests (0021) + event as 4th scope level with status badge (0022) + call-feedback badge & إدارة نتائج الافتقاد (0023) + owner module & per-scope module visibility (0024) + shepherds module الأشابين & «مجموعتي» (0025) + points store module إستبدال النقاط (0026) + exams module الامتحانات (0027) + birthdays module أعياد الميلاد (0028) + messages module الرسائل (0029) + online classes module الفصول الأونلاين (0030) — awaiting Supabase project + Vercel connect
+- **Status**: ✅ Code complete for Phase 1 + performance/scale hardening (0019) + statistics tab (0020) + child portal & data change requests (0021) + event as 4th scope level with status badge (0022) + call-feedback badge & إدارة نتائج الافتقاد (0023) + owner module & per-scope module visibility (0024) + shepherds module الأشابين & «مجموعتي» (0025) + points store module إستبدال النقاط (0026) + exams module الامتحانات (0027) + birthdays module أعياد الميلاد (0028) + messages module الرسائل (0029) + online classes module الفصول الأونلاين (0030) + achievements module الإنجازات (0031) — awaiting Supabase project + Vercel connect
 - **Last Updated**: 2026-09-09

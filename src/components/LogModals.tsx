@@ -12,7 +12,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import {
-  CalendarCheck, Star, Loader2, User, CalendarDays, Layers, ListChecks, ShoppingBag, GraduationCap, Cake,
+  CalendarCheck, Star, Loader2, User, CalendarDays, Layers, ListChecks, ShoppingBag, GraduationCap, Cake, Trophy,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { ModalFrame } from '@/components/PersonDataModals';
@@ -224,7 +224,7 @@ export function AttendanceLogModal({
 // =====================================================================
 type PointsEntry = {
   id: string;
-  kind: 'cause' | 'attendance' | 'store' | 'exam' | 'birthday';   // store = إستبدال النقاط (0026) · exam = الامتحانات (0027) · birthday = هدية عيد الميلاد (0028)
+  kind: 'cause' | 'attendance' | 'store' | 'exam' | 'birthday' | 'achievement';   // store = إستبدال النقاط (0026) · exam = الامتحانات (0027) · birthday = هدية عيد الميلاد (0028) · achievement = الإنجازات (0031)
   label: string;
   event: string | null;   // the event the points were given IN (4th scope level)
   delta: number;
@@ -242,12 +242,12 @@ export function PointsLogModal({
 }) {
   const supabase = createClient();
   const [entries, setEntries] = useState<PointsEntry[] | null>(null);
-  const [filter, setFilter] = useState<'all' | 'cause' | 'attendance' | 'store' | 'exam' | 'birthday'>('all');
+  const [filter, setFilter] = useState<'all' | 'cause' | 'attendance' | 'store' | 'exam' | 'birthday' | 'achievement'>('all');
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [{ data: pl }, { data: al }, so, xa, bg] = await Promise.all([
+      const [{ data: pl }, { data: al }, so, xa, bg, ua] = await Promise.all([
         supabase.from('points_log').select('*').eq('enrollment_id', enrollment.id),
         supabase.from('attendance_log').select('*').eq('enrollment_id', enrollment.id),
         // store bills (migration 0026) — tolerate a missing table / module
@@ -256,6 +256,8 @@ export function PointsLogModal({
         supabase.from('exam_attempts').select('id, full_mark, points_log_id, refund_points_log_id, exam:exams(title)').eq('enrollment_id', enrollment.id),
         // birthday gifts (migration 0028) — same tolerance
         supabase.from('birthday_greetings').select('id, year, points_log_id').eq('enrollment_id', enrollment.id).eq('kind', 'gift'),
+        // achievements (migration 0031) — same tolerance
+        supabase.from('user_achievements').select('id, points_log_id, achievement:achievements(name)').eq('enrollment_id', enrollment.id),
       ]);
       if (cancelled) return;
       type OrderRef = { id: string; items_count: number; points_log_id: string | null; refund_points_log_id: string | null };
@@ -264,13 +266,16 @@ export function PointsLogModal({
       const attempts = (xa.error ? [] : (xa.data ?? [])) as unknown as AttemptRef[];
       const gifts = (bg.error ? [] : (bg.data ?? [])) as { id: string; year: number; points_log_id: string | null }[];
       const giftByLog = new Map(gifts.filter((g) => g.points_log_id).map((g) => [g.points_log_id as string, g]));
+      type AwardRef = { id: string; points_log_id: string | null; achievement: { name: string } | null };
+      const awardsRef = (ua.error ? [] : (ua.data ?? [])) as unknown as AwardRef[];
+      const awardByLog = new Map(awardsRef.filter((a) => a.points_log_id).map((a) => [a.points_log_id as string, a]));
       const saleByLog = new Map(orders.filter((o) => o.points_log_id).map((o) => [o.points_log_id as string, o]));
       const refundByLog = new Map(orders.filter((o) => o.refund_points_log_id).map((o) => [o.refund_points_log_id as string, o]));
       const examByLog = new Map(attempts.filter((a) => a.points_log_id).map((a) => [a.points_log_id as string, a]));
       const examRefundByLog = new Map(attempts.filter((a) => a.refund_points_log_id).map((a) => [a.refund_points_log_id as string, a]));
       const fromCauses: PointsEntry[] = ((pl ?? []) as PointsLog[]).map((r) => ({
         id: `p-${r.id}`,
-        kind: saleByLog.has(r.id) || refundByLog.has(r.id) ? 'store' : examByLog.has(r.id) || examRefundByLog.has(r.id) ? 'exam' : giftByLog.has(r.id) ? 'birthday' : 'cause',
+        kind: saleByLog.has(r.id) || refundByLog.has(r.id) ? 'store' : examByLog.has(r.id) || examRefundByLog.has(r.id) ? 'exam' : giftByLog.has(r.id) ? 'birthday' : awardByLog.has(r.id) ? 'achievement' : 'cause',
         label: saleByLog.has(r.id)
           ? `إستبدال نقاط — ${saleByLog.get(r.id)!.items_count} صنف`
           : refundByLog.has(r.id)
@@ -281,6 +286,8 @@ export function PointsLogModal({
             ? `إلغاء محاولة امتحان «${examRefundByLog.get(r.id)!.exam?.title ?? 'محذوف'}»`
           : giftByLog.has(r.id)
             ? `🎂 هدية عيد ميلاد ${giftByLog.get(r.id)!.year}`
+          : awardByLog.has(r.id)
+            ? `🏆 إنجاز «${awardByLog.get(r.id)!.achievement?.name ?? 'محذوف'}»`
             : r.cause_id
               ? causes.find((c) => c.id === r.cause_id)?.name ?? 'سبب محذوف'
               : 'نقاط يدوية (بدون سبب)',
@@ -327,6 +334,7 @@ export function PointsLogModal({
   const hasStore = (entries ?? []).some((e) => e.kind === 'store');
   const hasExam = (entries ?? []).some((e) => e.kind === 'exam');
   const hasBirthday = (entries ?? []).some((e) => e.kind === 'birthday');
+  const hasAchievement = (entries ?? []).some((e) => e.kind === 'achievement');
   const FILTERS: { value: typeof filter; label: string }[] = [
     { value: 'all', label: 'الكل' },
     { value: 'cause', label: 'أسباب النقاط' },
@@ -334,6 +342,7 @@ export function PointsLogModal({
     ...(hasStore ? [{ value: 'store' as const, label: 'إستبدال' }] : []),
     ...(hasExam ? [{ value: 'exam' as const, label: 'امتحانات' }] : []),
     ...(hasBirthday ? [{ value: 'birthday' as const, label: 'أعياد ميلاد' }] : []),
+    ...(hasAchievement ? [{ value: 'achievement' as const, label: 'إنجازات' }] : []),
   ];
 
   return (
@@ -398,6 +407,8 @@ export function PointsLogModal({
                     <GraduationCap className="h-3.5 w-3.5 shrink-0 text-violet-500" />
                   ) : e.kind === 'birthday' ? (
                     <Cake className="h-3.5 w-3.5 shrink-0 text-pink-500" />
+                  ) : e.kind === 'achievement' ? (
+                    <Trophy className="h-3.5 w-3.5 shrink-0 text-amber-500" />
                   ) : (
                     <Star className="h-3.5 w-3.5 shrink-0 text-gold-500" />
                   )}

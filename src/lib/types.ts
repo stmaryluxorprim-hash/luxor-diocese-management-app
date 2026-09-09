@@ -268,7 +268,7 @@ export const feedbackApplies = (
 // ---------- Jobs (app-code constants, not stored in DB) ----------
 // Jobs are the actions a servant performs on persons from the persons page.
 
-export type Job = 'attendance' | 'call' | 'message' | 'points' | 'data' | 'print_card';
+export type Job = 'attendance' | 'call' | 'message' | 'points' | 'data' | 'print_card' | 'achievement';
 
 export const JOBS: { value: Job; label: string }[] = [
   { value: 'attendance', label: 'الحضور' },
@@ -277,6 +277,7 @@ export const JOBS: { value: Job; label: string }[] = [
   { value: 'points', label: 'النقاط' },
   { value: 'data', label: 'البيانات' },
   { value: 'print_card', label: 'طباعة كارت' },
+  { value: 'achievement', label: 'الإنجازات' },   // achievements module (0031)
 ];
 
 // ---------- Card print requests (migration 0018) ----------
