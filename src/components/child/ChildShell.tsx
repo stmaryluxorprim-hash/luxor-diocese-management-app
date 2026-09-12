@@ -11,14 +11,17 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   Home, CalendarCheck, Star, Database, SlidersHorizontal, Menu, X, LogOut,
-  CalendarDays, Clock, User, GraduationCap, MessageCircle, Video, Trophy, Tent, type LucideIcon,
+  CalendarDays, Clock, User, GraduationCap, MessageCircle, Video, Trophy, Tent, Bell, type LucideIcon,
 } from 'lucide-react';
 import { useChild } from '@/lib/child-context';
+import { createClient } from '@/lib/supabase/client';
 import type { ChildExam, ChildOnlineClass } from '@/lib/child-portal';
 import { formatCairoDate, formatCairoTime } from '@/lib/time';
 import type { ChildChatOverview } from '@/lib/chat';
 import type { ChildAchievements } from '@/lib/achievements';
 import { childOccasionHighlights, type ChildOccasion } from '@/lib/occasions';
+import type { InboxItem } from '@/lib/notifications';
+import { syncPushRegistration } from '@/lib/push';
 import { Loader2 } from 'lucide-react';
 
 export const CHILD_NAV: { href: string; label: string; icon: LucideIcon; id: string }[] = [
@@ -102,11 +105,26 @@ export function useChildOccasions(): { list: ChildOccasion[] | null; upcoming: n
   return { list: occasions, ...h };
 }
 
+/**
+ * The child's notifications (module الإشعارات, migration 0034) — from the
+ * shared ChildProvider. `null` while loading; `[]` when nothing reached him
+ * yet (the bell is shown whenever the list is loaded, since the module grant
+ * is decided per-send server-side).
+ */
+export function useChildNotifications(): { list: InboxItem[] | null; unread: number } {
+  const { notifications } = useChild();
+  return { list: notifications, unread: (notifications ?? []).filter((n) => !n.read_at).length };
+}
+
 // ---------- Header ----------
 function ChildHeader({ onMenu }: { onMenu: () => void }) {
-  const { profile } = useChild();
+  const { profile, token } = useChild();
   const main = profile?.enrollments[0];
   const { conversations, unread } = useChildMessages();
+  const { unread: notifUnread } = useChildNotifications();
+  const [supabase] = useState(() => createClient());
+  // keep this device's push subscription bound to the signed-in child
+  useEffect(() => { if (token) syncPushRegistration(supabase, { kind: 'child', token }); }, [token, supabase]);
   return (
     <header
       id="child-header"
@@ -145,6 +163,19 @@ function ChildHeader({ onMenu }: { onMenu: () => void }) {
             )}
           </Link>
         )}
+        <Link
+          id="child-notifications-bell"
+          href="/child/notifications"
+          aria-label={notifUnread > 0 ? `${notifUnread} إشعارات غير مقروءة` : 'الإشعارات'}
+          className="relative rounded-full p-2 transition hover:bg-white/15"
+        >
+          <Bell className="h-6 w-6" />
+          {notifUnread > 0 && (
+            <span className="absolute -top-0.5 -right-0.5 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-extrabold text-white ring-2 ring-primary-700 tabular-nums">
+              {notifUnread > 99 ? '99+' : notifUnread}
+            </span>
+          )}
+        </Link>
         <button
           id="child-menu-btn"
           aria-label="فتح القائمة"
@@ -171,6 +202,7 @@ function ChildSideMenu({ open, onClose }: { open: boolean; onClose: () => void }
   const { hasAny: hasAchievements, earnedCount } = useChildAchievements();
   const { list: occList, open: occOpen, withTicket } = useChildOccasions();
   const hasOccasions = !!occList && occList.length > 0;
+  const { unread: notifUnread } = useChildNotifications();
   const [now, setNow] = useState<Date | null>(null);
 
   useEffect(() => {
@@ -253,9 +285,21 @@ function ChildSideMenu({ open, onClose }: { open: boolean; onClose: () => void }
             );
           })}
 
-          {((exams && exams.length > 0) || hasMessages || hasOnline || hasAchievements || hasOccasions) && (
-            <p className="mb-1 mt-3 px-2 text-[11px] font-extrabold text-slate-400">الوحدات</p>
-          )}
+          <p className="mb-1 mt-3 px-2 text-[11px] font-extrabold text-slate-400">الوحدات</p>
+          <Link
+            id="child-nav-notifications"
+            href="/child/notifications"
+            onClick={onClose}
+            className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-bold transition ${
+              isActive(pathname, '/child/notifications') ? 'bg-indigo-100 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            <Bell className="h-5 w-5 text-indigo-600" />
+            الإشعارات
+            {notifUnread > 0 && (
+              <span className="mr-auto rounded-full bg-indigo-600 px-2 py-0.5 text-[10px] font-extrabold text-white tabular-nums">{notifUnread}</span>
+            )}
+          </Link>
           {hasOccasions && (
             <Link
               id="child-nav-occasions"

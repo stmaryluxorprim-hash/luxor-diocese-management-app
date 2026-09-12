@@ -15,6 +15,7 @@ import {
 import { fetchChildChatOverview, type ChildChatOverview } from '@/lib/chat';
 import { fetchChildAchievements, type ChildAchievements } from '@/lib/achievements';
 import { fetchChildOccasions, type ChildOccasion } from '@/lib/occasions';
+import { fetchChildNotifications, type InboxItem } from '@/lib/notifications';
 import { uniqueTopic } from '@/lib/realtime';
 
 interface ChildState {
@@ -44,6 +45,11 @@ interface ChildState {
   /** occasions (0032): board of published occasions + my registrations — realtime on occasions / registrations / notifications */
   occasions: ChildOccasion[] | null;
   reloadOccasions: () => void;
+  /** notifications (0034): my inbox rows — realtime on notification_recipients + SW push messages */
+  notifications: InboxItem[] | null;
+  reloadNotifications: () => void;
+  /** optimistic local patch (mark read) */
+  patchNotifications: (fn: (l: InboxItem[]) => InboxItem[]) => void;
 }
 
 const ChildContext = createContext<ChildState>({
@@ -63,6 +69,9 @@ const ChildContext = createContext<ChildState>({
   reloadAchievements: () => {},
   occasions: null,
   reloadOccasions: () => {},
+  notifications: null,
+  reloadNotifications: () => {},
+  patchNotifications: () => {},
 });
 
 export function ChildProvider({ children }: { children: ReactNode }) {
@@ -311,9 +320,44 @@ export function ChildProvider({ children }: { children: ReactNode }) {
     };
   }, [token, supabase, occTick]);
 
+  // ---- modules: notifications (0034) — one fetch + realtime on notification_recipients
+  // + the service worker's «push arrived» message; refetch on focus.
+  const [notifications, setNotifications] = useState<InboxItem[] | null>(null);
+  const [notifTick, setNotifTick] = useState(0);
+  const reloadNotifications = useCallback(() => setNotifTick((t) => t + 1), []);
+  const patchNotifications = useCallback((fn: (l: InboxItem[]) => InboxItem[]) => setNotifications((l) => (l ? fn(l) : l)), []);
+  useEffect(() => {
+    if (!token) { setNotifications(null); return; }
+    let cancelled = false;
+    const run = () => fetchChildNotifications(supabase, token, 80)
+      .then((r) => { if (!cancelled) setNotifications(r); })
+      .catch(() => { if (!cancelled) setNotifications([]); });
+    run();
+    const onVis = () => { if (document.visibilityState === 'visible') run(); };
+    document.addEventListener('visibilitychange', onVis);
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const bump = () => { if (timer) clearTimeout(timer); timer = setTimeout(run, 700); };
+    const onSw = (e: MessageEvent) => { if (e.data?.type === 'push') bump(); };
+    const hasSw = typeof navigator !== 'undefined' && 'serviceWorker' in navigator;
+    if (hasSw) navigator.serviceWorker.addEventListener('message', onSw);
+    const channel = supabase.channel(uniqueTopic('child-notifs'));
+    try {
+      channel
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notification_recipients' }, bump)
+        .subscribe();
+    } catch { /* realtime unavailable → polling on focus only */ }
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVis);
+      if (hasSw) navigator.serviceWorker.removeEventListener('message', onSw);
+      supabase.removeChannel(channel);
+    };
+  }, [token, supabase, notifTick]);
+
   const value = useMemo(
-    () => ({ token, profile, loading, error, refresh, login, logout, exams, conversations, reloadMessages, onlineClasses, reloadOnline, achievements, reloadAchievements, occasions, reloadOccasions }),
-    [token, profile, loading, error, refresh, login, logout, exams, conversations, reloadMessages, onlineClasses, reloadOnline, achievements, reloadAchievements, occasions, reloadOccasions]
+    () => ({ token, profile, loading, error, refresh, login, logout, exams, conversations, reloadMessages, onlineClasses, reloadOnline, achievements, reloadAchievements, occasions, reloadOccasions, notifications, reloadNotifications, patchNotifications }),
+    [token, profile, loading, error, refresh, login, logout, exams, conversations, reloadMessages, onlineClasses, reloadOnline, achievements, reloadAchievements, occasions, reloadOccasions, notifications, reloadNotifications, patchNotifications]
   );
 
   return <ChildContext.Provider value={value}>{children}</ChildContext.Provider>;

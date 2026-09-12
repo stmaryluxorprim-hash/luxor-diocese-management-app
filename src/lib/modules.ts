@@ -8,10 +8,10 @@
 // To add a module later: add one entry here + guard its pages with
 // `useModuleVisible(key)` (or `<ModuleGate module="key">`).
 
-import { IdCard, Crown, HeartHandshake, ShoppingBag, GraduationCap, Cake, MessageCircle, Video, Trophy, Tent, type LucideIcon } from 'lucide-react';
+import { IdCard, Crown, HeartHandshake, ShoppingBag, GraduationCap, Cake, MessageCircle, Video, Trophy, Tent, Bell, type LucideIcon } from 'lucide-react';
 import type { Profile } from '@/lib/types';
 
-export type ModuleKey = 'cards' | 'shepherds' | 'store' | 'exams' | 'birthdays' | 'messages' | 'online' | 'achievements' | 'occasions';
+export type ModuleKey = 'cards' | 'shepherds' | 'store' | 'exams' | 'birthdays' | 'messages' | 'online' | 'achievements' | 'occasions' | 'notifications';
 
 export interface AppModule {
   key: ModuleKey;
@@ -105,6 +105,15 @@ export const MODULES: AppModule[] = [
     icon: Tent,
     color: 'text-cyan-600',
     paths: ['/occasions'],
+  },
+  {
+    key: 'notifications',
+    label: 'الإشعارات',
+    desc: 'إشعارات تصل إلى جهاز المخدوم أو الخادم: إرسال فوري أو مجدول لكنيسة / خدمة / فصل / مجموعة / مخدوم، وإشعارات تلقائية عند الحضور والنقاط والفصول الأونلاين والامتحانات، وسجل بالمُرسَل والمجدول',
+    href: '/notifications',
+    icon: Bell,
+    color: 'text-indigo-600',
+    paths: ['/notifications'],
   },
 ];
 
