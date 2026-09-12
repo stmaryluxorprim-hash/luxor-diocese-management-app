@@ -1,0 +1,69 @@
+// /branding/{icon|logo}/{96|180|192|512} — the app icon / diocese logo,
+// resized on the server from the URL given in the environment
+// (NEXT_PUBLIC_APP_ICON_URL / NEXT_PUBLIC_DIOCESE_LOGO_URL). The whole PWA
+// (manifest, favicon, apple-touch-icon, login pages, push notifications)
+// points here, so changing the Vercel variable re-brands every surface.
+//
+// When nothing is configured — or the remote image cannot be fetched — the
+// request is redirected to the bundled icon in /public/icons so the app never
+// shows a broken image.
+import { NextResponse, type NextRequest } from 'next/server';
+import sharp from 'sharp';
+import { BRANDING, ICON_SIZES, bundledIcon, type IconSize } from '@/lib/branding';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+const CACHE_HEADERS = {
+  // browsers: 1 day · Vercel CDN: 7 days, refreshed in the background
+  'Cache-Control': 'public, max-age=86400, s-maxage=604800, stale-while-revalidate=604800',
+};
+
+type Params = { params: { kind: string; size: string } };
+
+const sourceFor = (kind: string): string | null => {
+  if (kind === 'icon') return BRANDING.appIconUrl || null;
+  if (kind === 'logo') return BRANDING.dioceseLogoUrl || BRANDING.appIconUrl || null;
+  return null;
+};
+
+const fallback = (req: NextRequest, size: IconSize) =>
+  NextResponse.redirect(new URL(bundledIcon(size), req.nextUrl.origin), {
+    status: 307,
+    headers: { 'Cache-Control': 'public, max-age=3600' },
+  });
+
+export async function GET(req: NextRequest, { params }: Params) {
+  if (params.kind !== 'icon' && params.kind !== 'logo') {
+    return NextResponse.json({ error: 'unknown kind' }, { status: 404 });
+  }
+  const size = Number(params.size) as IconSize;
+  if (!ICON_SIZES.includes(size)) {
+    return NextResponse.json({ error: 'unsupported size', sizes: ICON_SIZES }, { status: 404 });
+  }
+
+  const src = sourceFor(params.kind);
+  if (!src) return fallback(req, size);
+
+  try {
+    const res = await fetch(src, { cache: 'no-store', signal: AbortSignal.timeout(8000) });
+    if (!res.ok) throw new Error(`upstream ${res.status}`);
+    const input = Buffer.from(await res.arrayBuffer());
+
+    // Square, cover-cropped, flattened on the splash background so maskable
+    // icons have no transparent corners; PNG keeps it universally supported.
+    const png = await sharp(input, { density: 300 })
+      .rotate()
+      .resize(size, size, { fit: 'cover', position: 'centre' })
+      .flatten({ background: BRANDING.backgroundColor })
+      .png({ compressionLevel: 9 })
+      .toBuffer();
+
+    return new NextResponse(new Uint8Array(png), {
+      status: 200,
+      headers: { 'Content-Type': 'image/png', 'Content-Length': String(png.length), ...CACHE_HEADERS },
+    });
+  } catch {
+    return fallback(req, size);
+  }
+}

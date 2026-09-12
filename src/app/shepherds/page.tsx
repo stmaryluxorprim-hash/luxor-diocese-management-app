@@ -13,6 +13,7 @@
 // this group (everything else works the same).
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { appIcon } from '@/lib/branding';
 import Link from 'next/link';
 import Image from 'next/image';
 import {
@@ -432,7 +433,7 @@ export default function ShepherdsPage() {
             {summary.map((s) => (
               <li key={s.servant_id} className="flex items-center gap-3 px-4 py-3">
                 <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-full bg-slate-100">
-                  <Image src={s.servant_photo ?? '/icons/icon-96.png'} alt={s.servant_name} fill sizes="36px" className="object-cover" />
+                  <Image src={s.servant_photo ?? appIcon(96)} alt={s.servant_name} fill sizes="36px" className="object-cover" />
                 </div>
                 <p className="min-w-0 flex-1 truncate text-sm font-bold">
                   {s.servant_name}{s.servant_id === profile?.id && <span className="mr-1 text-xs text-teal-600">(أنا)</span>}

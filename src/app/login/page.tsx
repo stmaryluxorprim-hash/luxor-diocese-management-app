@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { BRANDING, dioceseLogo } from '@/lib/branding';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
@@ -41,15 +42,15 @@ export default function LoginPage() {
         <div className="mb-8 text-center">
           <div className="mx-auto mb-4 h-28 w-28 overflow-hidden rounded-3xl shadow-lg ring-2 ring-gold-300/50">
             <Image
-              src="/icons/icon-192.png"
-              alt="شعار الإيبارشية"
+              src={dioceseLogo(192)}
+              alt={`شعار ${BRANDING.dioceseName}`}
               width={112}
               height={112}
               priority
               className="h-full w-full object-cover"
             />
           </div>
-          <h1 className="text-2xl font-extrabold">إيبارشية الأقصر وتوابعها</h1>
+          <h1 className="text-2xl font-extrabold">{BRANDING.dioceseName}</h1>
           <p className="text-sm text-slate-500 mt-1">سجّل دخولك للمتابعة</p>
         </div>
 

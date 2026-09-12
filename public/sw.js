@@ -9,15 +9,26 @@
 //  • Never touch cross-origin requests (Supabase storage / API / realtime,
 //    Google fonts): let the browser handle them natively.
 //  • Never serve an HTML fallback for an image / script / style request.
-const CACHE_NAME = 'diocese-v4';
-const OFFLINE_URL = '/offline.html';
+//
+// Branding: the app is registered as `/sw.js?b=<version>&n=<short name>`
+// (see PwaRegister). Icons come from /branding/icon/<size>, which the server
+// renders from the NEXT_PUBLIC_APP_ICON_URL environment variable (or
+// redirects to the bundled /icons when it is unset). A change of any branding
+// variable changes `b`, which makes the browser install this worker afresh
+// and drop the previous brand's cache.
+const SW_PARAMS = new URLSearchParams(self.location.search);
+const BRAND_VERSION = SW_PARAMS.get('b') || '0';
+const APP_SHORT_NAME = SW_PARAMS.get('n') || 'الإيبارشية';
+const CACHE_NAME = 'diocese-v5-' + BRAND_VERSION;
+const OFFLINE_URL = '/offline';
+const ICON = (size) => '/branding/icon/' + size;
 const STATIC_ASSETS = [
   OFFLINE_URL,
-  '/manifest.json',
-  '/icons/icon-96.png',
-  '/icons/icon-192.png',
-  '/icons/icon-512.png',
-  '/icons/apple-touch-icon.png',
+  '/manifest.webmanifest',
+  ICON(96),
+  ICON(192),
+  ICON(512),
+  ICON(180),
 ];
 
 self.addEventListener('install', (event) => {
@@ -41,8 +52,9 @@ self.addEventListener('activate', (event) => {
 
 const isStaticAsset = (url) =>
   url.pathname.startsWith('/icons/') ||
+  url.pathname.startsWith('/branding/') ||
   url.pathname.startsWith('/_next/static/') ||
-  url.pathname === '/manifest.json' ||
+  url.pathname === '/manifest.webmanifest' ||
   url.pathname === '/favicon.ico' ||
   /\.(png|jpg|jpeg|webp|gif|svg|ico|woff2?)$/i.test(url.pathname);
 
@@ -118,11 +130,11 @@ self.addEventListener('fetch', (event) => {
 self.addEventListener('push', (event) => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch { data = { title: 'إشعار', body: event.data ? event.data.text() : '' }; }
-  const title = data.title || 'الإيبارشية';
+  const title = data.title || APP_SHORT_NAME;
   const options = {
     body: data.body || '',
-    icon: '/icons/icon-192.png',
-    badge: '/icons/icon-96.png',
+    icon: data.icon || ICON(192),
+    badge: data.badge || ICON(96),
     image: data.image || undefined,
     dir: 'rtl',
     lang: 'ar',

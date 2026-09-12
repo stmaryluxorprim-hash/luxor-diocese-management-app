@@ -6,6 +6,7 @@
 // الرئيسية · الحضور · النقاط · البيانات · الخيارات
 
 import { useEffect, useState, type ReactNode } from 'react';
+import { BRANDING, dioceseLogo } from '@/lib/branding';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
@@ -133,8 +134,8 @@ function ChildHeader({ onMenu }: { onMenu: () => void }) {
       <div className="flex items-center gap-3 px-4 py-3 max-w-3xl mx-auto">
         <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-full bg-white ring-2 ring-gold-300/70">
           <Image
-            src={main?.church_logo ?? '/icons/icon-96.png'}
-            alt={main?.church_name ?? 'شعار الإيبارشية'}
+            src={main?.church_logo ?? dioceseLogo(96)}
+            alt={main?.church_name ?? `شعار ${BRANDING.dioceseName}`}
             fill
             sizes="48px"
             className="object-cover"
@@ -142,7 +143,7 @@ function ChildHeader({ onMenu }: { onMenu: () => void }) {
         </div>
         <div className="flex-1 min-w-0">
           <h1 className="text-base font-extrabold truncate leading-tight">
-            {main?.church_name ?? 'إيبارشية الأقصر وتوابعها'}
+            {main?.church_name ?? BRANDING.dioceseName}
           </h1>
           <p className="text-xs text-indigo-100 truncate">
             {main ? `${main.service_name} · ${main.class_name}` : 'بوابة المخدوم'}

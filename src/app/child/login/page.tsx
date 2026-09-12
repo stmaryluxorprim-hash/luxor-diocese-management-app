@@ -6,6 +6,7 @@
 // the child_portal_profile RPC and stored as the session token.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { BRANDING, dioceseLogo } from '@/lib/branding';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
@@ -159,7 +160,7 @@ export default function ChildLoginPage() {
 
         <div className="mb-6 text-center">
           <div className="mx-auto mb-3 h-24 w-24 overflow-hidden rounded-3xl shadow-lg ring-2 ring-gold-300/50">
-            <Image src="/icons/icon-192.png" alt="شعار الإيبارشية" width={96} height={96} priority className="h-full w-full object-cover" />
+            <Image src={dioceseLogo(192)} alt={`شعار ${BRANDING.dioceseName}`} width={96} height={96} priority className="h-full w-full object-cover" />
           </div>
           <h1 className="text-2xl font-extrabold">دخول المخدوم</h1>
           <p className="mt-1 text-sm text-slate-500">امسح كود الـ QR على كارتك أو اختر صورته من المعرض</p>

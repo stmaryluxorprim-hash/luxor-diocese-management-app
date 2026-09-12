@@ -10,6 +10,7 @@
 // Generate keys once: `npx web-push generate-vapid-keys`.
 
 import { createClient } from '@supabase/supabase-js';
+import { appIcon } from '@/lib/branding';
 import webpush from 'web-push';
 
 export interface QueueItem {
@@ -83,6 +84,8 @@ export async function dispatchPending(limit = 300): Promise<DispatchResult> {
         title: q.title,
         body: q.body,
         image: q.image_url,
+        icon: appIcon(192),
+        badge: appIcon(96),
         url: q.link_url || (q.is_child ? '/child/notifications' : '/notifications/inbox'),
         tag: q.notification_id,
         recipient_id: q.recipient_id,
