@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, Suspense } from 'react';
+import { BRANDING, dioceseLogo } from '@/lib/branding';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import Image from 'next/image';
@@ -153,8 +154,8 @@ function SignupForm() {
         <div className="mb-6 text-center">
           <div className="mx-auto mb-4 h-24 w-24 overflow-hidden rounded-3xl shadow-lg ring-2 ring-gold-300/50">
             <Image
-              src="/icons/icon-192.png"
-              alt="شعار الإيبارشية"
+              src={dioceseLogo(192)}
+              alt={`شعار ${BRANDING.dioceseName}`}
               width={96}
               height={96}
               priority

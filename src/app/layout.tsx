@@ -4,23 +4,32 @@ import { AuthProvider } from '@/lib/auth-context';
 import { AppDateProvider } from '@/lib/app-date-context';
 import { ModulesProvider } from '@/lib/modules-context';
 import PwaRegister from '@/components/PwaRegister';
+import { BRANDING, appIcon } from '@/lib/branding';
 
+// Name / description / icons come from the branding environment variables
+// (Vercel → Settings → Environment Variables), see src/lib/branding.ts.
 export const metadata: Metadata = {
-  title: 'إيبارشية الأقصر وتوابعها',
-  description: 'تطبيق إدارة كنائس وخدمات إيبارشية الأقصر وتوابعها',
-  manifest: '/manifest.json',
+  title: BRANDING.dioceseName,
+  applicationName: BRANDING.appName,
+  description: BRANDING.description,
+  manifest: '/manifest.webmanifest',
   icons: {
-    icon: [
-      { url: '/favicon.ico', sizes: 'any' },
-      { url: '/favicon-32.png', sizes: '32x32', type: 'image/png' },
-      { url: '/favicon-16.png', sizes: '16x16', type: 'image/png' },
-    ],
-    apple: '/icons/apple-touch-icon.png',
+    icon: BRANDING.appIconUrl
+      ? [
+          { url: appIcon(96), sizes: '96x96', type: 'image/png' },
+          { url: appIcon(192), sizes: '192x192', type: 'image/png' },
+        ]
+      : [
+          { url: '/favicon.ico', sizes: 'any' },
+          { url: '/favicon-32.png', sizes: '32x32', type: 'image/png' },
+          { url: '/favicon-16.png', sizes: '16x16', type: 'image/png' },
+        ],
+    apple: appIcon(180),
   },
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
-    title: 'الإيبارشية',
+    title: BRANDING.shortName,
   },
   // Chrome deprecated `apple-mobile-web-app-capable` alone — the standard tag
   // must be present too (Next emits the apple one from `appleWebApp`).
@@ -28,7 +37,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: '#1e3a8a',
+  themeColor: BRANDING.themeColor,
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
@@ -45,7 +54,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700;800&display=swap"
           rel="stylesheet"
         />
-        <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+        <link rel="apple-touch-icon" href={appIcon(180)} />
       </head>
       <body className="font-arabic bg-gradient-to-b from-slate-50 to-indigo-50/40 min-h-screen text-slate-800 antialiased">
         <AuthProvider>

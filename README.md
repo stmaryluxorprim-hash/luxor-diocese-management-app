@@ -68,7 +68,7 @@ In the settings hub **إدارة المناسبات** sits directly after **إد
 4. Approval propagates **in realtime** — the waiting user is let in instantly.
 
 ## Currently Completed Features
-- ✅ PWA: manifest (RTL/Arabic), service worker, installable, app icons
+- ✅ PWA: manifest (RTL/Arabic), service worker, installable, app icons — **name / icon / diocese name & logo configurable through Vercel env vars** (see Setup Guide § 4)
 - ✅ Multi-tenant Postgres schema with **full RLS** (`supabase/migrations/0001_schema.sql`)
 - ✅ Realtime enabled on all tables (dashboard, lists, approvals auto-update)
 - ✅ Login / Signup (name, user id, phone, password) + approval workflow
@@ -193,7 +193,34 @@ npm run dev
 ### 3. Deploy to Vercel
 1. vercel.com → New Project → import this GitHub repo
 2. Add env vars: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-3. Deploy — done. PWA is installable from the browser.
+3. (Optional) add the **PWA branding** variables below
+4. Deploy — done. PWA is installable from the browser.
+
+### 4. PWA branding via Vercel environment variables (`src/lib/branding.ts`)
+The app name, app icon, diocese name and diocese logo are **not hard-coded**:
+they are read from environment variables so the same repo can be deployed for
+any diocese. Set them in **Vercel → Project → Settings → Environment
+Variables** and **redeploy** (they are `NEXT_PUBLIC_*`, i.e. inlined at build
+time). Every variable is optional — an empty value keeps the built-in default
+(إيبارشية الأقصر وتوابعها + the bundled `/public/icons`).
+
+| Variable | Used for | Default |
+|---|---|---|
+| `NEXT_PUBLIC_APP_NAME` | manifest `name`, `applicationName` | مطرانية الأقباط الأرثوذكس — إيبارشية الأقصر وتوابعها |
+| `NEXT_PUBLIC_APP_SHORT_NAME` | home-screen label (manifest `short_name`), iOS title, push title fallback, footers | الإيبارشية |
+| `NEXT_PUBLIC_APP_DESCRIPTION` | manifest / meta description | تطبيق إدارة كنائس وخدمات … |
+| `NEXT_PUBLIC_APP_ICON_URL` | **app icon** — public URL of a square image ≥ 512px (PNG/JPG/WebP/SVG, e.g. Supabase Storage). PWA icons (96/192/512, any + maskable), favicon, apple-touch-icon (180), push notification icon/badge, offline page | bundled `/icons/*` |
+| `NEXT_PUBLIC_DIOCESE_NAME` | **diocese name** — `<title>`, header fallback (staff + child portal) before a church is resolved, login / signup / child-login headings, offline page | إيبارشية الأقصر وتوابعها |
+| `NEXT_PUBLIC_DIOCESE_LOGO_URL` | **diocese logo** — header fallback avatar and the login / signup / child-login logo | app icon |
+| `NEXT_PUBLIC_THEME_COLOR` | manifest `theme_color`, browser UI colour | `#1e3a8a` |
+| `NEXT_PUBLIC_BACKGROUND_COLOR` | manifest `background_color`, icon flatten colour | `#fdf8ee` |
+
+How it works:
+- `src/app/manifest.ts` generates `/manifest.webmanifest` at build time from the variables (replaces the old static `public/manifest.json`).
+- `src/app/branding/[kind]/[size]/route.ts` serves `/branding/icon/{96|180|192|512}` and `/branding/logo/{size}`: it fetches the configured URL, crops it square with `sharp`, flattens it on the background colour and returns a PNG (CDN-cached 7 days). When no URL is set — or the fetch fails — it redirects to the bundled `/icons/*`, so nothing ever breaks.
+- `src/app/offline/route.ts` renders the offline page with the diocese name / icon (replaces `public/offline.html`).
+- `public/sw.js` is registered as `/sw.js?b=<branding hash>&n=<short name>` (`PwaRegister`). Changing any variable changes the hash → browsers install a fresh worker and drop the old brand's cache. Push notifications use `/branding/icon/*` and fall back to the short name as title.
+- Tip: upload the icon/logo to a **public** Supabase Storage bucket (e.g. `church-logos`) and paste the public URL into the variable.
 
 ## Card Designer Module (تصميم الكروت) — migrations 0017 + 0018
 Design & print ID cards for the children. `/settings/cards` lists templates

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { BRANDING, dioceseLogo } from '@/lib/branding';
 import Image from 'next/image';
 import { Menu } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
@@ -24,8 +25,8 @@ export default function AppHeader() {
           {/* Church logo (uploaded picture) */}
           <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-full bg-white ring-2 ring-gold-300/70">
             <Image
-              src={church?.logo_url ?? '/icons/icon-96.png'}
-              alt={church?.name ?? 'شعار الإيبارشية'}
+              src={church?.logo_url ?? dioceseLogo(96)}
+              alt={church?.name ?? `شعار ${BRANDING.dioceseName}`}
               fill
               sizes="48px"
               className="object-cover"
@@ -35,7 +36,7 @@ export default function AppHeader() {
           {/* Church name + service name below it */}
           <div className="flex-1 min-w-0">
             <h1 className="text-base font-extrabold truncate leading-tight">
-              {church?.name ?? 'إيبارشية الأقصر وتوابعها'}
+              {church?.name ?? BRANDING.dioceseName}
             </h1>
             <p className="text-xs text-indigo-100 truncate">
               {service?.name ?? (profile ? ROLE_LABELS[profile.role] : '')}

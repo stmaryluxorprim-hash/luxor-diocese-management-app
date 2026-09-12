@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { BRANDING } from '@/lib/branding';
 import Image from 'next/image';
 import Link from 'next/link';
 import {
@@ -220,7 +221,7 @@ export default function SettingsPage() {
       </button>
 
       <p className="mt-6 text-center text-xs text-slate-400">
-        إدارة الإيبارشية — الإصدار 0.2.0
+        {BRANDING.shortName} — الإصدار 0.2.0
       </p>
 
       {editProfile && <EditProfileModal onClose={() => setEditProfile(false)} />}

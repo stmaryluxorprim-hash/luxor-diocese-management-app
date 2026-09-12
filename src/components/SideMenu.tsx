@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { appIcon } from '@/lib/branding';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -134,7 +135,7 @@ export default function SideMenu({ open, onClose }: SideMenuProps) {
           <div className="flex items-center gap-3">
             <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-full bg-white ring-2 ring-gold-300/70">
               <Image
-                src={profile?.photo_url ?? '/icons/icon-96.png'}
+                src={profile?.photo_url ?? appIcon(96)}
                 alt={profile?.full_name ?? 'الخادم'}
                 fill
                 sizes="56px"

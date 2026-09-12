@@ -4,6 +4,7 @@
 // Profile summary, quick links, refresh, install hint, and logout.
 
 import { useState } from 'react';
+import { BRANDING } from '@/lib/branding';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -149,7 +150,7 @@ function OptionsContent() {
         </div>
       )}
 
-      <p className="mt-6 text-center text-xs text-slate-400">بوابة المخدوم — إدارة الإيبارشية</p>
+      <p className="mt-6 text-center text-xs text-slate-400">بوابة المخدوم — {BRANDING.shortName}</p>
     </>
   );
 }
