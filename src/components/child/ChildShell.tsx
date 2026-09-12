@@ -21,7 +21,7 @@ import type { ChildChatOverview } from '@/lib/chat';
 import type { ChildAchievements } from '@/lib/achievements';
 import { childOccasionHighlights, type ChildOccasion } from '@/lib/occasions';
 import type { InboxItem } from '@/lib/notifications';
-import { syncPushRegistration } from '@/lib/push';
+import { syncPushRegistration, kickDispatcher } from '@/lib/push';
 import { Loader2 } from 'lucide-react';
 
 export const CHILD_NAV: { href: string; label: string; icon: LucideIcon; id: string }[] = [
@@ -124,7 +124,7 @@ function ChildHeader({ onMenu }: { onMenu: () => void }) {
   const { unread: notifUnread } = useChildNotifications();
   const [supabase] = useState(() => createClient());
   // keep this device's push subscription bound to the signed-in child
-  useEffect(() => { if (token) syncPushRegistration(supabase, { kind: 'child', token }); }, [token, supabase]);
+  useEffect(() => { if (token) { syncPushRegistration(supabase, { kind: 'child', token }); kickDispatcher(); } }, [token, supabase]);
   return (
     <header
       id="child-header"

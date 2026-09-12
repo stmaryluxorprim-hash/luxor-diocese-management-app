@@ -1044,8 +1044,15 @@ RBAC and the child-portal token pattern are reused.
   `scheduled` sends, fires `occasion_reminder` and `exam_published`
   when their time comes. It is scheduled with **pg_cron** (`notif_tick`,
   every minute) when the extension exists and is also invoked by
-  `GET /api/notifications/dispatch`, so either the Supabase cron or the
-  Vercel cron (`vercel.json`, every minute) keeps schedules moving.
+  `GET /api/notifications/dispatch`. `vercel.json` registers a **daily**
+  Vercel cron (`0 3 * * *` — the Hobby plan rejects per-minute schedules
+  and the deployment fails with «Hobby accounts are limited to daily cron
+  jobs»); minute-level timing comes from pg_cron and from the clients:
+  the servant header bell kicks `POST /api/notifications/dispatch` on
+  start and every 2 minutes while visible, the child portal on open, and
+  the compose page right after a send. Enable **pg_cron** in Supabase
+  (Database → Extensions) and re-run the `do $$ … cron.schedule …` block
+  at the end of 0034 if the extension was enabled after the migration.
 - **Inbox** — `notif_inbox(limit)`, `notif_unread_count()`,
   `notif_mark_read(uuid[] | null = all)` for servants (rows where
   `profile_id = auth.uid()`); `child_notifications(token, limit)`,
