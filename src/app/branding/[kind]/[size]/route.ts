@@ -14,8 +14,9 @@ import { BRANDING, ICON_SIZES, bundledIcon, type IconSize } from '@/lib/branding
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+// URLs carry `?v=<branding hash>` (see src/lib/branding.ts), so a rendered
+// icon can be cached for long: a branding change produces a new URL anyway.
 const CACHE_HEADERS = {
-  // browsers: 1 day · Vercel CDN: 7 days, refreshed in the background
   'Cache-Control': 'public, max-age=86400, s-maxage=604800, stale-while-revalidate=604800',
 };
 
@@ -28,9 +29,11 @@ const sourceFor = (kind: string): string | null => {
 };
 
 const fallback = (req: NextRequest, size: IconSize) =>
+  // Never cache the fallback redirect: once NEXT_PUBLIC_APP_ICON_URL is set
+  // and the site redeployed, the very next request must reach the new icon.
   NextResponse.redirect(new URL(bundledIcon(size), req.nextUrl.origin), {
     status: 307,
-    headers: { 'Cache-Control': 'public, max-age=3600' },
+    headers: { 'Cache-Control': 'no-store' },
   });
 
 export async function GET(req: NextRequest, { params }: Params) {

@@ -45,16 +45,6 @@ export const BRANDING = {
   backgroundColor: env(process.env.NEXT_PUBLIC_BACKGROUND_COLOR, '#fdf8ee'),
 } as const;
 
-/** Same-origin URL of the app icon at a given size (resized server-side). */
-export const appIcon = (size: IconSize = 192): string => `/branding/icon/${size}`;
-
-/** Same-origin URL of the diocese logo at a given size (falls back to the app icon). */
-export const dioceseLogo = (size: IconSize = 192): string => `/branding/logo/${size}`;
-
-/** Bundled fallback used when no icon URL is configured or the remote fetch fails. */
-export const bundledIcon = (size: IconSize): string =>
-  size === 180 ? '/icons/apple-touch-icon.png' : `/icons/icon-${size}.png`;
-
 /**
  * Short fingerprint of the branding values. Appended to the service-worker
  * URL so that changing any variable in Vercel makes browsers install a fresh
@@ -66,3 +56,25 @@ export const BRANDING_VERSION: string = (() => {
   for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0;
   return (h >>> 0).toString(36);
 })();
+
+/**
+ * Every branded URL carries `?v=<BRANDING_VERSION>`. The value is ignored by
+ * the routes, but it makes the URL — and therefore every cache key (browser
+ * HTTP cache, Vercel CDN, service-worker cache, cached manifest) — change the
+ * moment a branding variable changes. Without it a phone that visited the
+ * production domain once keeps showing the previous icon for hours or days.
+ */
+const versioned = (path: string): string => `${path}?v=${BRANDING_VERSION}`;
+
+/** Same-origin URL of the app icon at a given size (resized server-side). */
+export const appIcon = (size: IconSize = 192): string => versioned(`/branding/icon/${size}`);
+
+/** Same-origin URL of the diocese logo at a given size (falls back to the app icon). */
+export const dioceseLogo = (size: IconSize = 192): string => versioned(`/branding/logo/${size}`);
+
+/** Manifest URL, versioned for the same reason (browsers cache manifests hard). */
+export const manifestUrl = (): string => versioned('/branding/manifest');
+
+/** Bundled fallback used when no icon URL is configured or the remote fetch fails. */
+export const bundledIcon = (size: IconSize): string =>
+  size === 180 ? '/icons/apple-touch-icon.png' : `/icons/icon-${size}.png`;

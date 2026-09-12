@@ -216,11 +216,17 @@ time). Every variable is optional — an empty value keeps the built-in default
 | `NEXT_PUBLIC_BACKGROUND_COLOR` | manifest `background_color`, icon flatten colour | `#fdf8ee` |
 
 How it works:
-- `src/app/manifest.ts` generates `/manifest.webmanifest` at build time from the variables (replaces the old static `public/manifest.json`).
+- `src/app/branding/manifest/route.ts` generates the manifest at `/branding/manifest?v=<hash>` at build time from the variables (replaces the old static `public/manifest.json`; not `app/manifest.ts` because that convention injects an un-versioned link).
 - `src/app/branding/[kind]/[size]/route.ts` serves `/branding/icon/{96|180|192|512}` and `/branding/logo/{size}`: it fetches the configured URL, crops it square with `sharp`, flattens it on the background colour and returns a PNG (CDN-cached 7 days). When no URL is set — or the fetch fails — it redirects to the bundled `/icons/*`, so nothing ever breaks.
 - `src/app/offline/route.ts` renders the offline page with the diocese name / icon (replaces `public/offline.html`).
 - `public/sw.js` is registered as `/sw.js?b=<branding hash>&n=<short name>` (`PwaRegister`). Changing any variable changes the hash → browsers install a fresh worker and drop the old brand's cache. Push notifications use `/branding/icon/*` and fall back to the short name as title.
 - Tip: upload the icon/logo to a **public** Supabase Storage bucket (e.g. `church-logos`) and paste the public URL into the variable.
+- Every branded URL (`/branding/icon/192?v=…`, `/branding/manifest?v=…`) carries the branding hash, so a variable change gives new cache keys everywhere (browser, Vercel CDN, service worker); the bundled-icon fallback redirect is `no-store`.
+
+**Troubleshooting — the deployment URL shows the new icon but the production domain shows the old one**
+1. In Vercel the variable must be enabled for the **Production** environment (the env-var dialog has Production / Preview / Development checkboxes — a preview-only value never reaches the main domain). Check *Settings → Environment Variables → filter: Production*.
+2. Variables are inlined at **build** time: after adding/changing them trigger **Deployments → ⋯ → Redeploy** of the latest production deployment (or push a commit). Promoting an existing build does not re-read them.
+3. On the phone, a previously **installed** PWA keeps the icon it was installed with — Android/iOS only refresh home-screen icons occasionally (Chrome checks the manifest roughly daily). Remove and re-add the app to the home screen to see the new icon immediately. The in-page logo / title update on the next visit.
 
 ## Card Designer Module (تصميم الكروت) — migrations 0017 + 0018
 Design & print ID cards for the children. `/settings/cards` lists templates

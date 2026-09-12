@@ -21,10 +21,12 @@ const BRAND_VERSION = SW_PARAMS.get('b') || '0';
 const APP_SHORT_NAME = SW_PARAMS.get('n') || 'الإيبارشية';
 const CACHE_NAME = 'diocese-v5-' + BRAND_VERSION;
 const OFFLINE_URL = '/offline';
-const ICON = (size) => '/branding/icon/' + size;
+// `?v=` mirrors src/lib/branding.ts so SW cache keys match the page's URLs.
+const ICON = (size) => '/branding/icon/' + size + '?v=' + BRAND_VERSION;
+const MANIFEST_URL = '/branding/manifest?v=' + BRAND_VERSION;
 const STATIC_ASSETS = [
   OFFLINE_URL,
-  '/manifest.webmanifest',
+  MANIFEST_URL,
   ICON(96),
   ICON(192),
   ICON(512),
@@ -54,7 +56,6 @@ const isStaticAsset = (url) =>
   url.pathname.startsWith('/icons/') ||
   url.pathname.startsWith('/branding/') ||
   url.pathname.startsWith('/_next/static/') ||
-  url.pathname === '/manifest.webmanifest' ||
   url.pathname === '/favicon.ico' ||
   /\.(png|jpg|jpeg|webp|gif|svg|ico|woff2?)$/i.test(url.pathname);
 

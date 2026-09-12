@@ -1,6 +1,16 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  async redirects() {
+    return [
+      // PWAs installed before the branding change keep re-checking the manifest
+      // at the URL they were installed with — send them to the branded one so
+      // Chrome/Android eventually refresh the home-screen icon and name.
+      { source: '/manifest.json', destination: '/branding/manifest', permanent: false },
+      { source: '/manifest.webmanifest', destination: '/branding/manifest', permanent: false },
+      { source: '/offline.html', destination: '/offline', permanent: false },
+    ];
+  },
   images: {
     // Serve photos straight from Supabase Storage instead of routing them
     // through Vercel's /_next/image optimizer:
