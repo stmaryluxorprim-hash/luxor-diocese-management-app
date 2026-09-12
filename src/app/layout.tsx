@@ -4,7 +4,7 @@ import { AuthProvider } from '@/lib/auth-context';
 import { AppDateProvider } from '@/lib/app-date-context';
 import { ModulesProvider } from '@/lib/modules-context';
 import PwaRegister from '@/components/PwaRegister';
-import { BRANDING, appIcon } from '@/lib/branding';
+import { BRANDING, appIcon, manifestUrl } from '@/lib/branding';
 
 // Name / description / icons come from the branding environment variables
 // (Vercel → Settings → Environment Variables), see src/lib/branding.ts.
@@ -12,7 +12,6 @@ export const metadata: Metadata = {
   title: BRANDING.dioceseName,
   applicationName: BRANDING.appName,
   description: BRANDING.description,
-  manifest: '/manifest.webmanifest',
   icons: {
     icon: BRANDING.appIconUrl
       ? [
@@ -54,6 +53,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700;800&display=swap"
           rel="stylesheet"
         />
+        {/* Rendered by hand: `metadata.manifest` drops the ?v= cache-buster. */}
+        <link rel="manifest" href={manifestUrl()} />
         <link rel="apple-touch-icon" href={appIcon(180)} />
       </head>
       <body className="font-arabic bg-gradient-to-b from-slate-50 to-indigo-50/40 min-h-screen text-slate-800 antialiased">
