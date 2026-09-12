@@ -981,6 +981,139 @@ pattern; nothing is duplicated.
   with all 32 migrations → «OCCASION TESTS PASSED» (store / exam /
   birthday / messages / online suites still pass).
 
+## Notifications module — migration 0034 (وحدة الإشعارات)
+Create → choose recipients → send now / schedule → receive (in-app bell +
+device push) → history, plus **Trigger → Recipient → Notification**
+automations for existing app events. Optional module, visible only where
+the owner grants it (`/owner/modules` → الإشعارات). The database decides
+WHO gets WHAT and WHEN; the Next.js API route delivers Web Push with the
+VAPID keys. Nothing is duplicated — persons / enrollments, scope + module
+RBAC and the child-portal token pattern are reused.
+
+- **Model** — `notifications` (one send: `title`, `body`, `image_url`
+  (`notifications/` photo folder), `link_url` (in-app path), `target_kind`
+  `all | church | service | class | group | person` + scope ids /
+  `group_id` / `enrollment_id`, `audience` `children | staff`,
+  `scheduled_at`, `status` `scheduled | sent | failed | cancelled`,
+  `recipients_count`, `source` `manual | automation`, `automation_id`).
+  `notification_recipients` (the inbox — one row per recipient:
+  `enrollment_id` + `person_id` (child) **or** `profile_id` (servant),
+  text snapshot, `read_at`, `push_status` `pending | sent | failed |
+  no_device`). `notification_automations` (`trigger_key`, `recipient`
+  `student | class_servants`, `name`, `title_template` / `body_template`
+  with `[متغير]` placeholders, `link_url`, scope church → service → class
+  (null = all), `is_active`, `config` jsonb e.g. `{"min_points": 5}`).
+  `notification_automation_runs` («fired once» guard per automation ×
+  reference). `push_subscriptions` (one device: `endpoint` https-only,
+  `p256dh`, `auth`, bound to `profile_id` **or** `person_id`, `user_agent`,
+  `last_seen_at`).
+- **Sending** — `notif_send(jsonb)` validates the target against
+  `scope_contains` (all churches = owner only; group = my own shepherd group
+  or, for managers, any servant's group in scope; person =
+  `enrollment_visible`), counts the audience, and either materialises the
+  recipient rows immediately (`sent`) or stores the row as `scheduled`.
+  `notif_audience_count(jsonb)` powers the live «سيصل إلى N» counter,
+  `notif_cancel(uuid)` cancels a scheduled send, `notif_history(limit,
+  before)` returns the history with `can_cancel`. Recipients are
+  computed once from the current enrollments (children) or the servants
+  whose scope overlaps (staff).
+- **Automations** — triggers `attendance`, `points_added`,
+  `points_deducted` (both with `min_points`), `achievement_earned`,
+  `online_class_started`, `exam_published` (fires at `opens_at` through
+  `notif_tick`), `occasion_reminder` (`hours_before`). Each trigger
+  function collects the variables (`[الاسم]`, `[الاسم الأول]`, `[الفصل]`,
+  `[الخدمة]`, `[النقاط]`, `[السبب]`, `[المناسبة]`, `[الفصل الأونلاين]`,
+  `[الامتحان]`, `[الإنجاز]`, `[الفعالية]`, `[التاريخ]`, `[الوقت]`…) and calls
+  `notif_fire_enrollment(trigger, enrollment, vars, default_link, ref)`
+  (student, or the class servants of that enrollment) or
+  `notif_fire_scope(...)`. The engine picks every active automation whose
+  scope contains the enrollment, in a church where the module is granted,
+  renders the templates (`notif_render`), writes one `notifications` row
+  (`source = automation`) + recipient rows and guards repeats with
+  `notification_automation_runs`. Triggers are `zz_notif_on_*` `after
+  insert` on `attendance_log` / `points_log` / `user_achievements` and
+  `after insert or update` on `online_classes` (→ live) / `exams`. They
+  never raise — a failure inside an automation is swallowed so the
+  original write (attendance, points…) always succeeds.
+  **Adding a trigger later** = (1) add the key to the `trigger_key` check
+  + `TRIGGERS` in `src/lib/notifications.ts` (label, variables, default
+  link, optional `config`); (2) one new trigger function that builds the
+  vars and calls `notif_fire_enrollment` / `notif_fire_scope`; (3) a test
+  section. No UI change is needed.
+- **Scheduling / tick** — `notif_tick()` (service_role) releases due
+  `scheduled` sends, fires `occasion_reminder` and `exam_published`
+  when their time comes. It is scheduled with **pg_cron** (`notif_tick`,
+  every minute) when the extension exists and is also invoked by
+  `GET /api/notifications/dispatch`, so either the Supabase cron or the
+  Vercel cron (`vercel.json`, every minute) keeps schedules moving.
+- **Inbox** — `notif_inbox(limit)`, `notif_unread_count()`,
+  `notif_mark_read(uuid[] | null = all)` for servants (rows where
+  `profile_id = auth.uid()`); `child_notifications(token, limit)`,
+  `child_notif_unread(token)`, `child_notif_mark_read(token, ids)` for the
+  child portal (anon, token = national id). `notif_permissions()` →
+  `{visible, can_send_all, can_manage, role}`.
+- **Push (device tray)** — `push_subscribe(jsonb)` / `push_unsubscribe
+  (endpoint)` (servants) and `child_push_subscribe(token, jsonb)` /
+  `child_push_unsubscribe(token, endpoint)` (children) store the
+  `PushManager` subscription (https endpoints only, upsert by endpoint).
+  `notif_push_queue(limit)` (service_role) returns pending recipient ×
+  device pairs (recipients without any device are marked `no_device`);
+  `notif_push_mark(jsonb)` records `sent` / `failed` and deletes devices
+  that answered 404 / 410. `src/lib/server/push-dispatch.ts` runs
+  `notif_tick` → queue → `web-push` → mark; `POST` (from the app after a
+  send) and `GET` (Vercel cron, optional `CRON_SECRET` bearer) hit
+  `/api/notifications/dispatch`; `/api/notifications/vapid` serves the
+  public key. `public/sw.js` (`diocese-v4`) handles `push`
+  (`showNotification` with title / body / image / `data.url`),
+  `notificationclick` (focus an open tab and navigate, or open the link)
+  and `pushsubscriptionchange`; it also posts `{type: 'push'}` to open
+  tabs so the bell refreshes instantly. **iOS**: Web Push works only after
+  the app is added to the Home Screen (iOS 16.4+) — `PushToggle` shows
+  that hint.
+- **RLS** — `notifications`: select = module + own or `scope_overlaps`;
+  insert only through `notif_send`; update / delete = creator or owner /
+  church_manager / service_manager in scope. `notification_recipients`:
+  own rows, rows of a send I created, or (managers) of any visible send —
+  a class servant never sees another servant's inbox. `notification_
+  automations`: select `scope_overlaps`, write `scope_contains`.
+  `push_subscriptions`: own rows only; `anon` reads nothing directly.
+- **Frontend** — registry entry `notifications` (`src/lib/modules.ts`,
+  `Bell`), gate `src/app/notifications/layout.tsx`, data layer
+  `src/lib/notifications.ts` (types, `TRIGGERS`, labels, `renderPreview`,
+  RPC wrappers, Arabic error mapping) and `src/lib/push.ts`
+  (`pushSupport`, `enablePush`, `disablePush`, `syncPushRegistration`,
+  `kickDispatcher`). Components `src/components/notifications/*`
+  (`NotifBits` — header, status badge, toast, `NotifCard`, **PushToggle**;
+  `AutomationForm`; `NotificationsBell` in `AppHeader`). Pages
+  `/notifications` (history + KPIs + filters, cancel / delete, realtime),
+  `/notifications/new` (content → recipients with live count → now /
+  schedule → preview), `/notifications/automations` (list, active toggle,
+  edit, delete, example automation), `/notifications/inbox` (servant
+  inbox). Child portal: `ChildProvider` loads `child_notifications`
+  (realtime on `notification_recipients` + SW messages),
+  `useChildNotifications` in `ChildShell` (header bell with unread badge,
+  side-menu entry, silent push re-sync), `/child/notifications` (list,
+  mark read, tap → related page, PushToggle).
+- **Env / setup** — `npx web-push generate-vapid-keys` once, then set
+  `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`,
+  `VAPID_SUBJECT` (`mailto:`), `SUPABASE_SERVICE_ROLE_KEY` and optionally
+  `CRON_SECRET` in Vercel; `vercel.json` registers the dispatch cron.
+  Without VAPID keys the module still works in-app (bell / inbox) — only
+  the device tray is skipped.
+- **Tests** — `supabase/tests/notifications_module_test.sql`: module gate,
+  send validation (scope, group, person, audience), audience counts,
+  immediate vs scheduled send + cancel + tick release, history, servant
+  inbox (unread / mark read / RLS leak between class servants), child
+  portal (unread, inbox, link, mark one / all, cross-child leak), push
+  subscriptions (owner, upsert, https-only, service_role-only queue,
+  child subscribe / unsubscribe, anon read blocked), automations
+  (`min_points`, disabled, rendering with `[variables]`, default link,
+  student + class servants + manager recipients, class-B leak, once
+  guard), module grant removed → automations silent, push queue / mark /
+  gone device, realtime publication. Validated on PostgreSQL 17 with all
+  34 migrations → «NOTIFICATION TESTS PASSED» (achievements / birthday /
+  exam / messages / occasions / online / store suites still pass).
+
 ## Rolled back: Messaging module — migration 0029 (وحدة الرسائل والإشعارات)
 The messaging & notifications module (PR #51, `0029_messaging.sql`) was
 **reverted** — the code is back to the 0028 state; the new, simpler messages module above (`0029_chat_messages.sql`) replaces it. If `0029_messaging.sql`
@@ -997,16 +1130,15 @@ Also remove the `/api/cron/messaging` cron and `CRON_SECRET` env var from
 Vercel if they were added.
 
 ## Features Not Yet Implemented
-- Push notifications
 - Attendance history per date (per-person list view for servants)
 - PDF report export (Excel is done in الإحصائيات)
 
 ## Recommended Next Steps
-1. Run migrations `0017` → `0031` (`0031_achievements.sql` powers وحدة الإنجازات; `0030_online_classes.sql` powers وحدة الفصول الأونلاين; `0029_chat_messages.sql` powers وحدة الرسائل; `0028_birthdays.sql` powers وحدة أعياد الميلاد; `0027_exams.sql` powers وحدة الامتحانات; `0026_points_store.sql` powers وحدة إستبدال النقاط; `0022` powers event-bound points / calls / messages; `0023_call_feedbacks.sql` powers the call-feedback badge & إدارة نتائج الافتقاد; `0024_owner_module_access.sql` powers وحدة المالك & module visibility; `0025_shepherd_groups.sql` powers وحدة الأشابين) in Supabase SQL editor, then grant الأشابين from وحدة المالك → صلاحيات الوحدات
+1. Run migrations `0017` → `0034` (`0034_notifications.sql` powers وحدة الإشعارات — also set the VAPID env vars; `0032_occasions.sql` + `0033` power وحدة الفعاليات; `0031_achievements.sql` powers وحدة الإنجازات; `0030_online_classes.sql` powers وحدة الفصول الأونلاين; `0029_chat_messages.sql` powers وحدة الرسائل; `0028_birthdays.sql` powers وحدة أعياد الميلاد; `0027_exams.sql` powers وحدة الامتحانات; `0026_points_store.sql` powers وحدة إستبدال النقاط; `0022` powers event-bound points / calls / messages; `0023_call_feedbacks.sql` powers the call-feedback badge & إدارة نتائج الافتقاد; `0024_owner_module_access.sql` powers وحدة المالك & module visibility; `0025_shepherd_groups.sql` powers وحدة الأشابين) in Supabase SQL editor, then grant الأشابين from وحدة المالك → صلاحيات الوحدات
 2. Deploy to Vercel and test the full approval flow
 3. Per-person attendance history view
 
 ## Deployment
 - **Platform**: Vercel + Supabase
-- **Status**: ✅ Code complete for Phase 1 + performance/scale hardening (0019) + statistics tab (0020) + child portal & data change requests (0021) + event as 4th scope level with status badge (0022) + call-feedback badge & إدارة نتائج الافتقاد (0023) + owner module & per-scope module visibility (0024) + shepherds module الأشابين & «مجموعتي» (0025) + points store module إستبدال النقاط (0026) + exams module الامتحانات (0027) + birthdays module أعياد الميلاد (0028) + messages module الرسائل (0029) + online classes module الفصول الأونلاين (0030) + achievements module الإنجازات (0031) — awaiting Supabase project + Vercel connect
-- **Last Updated**: 2026-09-09
+- **Status**: ✅ Code complete for Phase 1 + performance/scale hardening (0019) + statistics tab (0020) + child portal & data change requests (0021) + event as 4th scope level with status badge (0022) + call-feedback badge & إدارة نتائج الافتقاد (0023) + owner module & per-scope module visibility (0024) + shepherds module الأشابين & «مجموعتي» (0025) + points store module إستبدال النقاط (0026) + exams module الامتحانات (0027) + birthdays module أعياد الميلاد (0028) + messages module الرسائل (0029) + online classes module الفصول الأونلاين (0030) + achievements module الإنجازات (0031) + occasions module الفعاليات (0032/0033) + notifications module الإشعارات (0034) — awaiting Supabase project + Vercel connect
+- **Last Updated**: 2026-09-12

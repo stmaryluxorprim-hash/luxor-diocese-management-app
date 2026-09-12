@@ -9,7 +9,7 @@
 //  • Never touch cross-origin requests (Supabase storage / API / realtime,
 //    Google fonts): let the browser handle them natively.
 //  • Never serve an HTML fallback for an image / script / style request.
-const CACHE_NAME = 'diocese-v3';
+const CACHE_NAME = 'diocese-v4';
 const OFFLINE_URL = '/offline.html';
 const STATIC_ASSETS = [
   OFFLINE_URL,
@@ -108,5 +108,62 @@ self.addEventListener('fetch', (event) => {
     fetch(request).catch(() =>
       caches.match(request).then((cached) => cached || new Response('', { status: 504, statusText: 'offline' }))
     )
+  );
+});
+
+// ---------------------------------------------------------------------
+// Web Push (وحدة الإشعارات, migration 0034)
+// Payload: { title, body, image, url, tag, recipient_id, is_child }
+// ---------------------------------------------------------------------
+self.addEventListener('push', (event) => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch { data = { title: 'إشعار', body: event.data ? event.data.text() : '' }; }
+  const title = data.title || 'الإيبارشية';
+  const options = {
+    body: data.body || '',
+    icon: '/icons/icon-192.png',
+    badge: '/icons/icon-96.png',
+    image: data.image || undefined,
+    dir: 'rtl',
+    lang: 'ar',
+    tag: data.tag || undefined,
+    renotify: !!data.tag,
+    data: { url: data.url || (data.is_child ? '/child/notifications' : '/notifications/inbox'), recipient_id: data.recipient_id || null },
+  };
+  event.waitUntil(
+    self.registration.showNotification(title, options).then(() =>
+      // tell open pages so the bell refreshes instantly
+      self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+        clients.forEach((c) => c.postMessage({ type: 'push', recipient_id: data.recipient_id || null }));
+      })
+    )
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const target = (event.notification.data && event.notification.data.url) || '/';
+  const url = new URL(target, self.location.origin).href;
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      for (const c of clients) {
+        if ('focus' in c) {
+          c.focus();
+          if ('navigate' in c) return c.navigate(url).catch(() => c.postMessage({ type: 'navigate', url }));
+          c.postMessage({ type: 'navigate', url });
+          return;
+        }
+      }
+      return self.clients.openWindow(url);
+    })
+  );
+});
+
+// the browser rotated the subscription → the app re-registers on next open
+self.addEventListener('pushsubscriptionchange', (event) => {
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      clients.forEach((c) => c.postMessage({ type: 'pushsubscriptionchange' }));
+    })
   );
 });

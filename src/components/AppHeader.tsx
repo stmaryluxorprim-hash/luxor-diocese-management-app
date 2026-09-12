@@ -8,6 +8,7 @@ import { ROLE_LABELS } from '@/lib/types';
 import SideMenu from '@/components/SideMenu';
 import AppDateButton from '@/components/AppDateButton';
 import MessagesBell from '@/components/messages/MessagesBell';
+import NotificationsBell from '@/components/notifications/NotificationsBell';
 
 export default function AppHeader() {
   const { profile, church, service } = useAuth();
@@ -46,6 +47,9 @@ export default function AppHeader() {
 
           {/* Unread messages (وحدة الرسائل) — only when the module is granted */}
           <MessagesBell />
+
+          {/* Unread notifications 🔔 (وحدة الإشعارات) — only when the module is granted */}
+          <NotificationsBell />
 
           {/* Side menu button (replaces the bell, at the end of the header) */}
           <button
